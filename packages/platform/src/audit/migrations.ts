@@ -70,6 +70,9 @@ CREATE INDEX IF NOT EXISTS audit_entry_correlation_idx ON audit_entry (correlati
 CREATE INDEX IF NOT EXISTS audit_entry_subject_idx
   ON audit_entry USING gin (subject jsonb_path_ops);
 
+-- CREATE OR REPLACE TRIGGER needs PostgreSQL 14 or later. The platform targets
+-- 16; on anything older this migration fails rather than silently leaving the
+-- table mutable, which is the correct way round for a control.
 CREATE OR REPLACE FUNCTION audit_entry_append_only() RETURNS trigger
 LANGUAGE plpgsql AS $audit_append_only$
 BEGIN

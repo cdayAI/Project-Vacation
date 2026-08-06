@@ -293,6 +293,10 @@ export class Authorizer {
       if (!holdsRole) return { permitted: false, reason: "actor does not hold a permitted role" };
       return { permitted: true };
     } catch (error) {
+      // allow-swallow: preview reports, it never acts. Converting a denial into
+      // `permitted: false` is this method's entire purpose, and an unknown
+      // failure becomes "unavailable" — which the console renders as a
+      // disabled control. Both outcomes are refusals, so nothing fails open.
       return {
         permitted: false,
         reason: error instanceof DeniedError ? error.reason : "unavailable",

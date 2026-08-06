@@ -246,6 +246,11 @@ export function screenSafely(input: string, options: ScreenOptions = {}): Screen
   try {
     return screen(input, options);
   } catch (error) {
+    // allow-swallow: this function exists to return a verdict rather than
+    // raise, for callers that must record an outcome — the audit view and the
+    // console's evidence panel. It converts every failure into `blocked` and
+    // can never produce `clean`, so the fail-closed property holds: a screen
+    // that could not answer is still not an answer of "clean".
     const denied = error instanceof DeniedError ? error : null;
     return {
       verdict: "blocked",

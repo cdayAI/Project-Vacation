@@ -10,10 +10,12 @@ import type { AuditEntry, AuditFilter, NewAuditEntry } from "./types.js";
  *
  * Held to the same contract as the Postgres adapter, including the one that
  * matters most: twenty concurrent appends must produce a chain that
- * `verifyChain` reports as intact. The lock below is what makes that true.
- * Without it, two appends would read the same head, compute the same `seq` and
- * the same `previousHash`, and produce a fork — and a fork is indistinguishable
- * from tampering to anyone reading the log afterwards.
+ * `verifyChain` reports as intact. Reading the head, building the entry, and
+ * storing it happen under one lock, so no two appends can read the same head,
+ * compute the same `seq` and the same `previousHash`, and fork the chain — and
+ * a fork is indistinguishable from tampering to anyone reading the log
+ * afterwards. The `build` callback runs inside that lock, which is why the
+ * port hands the store a builder rather than a finished entry.
  *
  * There is no update and no delete here, and none is possible: the table is
  * only ever added to, and every entry handed out is a clone, so a caller

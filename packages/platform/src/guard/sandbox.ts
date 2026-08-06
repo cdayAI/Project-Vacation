@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { DeniedError } from "../kernel/errors.js";
 import type { SandboxMode } from "../kernel/config.js";
+import { SystemClock, type Clock } from "../kernel/clock.js";
 
 /**
  * Execution containment.
@@ -97,7 +98,12 @@ export class SubprocessSandbox implements Sandbox {
   readonly mode: SandboxMode = "subprocess";
   readonly isContained = false;
 
-  constructor(private readonly defaultTimeoutMs = DEFAULT_TIMEOUT_MS) {}
+  constructor(
+    private readonly defaultTimeoutMs = DEFAULT_TIMEOUT_MS,
+    // Injected so that `durationMs` is reproducible under the seeded demo and
+    // assertable in tests, like every other time reading in the platform.
+    private readonly clock: Clock = new SystemClock(),
+  ) {}
 
   describe(): string {
     return "sandbox=subprocess — UNSAFE: constrains accidents, not adversaries. Shares the host kernel, filesystem, and network. Do not execute untrusted code in this mode.";
@@ -120,7 +126,7 @@ export class SubprocessSandbox implements Sandbox {
 
     const timeoutMs = request.timeoutMs ?? this.defaultTimeoutMs;
     const maxOutputBytes = request.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
-    const startedAt = Date.now();
+    const startedAt = this.clock.now();
 
     return await new Promise<SandboxResult>((resolve, reject) => {
       let child;
@@ -163,7 +169,7 @@ export class SubprocessSandbox implements Sandbox {
           stdout,
           stderr,
           timedOut,
-          durationMs: Date.now() - startedAt,
+          durationMs: this.clock.now() - startedAt,
           mode: this.mode,
         });
       };
@@ -237,13 +243,14 @@ export function createSandbox(
   options: {
     readonly timeoutMs?: number;
     readonly externalRunner?: (request: SandboxRequest) => Promise<SandboxResult>;
+    readonly clock?: Clock;
   } = {},
 ): Sandbox {
   switch (mode) {
     case "disabled":
       return new DisabledSandbox();
     case "subprocess":
-      return new SubprocessSandbox(options.timeoutMs);
+      return new SubprocessSandbox(options.timeoutMs, options.clock);
     case "external":
       return new ExternalSandbox(options.externalRunner);
     default: {

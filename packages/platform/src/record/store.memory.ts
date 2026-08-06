@@ -29,11 +29,13 @@ import { isTerminalRunStatus } from "./types.js";
  *
  * Two things are therefore done the hard way rather than the convenient way.
  *
- * Sequence assignment takes `MemoryDb.withLock`, mirroring the row lock the
- * Postgres adapter takes. Without it, two concurrent `appendStep` calls would
- * interleave their read-then-write and both claim the same `seq`, and the
- * contract test that runs twenty appends at once would catch it here rather
- * than in production.
+ * Operations the port specifies as atomic take `MemoryDb.withLock`, mirroring
+ * the row lock the Postgres adapter takes. Stated honestly: the bodies below
+ * contain no await, so on a single-threaded runtime they could not interleave
+ * even without the lock. The lock is taken anyway, because the atomicity is a
+ * property of the *contract* rather than of the runtime, and because the first
+ * await added to one of these bodies later — a metric, a persistence hook, a
+ * hash — would silently reopen a window nobody would think to look for.
  *
  * Everything is cloned on the way in and on the way out. A caller that keeps a
  * reference to the object it stored, or mutates the object it was handed, must
@@ -180,19 +182,22 @@ export class MemoryRunStore implements RunStore {
         );
       }
 
-      const counters = this.db.table<number>(STEP_SEQ);
-      // Read and increment inside the lock. This is the whole reason the lock
-      // is here: two appenders that both read the same high-water mark would
-      // both be handed the same sequence number, and the step history for that
-      // run would fork.
-      const seq = (counters.get(step.runId) ?? 0) + 1;
-      counters.set(step.runId, seq);
-
       const id = step.id ?? this.ids.next("step");
       const table = this.db.table<Step>(STEPS);
+      // Checked before the counter moves. The Postgres adapter does this work
+      // inside a transaction, so a rejected append leaves its sequence number
+      // unclaimed; claiming one here would leave a hole in the step history
+      // that the real store never produces.
       if (table.has(id)) {
         throw new InvalidInputError(`Step ${id} already exists.`, "id");
       }
+
+      const counters = this.db.table<number>(STEP_SEQ);
+      // Read and increment inside the lock. Two appenders that both read the
+      // same high-water mark would both be handed the same sequence number,
+      // and the step history for that run would fork.
+      const seq = (counters.get(step.runId) ?? 0) + 1;
+      counters.set(step.runId, seq);
 
       const record: Step = {
         ...step,
