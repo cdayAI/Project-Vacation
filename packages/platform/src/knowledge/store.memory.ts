@@ -175,17 +175,14 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
           { documentId: id },
         );
       }
-      // Idempotent for the same receipt so a retried activation is not an
-      // error; refused for a different one, because re-pointing a document at
-      // another receipt would break the link between what was approved and what
-      // is being cited.
-      if (current.status === "active") {
-        if (current.receiptId === receiptId) return structuredClone(current);
-        throw new InvalidInputError(
-          `Document ${id} is already active under receipt ${String(current.receiptId)} and cannot be re-pointed at ${receiptId}.`,
-          "receiptId",
-        );
-      }
+      // The receipt is written once and never rewritten. An already-active
+      // document is returned as it stands rather than re-pointed at a second
+      // receipt: two callers can legitimately reach here for the same content —
+      // a retry, or two concurrent ingestions of an identical document — and
+      // the receipt that won is a real record of a real ingestion of exactly
+      // this content. Letting the second overwrite it would break the link
+      // between the entry an auditor reads and the document they are looking at.
+      if (current.status === "active") return structuredClone(current);
       const next: SourceDocument = { ...current, status: "active", receiptId };
       table.set(id, structuredClone(next));
       return structuredClone(next);

@@ -327,11 +327,9 @@ export class PgKnowledgeStore implements KnowledgeStore {
             { documentId: id },
           );
         }
-        if (current.receipt_id === receiptId) return toDocument(current);
-        throw new InvalidInputError(
-          `Document ${id} is already active under receipt ${String(current.receipt_id)} and cannot be re-pointed at ${receiptId}.`,
-          "receiptId",
-        );
+        // Already active: the receipt that won stands. See the in-memory
+        // adapter for why a second receipt does not overwrite the first.
+        return toDocument(current);
       }),
     );
   }
