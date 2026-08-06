@@ -1,0 +1,37 @@
+{
+  "name": "project-vacation",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Governed AI operations platform for Marriott Vacations Worldwide",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:platform": "pnpm --filter @pv/platform test",
+    "test:console": "pnpm --filter @pv/console test",
+    "lint": "eslint packages/platform/src packages/console/src --max-warnings 0",
+    "typecheck": "pnpm -r typecheck",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test",
+    "db:migrate": "pnpm --filter @pv/platform db:migrate",
+    "demo": "pnpm --filter @pv/platform demo",
+    "audit:verify": "pnpm --filter @pv/platform audit:verify",
+    "api": "pnpm --filter @pv/platform api",
+    "console": "pnpm --filter @pv/console dev",
+    "sbom": "cyclonedx-npm --output-format JSON --output-file sbom.json --ignore-npm-errors"
+  },
+  "devDependencies": {
+    "@cyclonedx/cyclonedx-npm": "^4.0.2",
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.20.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

@@ -1,0 +1,204 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege by default. Jobs that need more ask for it explicitly.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.33.0"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Secret scanning runs first and on its own. If a credential has been
+  # committed, nothing else about this build matters until it is rotated.
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret removed in the most recent commit is still a
+          # secret, and scanning only the tip would miss it.
+          fetch-depth: 0
+
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+  # ---------------------------------------------------------------------------
+  # Types, lint, and the whole test suite, with a real Postgres so the
+  # persistence contract tests exercise both adapters rather than only the fake.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vacation
+          POSTGRES_PASSWORD: vacation
+          POSTGRES_DB: vacation_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U vacation"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PV_TEST_DATABASE_URL: postgresql://vacation:vacation@localhost:5432/vacation_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      # Runs the whole suite, not a focused subset. Focused runs miss namespace
+      # collisions, shadowed commands, and cross-module regressions.
+      - name: Test (all packages, Postgres contract tests included)
+        run: pnpm test
+
+      # The console's accessibility assertions live in its test suite and are
+      # covered by the step above. This re-states the requirement explicitly so
+      # that a future change which quietly stops running them is visible here.
+      - name: Confirm accessibility assertions ran
+        run: node tools/check-accessibility-coverage.mjs
+
+  # ---------------------------------------------------------------------------
+  # Determinism gate: the seeded demo must produce byte-identical output twice
+  # from a cold start. This is a stated exit gate for the demo phase, and it is
+  # the cheapest possible guard against wall-clock or randomness creeping into
+  # the platform.
+  # ---------------------------------------------------------------------------
+  determinism:
+    name: Seeded demo is deterministic
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run the demo twice and compare
+        run: |
+          pnpm --silent demo > /tmp/demo-run-1.txt
+          pnpm --silent demo > /tmp/demo-run-2.txt
+          if ! diff -u /tmp/demo-run-1.txt /tmp/demo-run-2.txt; then
+            echo "::error::The seeded demo is not deterministic. Two cold-start runs differ."
+            exit 1
+          fi
+          echo "Seeded demo produced identical output on two cold starts."
+
+  # ---------------------------------------------------------------------------
+  # Model-quality gate. Golden-set accuracy below its threshold fails the build,
+  # so a prompt or model change cannot regress quality silently.
+  # ---------------------------------------------------------------------------
+  evaluation:
+    name: Golden-set evaluation gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Evaluate every promoted role against its golden set
+        run: pnpm --filter @pv/platform exec tsx src/cli/main.ts evaluate --ci
+
+  # ---------------------------------------------------------------------------
+  # Supply chain: dependency vulnerabilities and an SBOM on every build.
+  # ---------------------------------------------------------------------------
+  supply-chain:
+    name: Dependencies and SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Remediation SLAs live in docs/assurance/vulnerability-policy.md.
+      # High and critical fail the build; moderate and low are reported and
+      # tracked rather than blocking, because blocking on every advisory
+      # teaches people to bypass the gate.
+      - name: Audit dependencies (high and critical block)
+        run: pnpm audit --audit-level high
+
+      - name: Report all advisories (non-blocking)
+        if: always()
+        run: pnpm audit --json > pnpm-audit.json || true
+
+      - name: Generate CycloneDX SBOM
+        run: pnpm sbom
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: supply-chain-evidence
+          path: |
+            sbom.json
+            pnpm-audit.json
+          retention-days: 90
+
+  # ---------------------------------------------------------------------------
+  # Build both packages, proving the console compiles and bundles.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build

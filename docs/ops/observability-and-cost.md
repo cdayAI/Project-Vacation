@@ -1,0 +1,103 @@
+# Observability and cost reporting
+
+**Last reviewed:** 2026-08-06.
+
+## Structured logs
+
+Everything is JSON, through `kernel/logger.ts`, and **every payload passes
+`redactValue` before it reaches a sink**. That is not a convention someone must
+remember — it is applied inside the logger, because "no secrets in logs" cannot
+depend on each author's care at each call site.
+
+Every line carries `correlationId`, plus `runId` and `actorId` where they exist,
+so one unit of work is reconstructable across the API, the engine, and its model
+calls.
+
+Levels: `error` for something needing a human; `warn` for degraded-but-working;
+`info` for state transitions; `debug` and `trace` off in production.
+
+**Denials log at `info`, not `error`.** A refused action is the platform working
+correctly. Logging denials as errors would train operators to ignore errors,
+which is the opposite of useful. Denial *rate* is what alerts.
+
+## Metrics
+
+| Metric | Type | Labels | Why |
+| --- | --- | --- | --- |
+| `runs_started_total` | counter | kind, mode | Volume |
+| `runs_completed_total` | counter | kind, mode, status | Success and denial rates |
+| `run_duration_seconds` | histogram | kind | S4 |
+| `steps_executed_total` | counter | kind, status | Where work fails |
+| `authorization_decisions_total` | counter | action, outcome, reason | **Denial-rate alerting** |
+| `approvals_pending` | gauge | action | Queue depth |
+| `approval_age_seconds` | histogram | action | S5, ageing alert |
+| `model_invocations_total` | counter | task, model, outcome | Governance and cost |
+| `model_degradations_total` | counter | task, from_model, to_model | Provider health |
+| `cost_usd_total` | counter | category, workflow, role, department | **Cost per unit of work** |
+| `audit_entries_total` | counter | event_type | Volume |
+| `audit_verification_status` | gauge | — | **S7, no error budget** |
+| `timers_overdue` | gauge | — | **S9, no error budget** |
+| `containment_engaged` | gauge | scope, target | Is anything stopped |
+| `corpus_staleness_days` | gauge | corpus | Review cadence |
+
+## Traces
+
+Spans across API, engine step execution, authorization, retrieval, and model
+calls, sharing the log correlation id. Trace attributes carry ids and digests
+only, never payloads — a tracing backend is a third-party system and must not
+become another copy of owner data.
+
+## Dashboards
+
+1. **Operations** — run volume and status by workflow, queue depths, SLO burn.
+2. **Governance** — authorization outcomes by reason, approvals ageing,
+   containment state, audit verification.
+3. **Model** — invocations by task and model, degradation, latency, golden-set
+   accuracy trend.
+4. **Cost** — spend by workflow, role, and department; cost per completed case.
+5. **Executive** — tied to the metrics management named in the Q2 2026 earnings
+   release: contract sales, VPG, tours, financing margin, loan-loss provision.
+   Sourced from MVW systems, with the platform's contribution shown alongside
+   rather than conflated with it.
+
+## Cost per unit of work
+
+MVW will ask what a resolved case costs. The answer comes from the operating
+record, not an estimate.
+
+Every model call, integration call, and unit of storage or compute writes a
+`CostEntry` against its run and step. Human time is recorded against human
+tasks. Because cost is attached to the run, aggregation by workflow, role,
+department, or case falls out without a second accounting path.
+
+```bash
+... cost report --since <ISO> --group-by workflow
+... cost report --since <ISO> --group-by role --format csv
+... cost per-case --workflow rescission.verify --since <ISO>
+```
+
+`cost per-case` divides total spend by completed runs — the number to bring to
+a business-case conversation, alongside the human time the workflow displaced,
+which is measured in shadow and assisted modes rather than assumed.
+
+Budget alerts fire at 80% of the daily ceiling. **The ceiling is enforced at
+consumption**, not only pre-flight, so a runaway loop is bounded by one step's
+cost rather than by whatever it can spend before someone notices.
+
+## Health check
+
+`GET /health` reports liveness, database reachability, audit-chain head and last
+verification, containment state, **sandbox mode with its safety warning**,
+**whether work discovery is enabled**, model provider reachability, and the
+configuration warnings from startup.
+
+The unsafe settings appear here deliberately. An operator should never have to
+read the environment to discover that the sandbox is not containing anything.
+
+## Not built
+
+- Metric export wiring to a specific backend. The metric definitions exist; the
+  exporter is deployment-specific and is MVW's choice.
+- Log shipping and retention enforcement at the sink.
+- The executive dashboard's MVW data sources, which require integrations not yet
+  specified.
