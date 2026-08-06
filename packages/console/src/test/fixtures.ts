@@ -472,3 +472,714 @@ export const selfApprovalDenial: DenialView = {
   message: "You raised this proposal, so you may not approve it.",
   detail: { approvalId: "apr_01k3n3z9w7", actorId: "act_7f3a91c2" },
 };
+
+// ---------------------------------------------------------------------------
+// Workflow instances
+// ---------------------------------------------------------------------------
+
+export const workflowInstanceStuck: WorkflowInstanceView = {
+  instanceId: "wfi_01k3m9x2p5",
+  definitionName: "Rescission package assurance",
+  definitionVersion: 4,
+  status: "awaiting_approval",
+  startedAt: "2026-08-04T13:02:11.000Z",
+  plainLanguageStatus:
+    "This contract's corrected disclosure package is ready to send, and it is waiting for a supervisor to approve it. Nothing will be sent until someone approves. The purchaser's cancellation deadline is unchanged while it waits.",
+  currentStepName: "Supervisor approval",
+  waitingOn: "A supervisor to approve sending the corrected disclosure package.",
+  totalCostUsd: 0.4821,
+  steps: [
+    {
+      name: "Read the contract package",
+      kind: "integration.read",
+      status: "succeeded",
+      startedAt: "2026-08-04T13:02:11.000Z",
+      endedAt: "2026-08-04T13:02:14.100Z",
+      slaBreached: false,
+    },
+    {
+      name: "Work out the cancellation deadline",
+      kind: "timeline.compute",
+      status: "succeeded",
+      startedAt: "2026-08-04T13:02:14.100Z",
+      endedAt: "2026-08-04T13:02:14.640Z",
+      slaBreached: false,
+    },
+    {
+      name: "Check the package against the Florida rule",
+      kind: "knowledge.retrieve",
+      status: "succeeded",
+      startedAt: "2026-08-04T13:02:14.640Z",
+      endedAt: "2026-08-04T13:02:21.900Z",
+      slaBreached: false,
+    },
+    {
+      name: "Draft the corrected disclosure package",
+      kind: "document.generate",
+      status: "succeeded",
+      startedAt: "2026-08-04T13:02:21.900Z",
+      endedAt: "2026-08-04T13:02:44.300Z",
+      slaBreached: false,
+    },
+    {
+      name: "Supervisor approval",
+      kind: "approval.request",
+      status: "running",
+      startedAt: "2026-08-04T13:02:44.300Z",
+      dueAt: "2026-08-05T13:02:44.300Z",
+      slaBreached: true,
+    },
+    {
+      name: "Send the package by certified mail",
+      kind: "contact.send",
+      status: "pending",
+      slaBreached: false,
+    },
+    {
+      name: "Record the new deadline on the contract",
+      kind: "integration.write",
+      status: "pending",
+      slaBreached: false,
+    },
+  ],
+};
+
+export const workflowInstanceFinished: WorkflowInstanceView = {
+  instanceId: "wfi_01k3m8w4t7",
+  definitionName: "Association board pack assembly",
+  definitionVersion: 2,
+  status: "succeeded",
+  startedAt: "2026-08-03T16:20:00.000Z",
+  endedAt: "2026-08-03T16:41:12.000Z",
+  plainLanguageStatus:
+    "The Q3 board pack for Coral Bay Owners Association, Inc. was assembled and handed to the association manager for review. Nothing is outstanding.",
+  totalCostUsd: 2.1408,
+  steps: [
+    {
+      name: "Collect the association budget and reserve study",
+      kind: "integration.read",
+      status: "succeeded",
+      startedAt: "2026-08-03T16:20:00.000Z",
+      endedAt: "2026-08-03T16:22:39.000Z",
+      slaBreached: false,
+    },
+    {
+      name: "Write the budget variance narrative",
+      kind: "model.infer",
+      status: "succeeded",
+      startedAt: "2026-08-03T16:22:39.000Z",
+      endedAt: "2026-08-03T16:33:04.000Z",
+      slaBreached: false,
+    },
+    {
+      name: "Assemble the board pack",
+      kind: "document.generate",
+      status: "succeeded",
+      startedAt: "2026-08-03T16:33:04.000Z",
+      endedAt: "2026-08-03T16:41:12.000Z",
+      slaBreached: false,
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Agent roles
+// ---------------------------------------------------------------------------
+
+const rescissionEvaluation = {
+  evaluationId: "evl_01k3p4a2c9",
+  ranAt: "2026-08-05T02:10:00.000Z",
+  goldenSetName: "Rescission package assurance — curated set 2026.3",
+  caseCount: 240,
+  passed: 231,
+  accuracy: 0.9625,
+  threshold: 0.95,
+  meetsThreshold: true,
+  modelId: "inventory/reasoning-standard",
+  promptVersion: "rescission-check-v9",
+} as const;
+
+export const roles: readonly RoleView[] = [
+  {
+    roleId: "role_rescission_assurance",
+    name: "Rescission package assurance",
+    purpose:
+      "Checks that a contract package contains every document the purchaser's state requires, and that the cancellation deadline on file matches the deadline the statute produces.",
+    version: 9,
+    status: "promoted",
+    riskCeiling: "high_consequence",
+    humanInvolvement: "A supervisor approves anything that changes a purchaser's deadline.",
+    modelTask: "document_check",
+    allowedActions: [
+      "timeline.compute_deadline",
+      "documents.check_package",
+      "documents.draft_corrected_package",
+      "approvals.request",
+    ],
+    dataScopes: ["contracts.metadata", "corpus.state_rescission_rules"],
+    updatedAt: "2026-08-05T02:41:00.000Z",
+    updatedBy: complianceReviewer,
+    latestEvaluation: rescissionEvaluation,
+    disabled: false,
+  },
+  {
+    roleId: "role_association_reporting",
+    name: "Association board reporting",
+    purpose:
+      "Assembles association board packs and budget variance narratives from the association's own budget, reserve study, and prior-period statements.",
+    version: 4,
+    status: "promoted",
+    riskCeiling: "routine",
+    humanInvolvement: "The association manager reviews every pack before it reaches a board.",
+    modelTask: "document_drafting",
+    allowedActions: ["documents.assemble_board_pack", "documents.draft_variance_narrative"],
+    dataScopes: ["associations.financials", "associations.reserve_studies"],
+    updatedAt: "2026-07-28T14:03:00.000Z",
+    updatedBy: supervisor,
+    latestEvaluation: {
+      evaluationId: "evl_01k3p1b7d2",
+      ranAt: "2026-07-28T13:20:00.000Z",
+      goldenSetName: "Board pack assembly — curated set 2026.2",
+      caseCount: 96,
+      passed: 92,
+      accuracy: 0.9583,
+      threshold: 0.9,
+      meetsThreshold: true,
+      modelId: "inventory/drafting-standard",
+      promptVersion: "board-pack-v6",
+    },
+    disabled: false,
+  },
+  {
+    roleId: "role_owner_services_drafting",
+    name: "Owner services reply drafting",
+    purpose:
+      "Drafts replies to owner enquiries from the governed knowledge corpus. An agent edits and sends; the platform never sends.",
+    version: 11,
+    status: "promoted",
+    riskCeiling: "sensitive",
+    humanInvolvement: "An owner services agent edits and sends every reply.",
+    modelTask: "reply_drafting",
+    allowedActions: ["knowledge.answer", "documents.draft_reply"],
+    dataScopes: ["owners.enquiries", "corpus.owner_policies"],
+    updatedAt: "2026-08-01T09:12:00.000Z",
+    updatedBy: supervisor,
+    latestEvaluation: {
+      evaluationId: "evl_01k3p2c4e8",
+      ranAt: "2026-08-01T08:40:00.000Z",
+      goldenSetName: "Owner reply drafting — curated set 2026.4",
+      caseCount: 180,
+      passed: 154,
+      accuracy: 0.8556,
+      threshold: 0.9,
+      meetsThreshold: false,
+      modelId: "inventory/drafting-standard",
+      promptVersion: "owner-reply-v7",
+    },
+    disabled: false,
+  },
+  {
+    roleId: "role_consumer_finance_evidence",
+    name: "Loan file evidence assembly",
+    purpose:
+      "Assembles a delinquency evidence pack — the loan file, the contract terms that apply, and the contact history — so that a person can choose the treatment.",
+    version: 3,
+    status: "disabled",
+    riskCeiling: "sensitive",
+    humanInvolvement:
+      "A consumer finance analyst selects every treatment. The platform never ranks or sequences borrowers.",
+    modelTask: "evidence_assembly",
+    allowedActions: ["documents.assemble_evidence_pack", "knowledge.answer"],
+    dataScopes: ["loans.files", "corpus.state_consumer_finance"],
+    updatedAt: "2026-08-02T09:22:00.000Z",
+    updatedBy: complianceReviewer,
+    latestEvaluation: {
+      evaluationId: "evl_01k3p0z1a4",
+      ranAt: "2026-07-30T21:05:00.000Z",
+      goldenSetName: "Loan evidence assembly — curated set 2026.1",
+      caseCount: 64,
+      passed: 61,
+      accuracy: 0.9531,
+      threshold: 0.95,
+      meetsThreshold: true,
+      modelId: "inventory/reasoning-standard",
+      promptVersion: "loan-evidence-v3",
+    },
+    disabled: true,
+  },
+];
+
+/** Every version of the rescission role, newest first. */
+export const rescissionRoleVersions: readonly RoleView[] = [
+  roles[0] as RoleView,
+  {
+    ...(roles[0] as RoleView),
+    version: 8,
+    status: "reverted",
+    updatedAt: "2026-07-19T16:48:00.000Z",
+    updatedBy: complianceReviewer,
+    latestEvaluation: {
+      evaluationId: "evl_01k3n8f2b1",
+      ranAt: "2026-07-19T16:02:00.000Z",
+      goldenSetName: "Rescission package assurance — curated set 2026.3",
+      caseCount: 240,
+      passed: 219,
+      accuracy: 0.9125,
+      threshold: 0.95,
+      meetsThreshold: false,
+      modelId: "inventory/reasoning-fast",
+      promptVersion: "rescission-check-v8",
+    },
+  },
+  {
+    ...(roles[0] as RoleView),
+    version: 7,
+    status: "promoted",
+    updatedAt: "2026-06-30T11:15:00.000Z",
+    updatedBy: supervisor,
+    latestEvaluation: {
+      evaluationId: "evl_01k3k2d9c6",
+      ranAt: "2026-06-30T10:40:00.000Z",
+      goldenSetName: "Rescission package assurance — curated set 2026.2",
+      caseCount: 210,
+      passed: 201,
+      accuracy: 0.9571,
+      threshold: 0.95,
+      meetsThreshold: true,
+      modelId: "inventory/reasoning-standard",
+      promptVersion: "rescission-check-v7",
+    },
+  },
+];
+
+export const disabledRoleVersions: readonly RoleView[] = [roles[3] as RoleView];
+
+// ---------------------------------------------------------------------------
+// The improvement loop
+// ---------------------------------------------------------------------------
+
+export const improvementClusters: readonly ImprovementClusterView[] = [
+  {
+    clusterId: "clu_01k3q7a1f2",
+    summary:
+      "South Carolina contracts are re-checked a second time because the first check runs before the statutory rules corpus has finished loading.",
+    roleId: "role_rescission_assurance",
+    occurrences: 412,
+    ratePercent: 18.4,
+    estimatedCostUsd: 186.42,
+    exampleRunIds: ["run_01k3m9y8q1", "run_01k3m4a7n3", "run_01k3m9x2p7"],
+  },
+  {
+    clusterId: "clu_01k3q7b5g8",
+    summary:
+      "Owner replies about points reinstatement are edited heavily before sending, most often to add the once-per-membership-year limit the policy states.",
+    roleId: "role_owner_services_drafting",
+    occurrences: 267,
+    ratePercent: 31.2,
+    estimatedCostUsd: 94.03,
+    exampleRunIds: ["run_01k3m7r6v2"],
+  },
+  {
+    clusterId: "clu_01k3q7c9h4",
+    summary:
+      "Board pack assembly stalls when an association's reserve study is older than the fiscal year being reported and no replacement has been supplied.",
+    roleId: "role_association_reporting",
+    occurrences: 58,
+    ratePercent: 6.1,
+    estimatedCostUsd: 121.77,
+    exampleRunIds: ["run_01k3m8w4t9"],
+  },
+];
+
+export const improvementProposal: ImprovementProposalView = {
+  proposalId: "imp_01k3r2m8k5",
+  kind: "prompt_revision",
+  title: "Wait for the state rules corpus before checking a package",
+  rationale:
+    "412 South Carolina checks in the last thirty days ran before the state rules corpus finished loading, produced no grounded answer, and were re-run. Requiring the corpus to be in effect for the contract's state before the check begins removes the re-run and the wasted spend.",
+  artifactKind: "prompt",
+  artifactRef: "rescission-check/system",
+  before:
+    "Check the contract package against the rescission rule for the purchaser's state. If no rule is available, note that and continue.",
+  after:
+    "Check the contract package against the rescission rule for the purchaser's state, effective on the contract execution date. If no rule is in effect for that state and date, stop and refuse: do not continue without one.",
+  evaluationBefore: {
+    evaluationId: "evl_01k3p4a2c9",
+    ranAt: "2026-08-05T02:10:00.000Z",
+    goldenSetName: "Rescission package assurance — curated set 2026.3",
+    caseCount: 240,
+    passed: 231,
+    accuracy: 0.9625,
+    threshold: 0.95,
+    meetsThreshold: true,
+    modelId: "inventory/reasoning-standard",
+    promptVersion: "rescission-check-v9",
+  },
+  evaluationAfter: {
+    evaluationId: "evl_01k3r3n1p7",
+    ranAt: "2026-08-06T04:22:00.000Z",
+    goldenSetName: "Rescission package assurance — curated set 2026.3",
+    caseCount: 240,
+    passed: 238,
+    accuracy: 0.9917,
+    threshold: 0.95,
+    meetsThreshold: true,
+    modelId: "inventory/reasoning-standard",
+    promptVersion: "rescission-check-v10",
+  },
+  evaluationDelta: 2.92,
+  blastRadius: {
+    roles: ["role_rescission_assurance"],
+    workflows: ["Rescission package assurance"],
+    runsInLastThirtyDays: 2238,
+  },
+  observationCount: 412,
+  createdAt: "2026-08-06T04:25:00.000Z",
+  status: "awaiting_approval",
+};
+
+export const improvementProposalRegression: ImprovementProposalView = {
+  ...improvementProposal,
+  proposalId: "imp_01k3r4p2q9",
+  title: "Shorten the owner reply preamble",
+  rationale:
+    "Agents delete the opening paragraph from most drafts. Removing it from the prompt saves an edit on every reply.",
+  artifactRef: "owner-reply/system",
+  before:
+    "Open with a short acknowledgement of the owner's enquiry, then answer it from the cited policy.",
+  after: "Answer the owner's enquiry from the cited policy.",
+  evaluationBefore: {
+    evaluationId: "evl_01k3p2c4e8",
+    ranAt: "2026-08-01T08:40:00.000Z",
+    goldenSetName: "Owner reply drafting — curated set 2026.4",
+    caseCount: 180,
+    passed: 154,
+    accuracy: 0.8556,
+    threshold: 0.9,
+    meetsThreshold: false,
+    modelId: "inventory/drafting-standard",
+    promptVersion: "owner-reply-v7",
+  },
+  evaluationAfter: {
+    evaluationId: "evl_01k3r5r6s1",
+    ranAt: "2026-08-06T05:02:00.000Z",
+    goldenSetName: "Owner reply drafting — curated set 2026.4",
+    caseCount: 180,
+    passed: 141,
+    accuracy: 0.7833,
+    threshold: 0.9,
+    meetsThreshold: false,
+    modelId: "inventory/drafting-standard",
+    promptVersion: "owner-reply-v8",
+  },
+  evaluationDelta: -7.23,
+  blastRadius: {
+    roles: ["role_owner_services_drafting"],
+    workflows: ["Owner enquiry drafting"],
+    runsInLastThirtyDays: 8914,
+  },
+  observationCount: 267,
+  createdAt: "2026-08-06T05:05:00.000Z",
+  status: "awaiting_approval",
+};
+
+export const improvementProposals: readonly ImprovementProposalView[] = [
+  improvementProposal,
+  improvementProposalRegression,
+];
+
+// ---------------------------------------------------------------------------
+// Audit and evidence
+// ---------------------------------------------------------------------------
+
+export const auditEntries: readonly AuditEntryView[] = [
+  {
+    entryId: "aud_01k3s1a4b7",
+    seq: 41_882,
+    eventType: "approval.requested",
+    recordedAt: "2026-08-06T08:11:00.000Z",
+    actor: agentOperator,
+    runId: "run_01k3m9x2p7",
+    subject: { contractId: "CTR-2026-FL-0184423", state: "FL" },
+    decision: { approvalId: "apr_01k3n2f6r4", approvalsRequired: 2, risk: "high_consequence" },
+    inputDigests: {
+      proposal: "9c4f1ea77b0d38625af0c9b34e1d5a8206ff73c19ad48be05723c6d1f8904b7e",
+    },
+    entryHash: "5f2b8c1de4a70936bb1c4f8a2d0e77c3a9451bd6e8f302447cbb19de5a6027f18",
+    previousHash: "c71d0a6f4e938b25a0cb17d4e8092f36b5a41c7de0928f4b163ac05d7e921fb4",
+  },
+  {
+    entryId: "aud_01k3s0z8c2",
+    seq: 41_881,
+    eventType: "authorization.denied",
+    recordedAt: "2026-08-02T09:16:02.000Z",
+    actor: agentOperator,
+    runId: "run_01k3m6h1c5",
+    subject: { loanId: "LN-2024-NV-0930881", state: "NV" },
+    decision: {
+      reason: "authorization.action_not_permitted",
+      action: "loans.rank_borrowers",
+      riskTier: "prohibited",
+    },
+    inputDigests: {
+      request: "2d8b4f16c0e7a935bb51d8c204ef7361a09b5e2748cdf0136ba97e4c5d208f71",
+    },
+    entryHash: "c71d0a6f4e938b25a0cb17d4e8092f36b5a41c7de0928f4b163ac05d7e921fb4",
+    previousHash: "a03e5c8b19d7f462c0ba38e15d9074f26c81b3ae740df9251b6ec03a8f24d517",
+  },
+  {
+    entryId: "aud_01k3rzy2d5",
+    seq: 41_880,
+    eventType: "role.promoted",
+    recordedAt: "2026-08-05T02:41:00.000Z",
+    actor: complianceReviewer,
+    subject: { roleId: "role_rescission_assurance", version: "9" },
+    decision: { evaluationId: "evl_01k3p4a2c9", accuracy: 0.9625, threshold: 0.95 },
+    inputDigests: {
+      roleDefinition: "4d90c1ba7e26f38a05c7be914d203f8a6c15e07b39d4128ae6f05c31b7a2e648",
+    },
+    entryHash: "a03e5c8b19d7f462c0ba38e15d9074f26c81b3ae740df9251b6ec03a8f24d517",
+    previousHash: "7b2f0e91c4a86d305b1ce78f2a940d6318ce5b07a2df4916e830bc1d5f04a729",
+  },
+  {
+    entryId: "aud_01k3rzx0e9",
+    seq: 41_879,
+    eventType: "containment.engaged",
+    recordedAt: "2026-08-04T22:07:41.000Z",
+    actor: supervisor,
+    subject: { scope: "integration", target: "titling-system" },
+    decision: {
+      engaged: true,
+      reason: "Titling system returned malformed deed references for Hawaii contracts.",
+    },
+    inputDigests: {},
+    entryHash: "7b2f0e91c4a86d305b1ce78f2a940d6318ce5b07a2df4916e830bc1d5f04a729",
+    previousHash: "1e6d3a70b58c9f214a0bd67e35c9018f4b2e7d0a96c15f38b0ae42d7c691350b",
+  },
+];
+
+export const auditVerificationIntact: AuditVerificationView = {
+  intact: true,
+  entriesChecked: 41_882,
+  firstSeq: 1,
+  lastSeq: 41_882,
+  headHash: "5f2b8c1de4a70936bb1c4f8a2d0e77c3a9451bd6e8f302447cbb19de5a6027f18",
+  verifiedAt: "2026-08-06T09:14:02.000Z",
+  breaks: [],
+};
+
+export const auditVerificationBroken: AuditVerificationView = {
+  intact: false,
+  entriesChecked: 41_882,
+  firstSeq: 1,
+  lastSeq: 41_882,
+  headHash: null,
+  verifiedAt: "2026-08-06T09:14:02.000Z",
+  breaks: [
+    {
+      kind: "hash_mismatch",
+      seq: 18_204,
+      detail: "Recomputed entry hash does not match the stored value.",
+    },
+    {
+      kind: "sequence_gap",
+      seq: 18_206,
+      detail: "Entry 18205 is missing; the record jumps from 18204 to 18206.",
+    },
+    {
+      kind: "previous_hash_mismatch",
+      seq: 18_207,
+      detail: "This entry does not point at the entry before it.",
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
+// Containment
+// ---------------------------------------------------------------------------
+
+export const containmentClear: readonly ContainmentView[] = [
+  { scope: "global", target: "", engaged: false },
+  {
+    scope: "integration",
+    target: "titling-system",
+    engaged: false,
+    engagedBy: "act_7f3a91c2",
+    engagedAt: "2026-08-05T07:30:12.000Z",
+    reason: "Vendor confirmed the deed reference format was corrected.",
+  },
+];
+
+export const containmentGlobalPaused: readonly ContainmentView[] = [
+  {
+    scope: "global",
+    target: "",
+    engaged: true,
+    engagedBy: "act_7f3a91c2",
+    engagedAt: "2026-08-06T09:41:00.000Z",
+    reason: "Statutory rules corpus republished mid-quarter; stopping until it is re-verified.",
+  },
+  {
+    scope: "workflow",
+    target: "Rescission package assurance",
+    engaged: true,
+    engagedBy: "act_2c88de40",
+    engagedAt: "2026-08-06T09:38:00.000Z",
+    reason: "Florida rule under review after a purchaser complaint.",
+  },
+  {
+    scope: "role",
+    target: "role_consumer_finance_evidence",
+    engaged: true,
+    engagedBy: "act_2c88de40",
+    engagedAt: "2026-08-02T09:22:00.000Z",
+    reason: "Bias testing not complete; role is not to run against live loan files.",
+  },
+  { scope: "integration", target: "titling-system", engaged: false },
+];
+
+// ---------------------------------------------------------------------------
+// Work discovery
+// ---------------------------------------------------------------------------
+
+export const discoveryCandidates: readonly DiscoveryCandidateView[] = [
+  {
+    candidateId: "dsc_01k3t1a9m2",
+    summary:
+      "Copying maintenance-fee arrears totals from the association ledger into the monthly collections summary.",
+    occurrences: 148,
+    estimatedMinutesPerOccurrence: 7,
+    applications: ["association-ledger", "spreadsheet"],
+    draftOnly: true,
+  },
+  {
+    candidateId: "dsc_01k3t1b4n8",
+    summary:
+      "Re-keying contract execution dates from the contract package into the deadline tracker.",
+    occurrences: 96,
+    estimatedMinutesPerOccurrence: 4,
+    applications: ["contract-viewer", "deadline-tracker"],
+    draftOnly: true,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Executive view
+//
+// Business figures are transcribed from MVW's Q2 2026 earnings release (Form
+// 8-K filed 6 August 2026, Exhibit 99.1) as read in docs/context/mvw-priorities.md.
+// Platform figures are invented, because this fixture describes a console under
+// test rather than a deployment that has run.
+// ---------------------------------------------------------------------------
+
+const MVW_SOURCE =
+  "MVW Q2 2026 earnings release (Form 8-K, Exhibit 99.1, 6 August 2026). Reported by MVW; not measured by this platform.";
+const PLATFORM_SOURCE = "Measured by this platform from its own operating record.";
+
+export const executiveSnapshot: ExecutiveView = {
+  asOf: "2026-08-06T09:00:00.000Z",
+  businessMetrics: [
+    {
+      key: "contract_sales",
+      label: "Contract sales, Q2 2026",
+      value: "$545M",
+      comparison: "Up 22% from $445M in Q2 2025",
+      direction: "up",
+      increaseIsGood: true,
+      sourceNote: MVW_SOURCE,
+    },
+    {
+      key: "vpg",
+      label: "Volume per guest (VPG), Q2 2026",
+      value: "$4,477",
+      comparison: "Up 23% from $3,631 in Q2 2025",
+      direction: "up",
+      increaseIsGood: true,
+      sourceNote: MVW_SOURCE,
+    },
+    {
+      key: "tours",
+      label: "Tours, Q2 2026",
+      value: "112,721",
+      comparison: "Down 1% from 114,402 in Q2 2025",
+      direction: "down",
+      increaseIsGood: true,
+      sourceNote: `${MVW_SOURCE} MVW attributes the decline to deliberate action in the Asia-Pacific region.`,
+    },
+    {
+      key: "financing_margin",
+      label: "Financing profit margin, Q2 2026",
+      value: "54.3%",
+      comparison: "Down 450 basis points from 58.8% in Q2 2025",
+      direction: "down",
+      increaseIsGood: true,
+      sourceNote: MVW_SOURCE,
+    },
+    {
+      key: "receivable_reserve",
+      label: "Notes and contracts receivable reserve, six months",
+      value: "$122M",
+      comparison: "Up from $108M in the prior-year six months",
+      direction: "up",
+      increaseIsGood: false,
+      sourceNote: MVW_SOURCE,
+    },
+    {
+      key: "interval_members",
+      label: "Interval International members",
+      value: "1,475K",
+      comparison: "Down 2% from 1,507K",
+      direction: "down",
+      increaseIsGood: true,
+      sourceNote: MVW_SOURCE,
+    },
+  ],
+  platformMetrics: [
+    {
+      key: "runs_completed",
+      label: "Runs completed in the last thirty days",
+      value: "11,284",
+      comparison: "Up from 9,902 in the previous thirty days",
+      direction: "up",
+      increaseIsGood: true,
+      sourceNote: PLATFORM_SOURCE,
+    },
+    {
+      key: "refusals",
+      label: "Actions the platform refused",
+      value: "318",
+      comparison: "2.8% of attempted actions",
+      direction: "flat",
+      sourceNote: `${PLATFORM_SOURCE} A refusal is the platform working, not a failure.`,
+    },
+    {
+      key: "packages_checked",
+      label: "Contract packages checked against a state rule",
+      value: "2,238",
+      comparison: "Across 6 states",
+      direction: "up",
+      increaseIsGood: true,
+      sourceNote: PLATFORM_SOURCE,
+    },
+    {
+      key: "sla_breaches",
+      label: "Items that passed their service level",
+      value: "41",
+      comparison: "Down from 66 in the previous thirty days",
+      direction: "down",
+      increaseIsGood: false,
+      sourceNote: PLATFORM_SOURCE,
+    },
+  ],
+  costPerCaseUsd: 0.3142,
+  runsCompleted: 11_284,
+  humanHoursSaved: 486,
+  measurementCaveat:
+    "Hours saved is an estimate, not a measurement. It multiplies a per-case time saving supplied by MVW operations by the number of cases this platform completed. Nobody has run a controlled before-and-after study, and no headcount or cost reduction has been observed. Treat it as an indication of scale, not as a benefit realised.",
+};
+
+export const executiveWithoutSavings: ExecutiveView = {
+  ...executiveSnapshot,
+  costPerCaseUsd: undefined,
+  humanHoursSaved: undefined,
+};

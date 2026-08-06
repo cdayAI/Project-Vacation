@@ -1,4 +1,4 @@
-import type { OperatingMode, RiskTier, RunStatus } from "../api/contract";
+import type { EvaluationView, OperatingMode, RiskTier, RoleView, RunStatus } from "../api/contract";
 import { Badge, type Tone } from "./Badge";
 
 /**
@@ -73,6 +73,54 @@ export function modeLabel(mode: OperatingMode): string {
 
 export function ModePill({ mode }: { readonly mode: OperatingMode }) {
   return <Badge tone="neutral">{MODE[mode]}</Badge>;
+}
+
+/**
+ * Role lifecycle status.
+ *
+ * "Disabled" is deliberately the loudest of the five. A disabled role is not a
+ * dormant one — it has been stopped, usually for a reason someone recorded —
+ * and a registry that renders it in the same grey as "draft" hides the single
+ * most operationally significant thing about it.
+ */
+const ROLE_STATUS: Readonly<Record<RoleView["status"], Presentation>> = {
+  draft: { label: "Draft", tone: "neutral", glyph: "○" },
+  proposed: { label: "Proposed", tone: "info", glyph: "◆" },
+  promoted: { label: "In service", tone: "success", glyph: "✓" },
+  disabled: { label: "Disabled", tone: "danger", glyph: "⊘" },
+  reverted: { label: "Reverted", tone: "warning", glyph: "↩" },
+};
+
+export function roleStatusLabel(status: RoleView["status"]): string {
+  return ROLE_STATUS[status].label;
+}
+
+export function RoleStatusPill({ status }: { readonly status: RoleView["status"] }) {
+  const presentation = ROLE_STATUS[status];
+  return (
+    <Badge tone={presentation.tone} glyph={presentation.glyph}>
+      {presentation.label}
+    </Badge>
+  );
+}
+
+/**
+ * Whether an evaluation cleared the threshold set for it.
+ *
+ * The threshold is named in the label rather than left to a colour, because
+ * "below threshold" and "below threshold by how much" are different facts and
+ * only one of them is actionable.
+ */
+export function EvaluationPill({ evaluation }: { readonly evaluation: EvaluationView }) {
+  return evaluation.meetsThreshold ? (
+    <Badge tone="success" glyph="✓">
+      Meets the {(evaluation.threshold * 100).toFixed(0)}% threshold
+    </Badge>
+  ) : (
+    <Badge tone="danger" glyph="▲">
+      Below the {(evaluation.threshold * 100).toFixed(0)}% threshold
+    </Badge>
+  );
 }
 
 /**

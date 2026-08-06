@@ -1,4 +1,4 @@
-import { pino, type Logger as PinoLogger } from "pino";
+import { pino, destination as pinoDestination, type Logger as PinoLogger } from "pino";
 import { redactValue } from "./redact.js";
 
 /**
@@ -108,7 +108,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
       // to produce a file an auditor can read, and `pnpm demo` has to produce
       // output that is byte-identical across runs so CI can diff it. A log line
       // with a timestamp in it, interleaved on stdout, would break both.
-      pino.destination(2),
+      pinoDestination(2),
     ),
   );
 }

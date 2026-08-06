@@ -133,7 +133,12 @@ const INJECTION_PATTERNS: readonly InjectionPattern[] = [
   },
   {
     name: "zero_width_obfuscation",
-    regex: /[​-‏‪-‮⁠-⁤﻿]{3,}/,
+    // Written as escapes rather than literal characters on purpose. These are
+    // invisible: as literals they would be unreviewable in a diff, and a
+    // reviewer could not tell whether the set had been widened or narrowed.
+    // Zero-width spaces and joiners, bidirectional overrides, invisible
+    // separators, and the byte-order mark.
+    regex: /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]{3,}/,
     weight: 3,
     detail: "Text contains runs of invisible or bidirectional control characters.",
   },

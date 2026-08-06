@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import { DeniedError, InvalidInputError } from "../kernel/errors.js";
 import { verifyChain } from "../audit/chain.js";

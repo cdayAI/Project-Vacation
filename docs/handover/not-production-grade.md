@@ -126,6 +126,22 @@ only on findings. The test has not been commissioned.
 Specified in the definition of done. Not implemented. Needs SLSA-style build
 attestation in the release pipeline.
 
+### S3a. The SBOM records inventory, not the dependency graph
+
+`tools/generate-sbom.mjs` emits a valid CycloneDX 1.5 document listing every
+installed package with its version and licence, deterministically ordered so
+two builds of the same tree produce an identical file.
+
+It does **not** yet emit the dependency graph (which package pulled in which)
+or per-package integrity hashes. Both are recoverable from
+`pnpm-lock.yaml` and are worth adding before an assessment that asks for full
+supply-chain provenance — "which of our dependencies introduced this
+transitive package" is a question the current document cannot answer.
+
+Written rather than taken off the shelf because `@cyclonedx/cyclonedx-npm`
+shells out to `npm ls`, which cannot read a pnpm workspace. A command that
+fails is worse than thirty lines that work.
+
 ### S4. No container image scanning
 
 There is no container build in this repository yet. Scanning belongs in the same

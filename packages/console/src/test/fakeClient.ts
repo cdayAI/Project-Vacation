@@ -1,10 +1,21 @@
 import type { ConsoleClient, Outcome } from "../api/client";
-import type { ApprovalView, Page } from "../api/contract";
+import type { ApprovalView, ContainmentView, Page } from "../api/contract";
 import {
   approvalAwaitingDecision,
+  auditEntries,
+  auditVerificationIntact,
+  containmentClear,
+  discoveryCandidates,
+  executiveSnapshot,
   healthyPlatform,
+  improvementClusters,
+  improvementProposal,
+  improvementProposals,
+  rescissionRoleVersions,
+  roles,
   runWithRefusedStep,
   session,
+  workflowInstanceStuck,
   workQueueItems,
 } from "./fixtures";
 
@@ -29,6 +40,33 @@ export function createFakeClient(overrides: Partial<ConsoleClient> = {}): Consol
     decideApproval: (): Promise<Outcome<ApprovalView>> =>
       Promise.resolve(approvalAwaitingDecision),
     run: () => Promise.resolve(runWithRefusedStep),
+
+    workflowInstance: () => Promise.resolve(workflowInstanceStuck),
+
+    roles: () => Promise.resolve(page(roles)),
+    roleVersions: () => Promise.resolve(page(rescissionRoleVersions)),
+
+    improvementClusters: () => Promise.resolve(page(improvementClusters)),
+    improvementProposals: () => Promise.resolve(page(improvementProposals)),
+    improvementProposal: () => Promise.resolve(improvementProposal),
+
+    auditEntries: () => Promise.resolve(page(auditEntries)),
+    auditVerification: () => Promise.resolve(auditVerificationIntact),
+
+    containment: () => Promise.resolve(page(containmentClear)),
+    setContainment: (change): Promise<Outcome<ContainmentView>> =>
+      Promise.resolve({
+        scope: change.scope,
+        target: change.target,
+        engaged: change.engaged,
+        engagedBy: session.actor.actorId,
+        engagedAt: "2026-08-06T10:00:00.000Z",
+        reason: change.reason,
+      }),
+
+    discoveryCandidates: () => Promise.resolve(page(discoveryCandidates)),
+
+    executive: () => Promise.resolve(executiveSnapshot),
   };
   return { ...base, ...overrides };
 }

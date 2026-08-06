@@ -102,3 +102,38 @@ export function formatCountdown(iso: string, now: Date): Countdown {
 export function pluralise(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
+
+/**
+ * A proportion in the range 0–1, rendered as a percentage.
+ *
+ * One decimal place by default: evaluation accuracy moves in fractions of a
+ * point, and rounding 96.25% to 96% makes two materially different results
+ * look identical.
+ */
+export function formatPercent(fraction: number, fractionDigits = 1): string {
+  if (!Number.isFinite(fraction)) return NOT_RECORDED;
+  return new Intl.NumberFormat(undefined, {
+    style: "percent",
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(fraction);
+}
+
+/**
+ * A signed percentage-point change, with the sign always written.
+ *
+ * "+2.9 points" rather than "2.9 points": an unsigned number beside a delta
+ * reads as a value, and the direction is the whole point of a delta.
+ */
+export function formatPercentagePoints(points: number): string {
+  if (!Number.isFinite(points)) return NOT_RECORDED;
+  const rounded = points.toFixed(2);
+  const sign = points > 0 ? "+" : "";
+  return `${sign}${rounded} percentage points`;
+}
+
+/** A count formatted in the viewer's locale, so 11284 reads as 11,284. */
+export function formatCount(count: number): string {
+  if (!Number.isFinite(count)) return NOT_RECORDED;
+  return new Intl.NumberFormat(undefined).format(count);
+}

@@ -17,11 +17,14 @@ export { Dialog } from "./Dialog";
 export { EmptyState } from "./EmptyState";
 export { Field, type FieldControlProps } from "./Field";
 export {
+  EvaluationPill,
   ModePill,
   RiskPill,
+  RoleStatusPill,
   RunStatusPill,
   StepStatusPill,
   modeLabel,
   riskLabel,
+  roleStatusLabel,
   runStatusLabel,
 } from "./StatusPill";

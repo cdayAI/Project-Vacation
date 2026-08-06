@@ -695,6 +695,12 @@ export function safeReturnTo(value: string | undefined): string | undefined {
   if (!value.startsWith("/") || value.startsWith("//")) return undefined;
   // Backslashes and control characters: some browsers normalise the first
   // into a path separator, and the second can break a redirect header.
+  //
+  // Matching control characters is the entire purpose here. The lint rule
+  // guards against including them by accident; this range is deliberate, and
+  // it is what makes header splitting and path-traversal-by-normalisation
+  // impossible on this value.
+  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f\\]/.test(value)) return undefined;
   return value.slice(0, 512);
 }
