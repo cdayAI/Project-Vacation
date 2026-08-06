@@ -187,6 +187,121 @@ exist, disable it now** and notify MVW privacy and employment counsel.
 
 ---
 
+## EXTERNAL-AGENT-CONTAINED
+
+**What fired.** An external agent moved to `contained` — either automatically,
+after a run of denials it earned, or because a person pressed the button.
+
+**What it means.** An agent running outside this platform is being refused
+everything until a human releases it. Its work in flight stops at its next
+heartbeat. If the containment was automatic, something on the vendor's side is
+repeatedly asking for what it may not have — a broken deploy, a stale config, or
+an attack.
+
+**What to check.**
+```bash
+... agents show <agentId>
+... audit query --subject externalAgentId:<agentId> --event-type authorization.denied \
+  | jq -r '.decision.reason' | sort | uniq -c | sort -rn
+```
+The reason histogram usually names it in one look. `authorization.action_not_permitted`
+clustered on one tool means the vendor is calling something that was never
+granted. `approval.digest_mismatch` means requests are changing between park and
+commit, which is either a client bug or a substitution attempt.
+
+**What to do.** Contact the agent's enrolled owner — the registry entry names an
+accountable person, never a shared mailbox, precisely so this step has somewhere
+to go. Do not release until they can say what changed. Releasing also clears the
+denial window, so an agent released while still broken will re-contain rather
+than run unchecked.
+
+```bash
+... agents release <agentId> --reason "<what the owner fixed>"
+```
+
+**Escalate.** SEV3 normally. SEV2 if the dominant reason is
+`screen.injection_detected` or `approval.digest_mismatch`, both of which look
+like somebody trying rather than something broken.
+
+---
+
+## EXTERNAL-ACTION-INDETERMINATE
+
+**What fired.** A parked action is in `indeterminate`.
+
+**What it means.** A worker died between starting an outbound write and
+recording its result. **The effect may or may not have landed**, and only the
+system of record knows. This is the one state the platform cannot resolve for
+you, and it is never retried automatically — an automatic retry could issue a
+second payment.
+
+**What to check.**
+```bash
+... agents parked --status indeterminate
+```
+The record carries the request digest, the preview a human approved, and the
+time the commit began. Take those to the downstream system and look.
+
+**What to do.** Establish in the system of record whether the action landed.
+Then say so on the record — do not leave it ambiguous, and do not re-run the
+agent's request hoping it is idempotent. If the action did not land and is still
+wanted, it goes through the whole two-phase path again, including a fresh human
+approval, because the original approval is spent.
+
+**Escalate.** SEV2 if the action moves money or touches a contract. Notify the
+agent's enrolled owner either way: their agent is waiting on an answer it cannot
+get for itself.
+
+---
+
+## EXTERNAL-CREDENTIAL-EXPIRING
+
+**What fired.** An enrolled agent's credential is inside the expiry horizon, or
+has expired.
+
+**What it means.** A vendor's integration is about to start failing
+authentication, and the first anybody hears of it will be a support ticket
+saying "your platform is down".
+
+**What to check.** The health payload carries this — `... health` or the
+console's health view lists every credential nearing expiry with its agent.
+
+**What to do.** Tell the owner, and mint a replacement *before* revoking the
+old one. Credentials are individually revocable and rotation is deliberately
+not atomic: the agent holds both for the overlap, cuts over on its own
+schedule, and the old one is revoked afterwards.
+
+```bash
+... agents credential mint <agentId> --kind <kind> --label "<what it is for>"
+... agents credential revoke <credentialId> --reason "rotated"
+```
+
+A minted bearer token is printed **once**. Nothing in the platform, the console,
+or the API can show it again, because only its hash is stored.
+
+**Escalate.** SEV4. It becomes a SEV3 the moment it expires, and whichever
+workflow depended on that agent starts failing.
+
+---
+
+## EXTERNAL-PLANE-ENABLED-AND-EMPTY
+
+**What fired.** The external-agent plane is switched on and nothing is enrolled.
+
+**What it means.** The most misleading state this plane can be in. Every
+external figure the platform reports is a zero it has not earned — no agents, no
+spend, no denials — and a reader reasonably concludes there are no external
+agents, when the truth is that nobody has enrolled the ones that exist.
+
+**What to do.** Either enrol the agents MVW actually runs, or switch the plane
+off (`PV_EXTERNAL_AGENTS_ENABLED=false`) so the console says "off" rather than
+"nothing to report". Both are honest. The current state is not.
+
+**Escalate.** Not a page. It belongs in the weekly review, and it stays on the
+health view until one of the two things above happens.
+
+---
+
 ## STALE-AUTHORITY
 
 **What fired.** A knowledge corpus is past its review cadence.

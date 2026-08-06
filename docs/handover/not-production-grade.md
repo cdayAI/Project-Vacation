@@ -213,17 +213,6 @@ Three things follow:
 - This is the strongest single argument for adding hybrid retrieval, and the
   evidence for that decision should be measured rather than assumed.
 
-### L11. The audit chain grows with read traffic
-
-Every authorization decision is recorded, including grants for routine reads.
-That is the stronger compliance position — "who read this owner's record" is a
-question an auditor asks — but it means chain length tracks console usage, not
-just work done, and verification cost is linear in chain length.
-
-Plan for it: verify a window on demand and the full chain on a schedule. The
-consequence and the options are set out in
-`docs/ops/observability-and-cost.md`.
-
 ### L4. Integration ports are designed against assumptions
 
 We do not know MVW's internal systems. The ports in `integrations/` are narrow
@@ -268,6 +257,58 @@ External effects rely on idempotency keys rather than a record-then-deliver
 outbox (ADR 0007). Adequate for the first workflows, which read from systems of
 record rather than write to them. Revisit before any workflow writes to a system
 of record.
+
+### L11. Every connector an external agent can reach is a fake
+
+The governed-execution path is real: admission, digest binding, the human
+approval, the two-phase commit, the indeterminate state. What sits behind it is
+the same seeded fake the rest of the platform uses, because nobody on this
+project has seen MVW's systems of record. Registering a real connector is a
+small amount of code and a large amount of confirmation — the operation names,
+the request shapes, whether the downstream system honours an idempotency key —
+and until that happens, the "platform performs the action on the agent's behalf"
+capability is exercised against a stand-in.
+
+### L12. The connector switchboard is per-process
+
+An operator disabling a connector disables it on the worker that served the
+request. In a multi-process deployment the others find out at their next
+restart. The interface exists so the deployment can back it with the operating
+record and have the switch take effect everywhere; that has not been done, and
+until it is, "connector disabled" is a single-process guarantee. Note that the
+per-agent controls do *not* share this limit — containment, revocation, and the
+spend meters are all in the database and take effect immediately across workers.
+
+### L13. An external agent between heartbeats is not yet stopped
+
+The kill switch is the heartbeat reply, because an agent running on somebody
+else's infrastructure cannot be reached any other way. That means the time
+between a containment and the agent's next beat is time in which it is still
+working. The reclaim window bounds it and is configurable, but it cannot be
+reduced to zero, and it is worth stating plainly to anyone who reads "instant"
+into the word *stop*. What *is* immediate is that every subsequent thing the
+agent asks this platform for is refused — including the commit of a write a
+human had already approved.
+
+### L14. Seats are counted, not attributed
+
+The seat cap is enforced atomically at enrollment, which is the property that
+matters commercially. But seats are a counter rather than a column on the agent
+row, so the count and the roster are two facts that could in principle disagree
+after a partial failure. Nothing observed this, and the enrollment service
+returns a seat on every failure path — but a counter that can drift is worth
+knowing about before somebody reconciles a bill against it.
+
+### L15. The audit chain grows with read traffic
+
+Every authorization decision is recorded, including grants for routine reads.
+That is the stronger compliance position — "who read this owner's record" is a
+question an auditor asks — but it means chain length tracks console usage, not
+just work done, and verification cost is linear in chain length.
+
+Plan for it: verify a window on demand and the full chain on a schedule. The
+consequence and the options are set out in
+`docs/ops/observability-and-cost.md`.
 
 ---
 

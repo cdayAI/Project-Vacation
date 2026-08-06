@@ -119,6 +119,48 @@ to the system that holds it, under that system's own access rules. This is
 deliberate — it keeps owner data from accumulating a second copy in a
 seven-year record. The screen explains it too.
 
+### External agents
+
+Agents that MVW's own teams and vendors run somewhere else — in a CRM, in a
+cloud agent service, inside a purchased product. They are not run by this
+platform and cannot be. What this screen gives you is everything else: who is
+enrolled, what they may do, what they have spent, and a stop button that works.
+
+The roster shows, for each agent: the accountable owner (never a shared
+mailbox), the department, the platform it actually runs on, its spend against
+its ceiling **for the current period**, whether it is healthy or contained, when
+it was last seen, and **which kinds of credential it holds**.
+
+**It never shows a credential value, and no screen ever will.** A bearer token
+is displayed once when it is minted and stored only as a hash. An HMAC secret is
+stored as a *name* that is looked up in the secret manager at the moment a
+request is verified — the platform never holds the value at all. If somebody
+asks you to read them a token, the answer is that it cannot be done and a
+replacement should be minted instead.
+
+Contained and over-budget agents are called out **in text**, not only in colour.
+
+The detail view for one agent shows what it did, what each episode cost, what
+was refused and why, and its containment history. The denial reasons are written
+for you, not for an engineer. One distinction there is worth knowing: some
+refusals are the agent's fault and some are ours — a database we could not reach
+refuses the agent through no fault of its own. The screen says which, because
+"this vendor is misbehaving" and "we had an outage" lead you to different phone
+calls, and only the first counts toward containing the agent.
+
+**Two buttons you will actually use.** *Contain* stops an agent at its next
+heartbeat and refuses everything it asks until a person releases it; it is
+reversible, and it is the right first move when something looks wrong. *Revoke*
+ends the enrollment permanently — the agent never acts again and its seat
+returns to the cap. There is no release from a revocation; bringing that agent
+back is a fresh enrollment, which is another deliberate decision with an
+approval attached.
+
+Approvals raised by an external agent arrive in the **same queue** as everything
+else, labelled `[external agent]` with the agent's name and the platform it runs
+on. There is no separate queue to check, which is the point: an approval you
+would have to go looking for is one nobody looks for.
+
 ### Executive view
 
 The metrics MVW management named publicly, alongside what the platform

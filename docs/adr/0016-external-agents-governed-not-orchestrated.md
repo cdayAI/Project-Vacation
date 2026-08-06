@@ -79,6 +79,21 @@ revocation, expiry and reclamation are all delivered in the answer to a
 heartbeat — and a run that stops beating is reclaimed rather than assumed
 healthy.
 
+**A global pause reaches external agents too.** The agent's status and the
+platform's containment are different levers, pulled by different people for
+different reasons, and an operator who pauses the platform during an incident
+does not mean "except for the vendors". So a pause refuses admission, refuses
+governed reads, refuses to raise new approvals, refuses to start a run, and
+returns `stop` on the next heartbeat of every run already in flight.
+
+Reported work is the one exemption. A report describes work that already
+happened somewhere we do not control; refusing to write it down does not
+un-happen it, it only puts a hole in the record exactly where an investigator
+will look. This is the same principle that lets a compensation step run under
+containment. A refusal caused by our pause is also classed as infrastructure
+rather than misbehaviour, so an agent that keeps politely asking during an
+incident is never contained for our decision.
+
 **Repeated denials contain the agent; our own failures do not.** An agent that
 keeps asking for things it may not have is broken or hostile, and the only
 lever we hold is to stop answering. But if our database is unreachable the
