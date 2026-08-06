@@ -1,0 +1,76 @@
+/* =============================================================================
+   Motion. Implements §1.6 of docs/design/design-spec.md.
+   =============================================================================
+
+   Four durations, two easings, and an exit that is always faster than its
+   entry. Nothing else. A transition whose duration is not one of these is a
+   transition somebody invented at 2am.
+
+   Motion exists here to preserve identity: a detail view opens from the row it
+   came from and collapses back into it, a card expanding into a panel keeps its
+   title anchored. That continuity is what makes the console feel like a place.
+   Motion is never used to announce a state change on its own, and never runs on
+   the critical typing path.
+
+   Never animate: text content changing, or a table sorting. Both re-render
+   instantly. Sorting a table with a transition makes the operator wait to read
+   the answer they already asked for.
+   ========================================================================== */
+
+:root {
+  --pv-motion-micro: 120ms; /* hover, press, checkbox, toggle */
+  --pv-motion-standard: 180ms; /* popovers, dropdowns, toasts */
+  --pv-motion-surface: 240ms; /* side panel, sheet, modal */
+  --pv-motion-page: 280ms; /* route transitions */
+
+  /* Dismissal is faster than arrival, always. An exit at entry speed reads as
+     the interface hesitating about a decision the operator has already made. */
+  --pv-motion-exit-multiplier: 0.7;
+  --pv-motion-micro-exit: calc(var(--pv-motion-micro) * var(--pv-motion-exit-multiplier));
+  --pv-motion-standard-exit: calc(var(--pv-motion-standard) * var(--pv-motion-exit-multiplier));
+  --pv-motion-surface-exit: calc(var(--pv-motion-surface) * var(--pv-motion-exit-multiplier));
+  --pv-motion-page-exit: calc(var(--pv-motion-page) * var(--pv-motion-exit-multiplier));
+
+  --pv-ease-entry: cubic-bezier(0.2, 0, 0, 1);
+  --pv-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* The one duration that survives a reduced-motion request. */
+  --pv-motion-reduced: 80ms;
+}
+
+/* -----------------------------------------------------------------------------
+   Reduced motion
+   -------------------------------------------------------------------------- */
+
+/* Everything collapses to opacity at 80ms. The token overrides are what a
+   component that reads --pv-motion-surface gets; the universal rule is the
+   backstop for the transition somebody adds next year without reading this
+   file, and `transition-property: opacity` is what turns a slide into a fade
+   rather than merely a fast slide.
+
+   Animations are held to the same duration and to a single iteration. A
+   keyframe animation cannot be rewritten into an opacity fade from here, so a
+   component that animates position must check the preference itself. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pv-motion-micro: var(--pv-motion-reduced);
+    --pv-motion-standard: var(--pv-motion-reduced);
+    --pv-motion-surface: var(--pv-motion-reduced);
+    --pv-motion-page: var(--pv-motion-reduced);
+    --pv-motion-exit-multiplier: 1;
+    --pv-ease-entry: linear;
+    --pv-ease-exit: linear;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: var(--pv-motion-reduced) !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: opacity !important;
+    transition-duration: var(--pv-motion-reduced) !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

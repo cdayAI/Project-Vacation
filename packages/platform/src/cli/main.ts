@@ -47,6 +47,12 @@ Project Vacation — operator commands
                                   Run "agents" alone for the full usage.
 
   actions list                    Show the action registry with risk tiers
+
+  evaluate [--ci]                 Measure promoted roles against their golden
+                                  sets. --ci is the build gate: it also runs the
+                                  golden set shipped in source, and says on every
+                                  run what that set does and does not prove.
+
   config show                     Show effective configuration and warnings
   health                          Report platform health
   serve                           Run the HTTP API
@@ -423,6 +429,13 @@ async function main(): Promise<number> {
           actor: cliActor(args),
           correlationId: first(args, "correlation-id"),
         });
+      }
+      case "evaluate": {
+        // Imported here rather than at the top so that the commands an operator
+        // reaches for during an incident do not pay to load the evaluation
+        // harness, the model gateway, and the shipped golden set.
+        const { commandEvaluate } = await import("./evaluate.js");
+        return await commandEvaluate(args, { platform, actor: cliActor(args) });
       }
       case "health":
         return await commandHealth(args, platform);

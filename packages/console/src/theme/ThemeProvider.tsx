@@ -7,88 +7,145 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  applyPreferences,
+  matchesMediaQuery,
+  readPreferences,
+  resolveReducedTransparency,
+  resolveTheme,
+  writePreference,
+  SYSTEM_DARK_QUERY,
+  SYSTEM_REDUCED_TRANSPARENCY_QUERY,
+  type Density,
+  type Preferences,
+  type ResolvedTheme,
+  type ThemePreference,
+  type TransparencyPreference,
+} from "./preferences";
 
 /**
- * Theme state.
+ * The three console preferences, held in one provider.
  *
- * There are exactly two themes. `prefers-color-scheme` decides which one an
- * operator gets until they choose, and their choice then persists and wins in
- * both directions. "System" is not a third theme — it is the absence of a
- * stored choice, and it is represented here by `data-theme` being absent from
- * the root element rather than by a third token set. See ADR 0014 and the
- * comment at the top of tokens.css.
+ * One provider rather than three because they are read together — the avatar
+ * menu shows all three, and every one of them ends up as an attribute on the
+ * same root element, so splitting them would mean three effects racing to write
+ * to it.
+ *
+ * The provider does almost nothing itself. Storage, validation, defaults, and
+ * the attribute rules live in preferences.ts where they can be tested without
+ * mounting a tree; this is the part that keeps them in React state and keeps
+ * the system media queries under observation.
  */
-export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "pv.console.theme";
-const DARK_QUERY = "(prefers-color-scheme: dark)";
+/** Kept for callers that only care what is painted, not how it was chosen. */
+export type Theme = ResolvedTheme;
 
 interface ThemeContextValue {
   /** The theme actually in force, whether chosen or inherited from the system. */
-  readonly theme: Theme;
+  readonly theme: ResolvedTheme;
+  /** What the operator asked for, which may be "system". */
+  readonly themePreference: ThemePreference;
   /** True once the operator has chosen; false while the system preference governs. */
   readonly isExplicit: boolean;
-  readonly setTheme: (theme: Theme) => void;
+  /** Sets an explicit light or dark choice. */
+  readonly setTheme: (theme: ResolvedTheme) => void;
+  readonly setThemePreference: (preference: ThemePreference) => void;
+
+  readonly density: Density;
+  readonly setDensity: (density: Density) => void;
+
+  readonly transparency: TransparencyPreference;
+  readonly setTransparency: (transparency: TransparencyPreference) => void;
+  /** True when transparency is reduced by either the OS or the in-app choice. */
+  readonly reducedTransparency: boolean;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-function readStoredTheme(): Theme | null {
-  try {
-    const value = window.localStorage.getItem(STORAGE_KEY);
-    return value === "light" || value === "dark" ? value : null;
-  } catch {
-    // Storage can be unavailable (private browsing, a locked-down profile).
-    // A console that cannot remember a theme still has to work.
-    return null;
-  }
-}
-
-function writeStoredTheme(theme: Theme): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, theme);
-  } catch {
-    // See above. Losing the preference is acceptable; throwing is not.
-  }
-}
-
-function systemPrefersDark(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia(DARK_QUERY).matches;
-}
-
 export function ThemeProvider({ children }: { readonly children: ReactNode }) {
-  const [stored, setStored] = useState<Theme | null>(() => readStoredTheme());
-  const [prefersDark, setPrefersDark] = useState<boolean>(() => systemPrefersDark());
+  const [preferences, setPreferences] = useState<Preferences>(() => readPreferences());
+  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() =>
+    matchesMediaQuery(SYSTEM_DARK_QUERY),
+  );
+  const [systemReducesTransparency, setSystemReducesTransparency] = useState<boolean>(() =>
+    matchesMediaQuery(SYSTEM_REDUCED_TRANSPARENCY_QUERY),
+  );
 
-  // Track the system preference for as long as no explicit choice exists. It
-  // is still tracked after a choice is made, because clearing storage in
-  // another tab should not leave this one stale.
+  // Both queries are re-read on change rather than taking the event's `matches`
+  // at face value. A listener can be attached to more than one query, and an
+  // event only tells you that something changed — reading the query back is
+  // what keeps the two preferences from answering for each other.
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia(DARK_QUERY);
-    const onChange = (event: MediaQueryListEvent) => setPrefersDark(event.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
+
+    const dark = window.matchMedia(SYSTEM_DARK_QUERY);
+    const transparency = window.matchMedia(SYSTEM_REDUCED_TRANSPARENCY_QUERY);
+
+    const onChange = () => {
+      setSystemPrefersDark(matchesMediaQuery(SYSTEM_DARK_QUERY));
+      setSystemReducesTransparency(matchesMediaQuery(SYSTEM_REDUCED_TRANSPARENCY_QUERY));
+    };
+
+    dark.addEventListener("change", onChange);
+    transparency.addEventListener("change", onChange);
+    return () => {
+      dark.removeEventListener("change", onChange);
+      transparency.removeEventListener("change", onChange);
+    };
   }, []);
 
-  const theme: Theme = stored ?? (prefersDark ? "dark" : "light");
-
-  // The attribute is only written when a choice has been made. Leaving it
-  // absent otherwise is what lets the media query in tokens.css govern.
+  // The root element is the only thing the CSS reads. Writing it in an effect
+  // rather than during render keeps the provider free of side effects in the
+  // render path, which is what makes it safe under StrictMode's double render.
   useEffect(() => {
-    const root = document.documentElement;
-    if (stored === null) root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", stored);
-  }, [stored]);
+    applyPreferences(document.documentElement, preferences);
+  }, [preferences]);
 
-  const setTheme = useCallback((next: Theme) => {
-    writeStoredTheme(next);
-    setStored(next);
+  const setThemePreference = useCallback((preference: ThemePreference) => {
+    writePreference("theme", preference);
+    setPreferences((current) => ({ ...current, theme: preference }));
+  }, []);
+
+  const setTheme = useCallback(
+    (next: ResolvedTheme) => setThemePreference(next),
+    [setThemePreference],
+  );
+
+  const setDensity = useCallback((density: Density) => {
+    writePreference("density", density);
+    setPreferences((current) => ({ ...current, density }));
+  }, []);
+
+  const setTransparency = useCallback((transparency: TransparencyPreference) => {
+    writePreference("transparency", transparency);
+    setPreferences((current) => ({ ...current, transparency }));
   }, []);
 
   const value = useMemo<ThemeContextValue>(
-    () => ({ theme, isExplicit: stored !== null, setTheme }),
-    [theme, stored, setTheme],
+    () => ({
+      theme: resolveTheme(preferences.theme, systemPrefersDark),
+      themePreference: preferences.theme,
+      isExplicit: preferences.theme !== "system",
+      setTheme,
+      setThemePreference,
+      density: preferences.density,
+      setDensity,
+      transparency: preferences.transparency,
+      setTransparency,
+      reducedTransparency: resolveReducedTransparency(
+        preferences.transparency,
+        systemReducesTransparency,
+      ),
+    }),
+    [
+      preferences,
+      systemPrefersDark,
+      systemReducesTransparency,
+      setTheme,
+      setThemePreference,
+      setDensity,
+      setTransparency,
+    ],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

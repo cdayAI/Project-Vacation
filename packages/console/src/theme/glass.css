@@ -1,0 +1,137 @@
+/* =============================================================================
+   Glass — the recipe. Implements §1.5 of docs/design/design-spec.md.
+   =============================================================================
+
+   Glass goes on chrome and overlays only: the rail, the top bar, the context
+   panel, popovers, sheets, modals, toasts, and summary cards. Never behind a
+   table, a chart, a form, or long-form reading, and never behind a scrolling
+   virtualised list — a blurred backdrop over a list that moves costs a repaint
+   per frame and is the fastest way to make a 10,000-row table stutter.
+
+   Three rules this file can enforce, and one it cannot:
+
+     - Light and dark are separate value sets. Dark glass is not light glass
+       inverted: it needs a darker tint, more blur, less saturation, and a much
+       weaker top highlight, because inverting the light recipe on a dark page
+       produces a grey fog with a white rim.
+     - Reduced transparency swaps every glass surface for a designed solid —
+       surface-raised, border-subtle, elevation 2 — by redefining the same
+       tokens. No component needs a second class or a conditional, so a screen
+       cannot be built that only works with transparency on.
+     - Text on glass sits on a scrim. .pv-glass-scrim is a solid child at 94%,
+       which is the container text belongs in. Contrast for text on glass is
+       measured against the composite — glass over the page background — in
+       theme/tokens.test.ts, not against the panel token, because measuring
+       against the panel token is the single most common way a glass interface
+       passes review and fails a real audit.
+
+   The rule this file cannot enforce is the cap of three concurrent blurred
+   surfaces. Rail, top bar, and context panel are the three. Anything else that
+   wants glass — a popover, a sheet, a toast — is drawn over one of them and
+   must be counted against that budget by the person building the screen.
+   ========================================================================== */
+
+/* -----------------------------------------------------------------------------
+   Light
+   -------------------------------------------------------------------------- */
+
+:root {
+  --pv-glass-bg: rgba(255, 255, 255, 0.72);
+  --pv-glass-blur: blur(20px) saturate(180%);
+  --pv-glass-border-color: rgba(16, 20, 28, 0.07);
+  --pv-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  --pv-glass-scrim: rgba(255, 255, 255, 0.94);
+}
+
+/* -----------------------------------------------------------------------------
+   Dark — separate values, not an inversion
+   -------------------------------------------------------------------------- */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pv-glass-bg: rgba(22, 25, 31, 0.64);
+    --pv-glass-blur: blur(24px) saturate(140%);
+    --pv-glass-border-color: rgba(255, 255, 255, 0.08);
+    --pv-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    --pv-glass-scrim: rgba(26, 29, 35, 0.94);
+  }
+}
+
+:root[data-theme="dark"] {
+  --pv-glass-bg: rgba(22, 25, 31, 0.64);
+  --pv-glass-blur: blur(24px) saturate(140%);
+  --pv-glass-border-color: rgba(255, 255, 255, 0.08);
+  --pv-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --pv-glass-scrim: rgba(26, 29, 35, 0.94);
+}
+
+/* -----------------------------------------------------------------------------
+   Reduced transparency — a designed surface, not a degraded one
+   -------------------------------------------------------------------------- */
+
+/* The system preference is spelled out against all three theme selectors
+   rather than left on a bare :root. `:root[data-theme="dark"]` above has two
+   selector components; a bare `:root` here has one and would lose to it, so an
+   operator on a dark theme who has asked their OS for reduced transparency
+   would still get glass. Matching the specificity and coming later is what
+   makes the swap actually happen. */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --pv-glass-bg: var(--pv-surface-raised);
+    --pv-glass-blur: none;
+    --pv-glass-border-color: var(--pv-border-subtle);
+    /* Not `none`: this value is one item in a box-shadow list, and `none`
+       inside a list is invalid and would drop the elevation with it. */
+    --pv-glass-highlight: inset 0 0 0 0 transparent;
+    --pv-glass-scrim: var(--pv-surface-raised);
+  }
+}
+
+/* The in-app preference. There is deliberately no "force transparency on"
+   value: reduction is a floor, not a toggle. An operator can ask for less
+   transparency than their OS does, never for more — an application that can
+   override an accessibility preference upward will eventually do it by
+   accident. See theme/preferences.ts. */
+:root[data-transparency="reduced"] {
+  --pv-glass-bg: var(--pv-surface-raised);
+  --pv-glass-blur: none;
+  --pv-glass-border-color: var(--pv-border-subtle);
+  --pv-glass-highlight: inset 0 0 0 0 transparent;
+  --pv-glass-scrim: var(--pv-surface-raised);
+}
+
+/* -----------------------------------------------------------------------------
+   The recipe
+   -------------------------------------------------------------------------- */
+
+.pv-glass {
+  background-color: var(--pv-glass-bg);
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+  border: 1px solid var(--pv-glass-border-color);
+  box-shadow: var(--pv-glass-highlight), var(--pv-elevation-2);
+}
+
+/* Where text lives on a glass panel. Solid enough that the measured contrast
+   is the token pair the designer intended rather than whatever happened to
+   scroll underneath. */
+.pv-glass-scrim {
+  background-color: var(--pv-glass-scrim);
+}
+
+/* A browser without backdrop-filter would otherwise render the tint alone —
+   72% white over whatever is behind it, with no blur to separate the two —
+   which is less legible than the solid surface, not more. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pv-glass {
+    background-color: var(--pv-surface-raised);
+    border-color: var(--pv-border-subtle);
+    box-shadow: var(--pv-elevation-2);
+  }
+
+  .pv-glass-scrim {
+    background-color: var(--pv-surface-raised);
+  }
+}
