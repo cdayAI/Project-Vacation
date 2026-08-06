@@ -140,6 +140,14 @@ export class ExecutionService {
       return this.park(request, { alreadyAdmitted: true });
     }
 
+    // The platform's own containment, checked separately from the agent's.
+    // `admit` answers "is this agent stopped"; this answers "is the platform
+    // stopped", and a global pause has to reach an external agent's reads too.
+    // They are outbound calls made with the platform's credentials against a
+    // system of record, which is exactly what an operator engaging a pause
+    // during an incident intends to stop.
+    await this.containment.assertClear({ integration: request.integration });
+
     const run = await this.openRun(request, "read");
     const idempotencyKey = `${run.id}:${request.integration}.${request.operation}`;
     const result = await this.integration.perform({
@@ -200,6 +208,12 @@ export class ExecutionService {
         );
       }
     }
+
+    // Refuse to raise the approval at all while the platform is paused. A
+    // queue that fills with requests during an incident is a queue somebody
+    // works through afterwards without knowing which entries arrived while
+    // everything was supposed to be stopped.
+    await this.containment.assertClear({ integration: request.integration });
 
     const now = this.clock.now();
 

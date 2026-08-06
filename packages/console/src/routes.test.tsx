@@ -80,6 +80,7 @@ describe("routes and navigation", () => {
 
     const expected: readonly { readonly link: string; readonly heading: string }[] = [
       { link: "Agent roles", heading: "Agent roles" },
+      { link: "External agents", heading: "External agents" },
       { link: "Improvements", heading: "Improvements" },
       { link: "Audit and evidence", heading: "Audit and evidence" },
       { link: "Containment", heading: "Containment controls" },

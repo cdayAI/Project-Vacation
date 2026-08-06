@@ -199,6 +199,7 @@ export function buildExternalPlane(input: BuildExternalPlaneInput): ExternalPlan
     audit,
     clock,
     { approvalThreshold: config.externalApprovalThreshold },
+    containment,
   );
 
   const switchboard = new InMemorySwitchboard();
@@ -232,6 +233,7 @@ export function buildExternalPlane(input: BuildExternalPlaneInput): ExternalPlan
       operatingMode: mode,
       maxRunCostUsd: DEFAULT_REPORT_LIMITS.maxCostUsd,
     },
+    containment,
   );
 
   const reports = new ReportIngestor(

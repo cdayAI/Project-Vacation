@@ -9,7 +9,7 @@ import {
   type Column,
   type DefinitionItem,
 } from "../components";
-import { formatCount, formatDateTime, pluralise } from "../format";
+import { formatCount, formatDateTime, formatUsd, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
 
@@ -322,6 +322,11 @@ export function Health({ health }: HealthProps) {
       </section>
 
       {/* ---------------------------------------------------------------
+          External agents — the four rows an operator needs unasked
+          --------------------------------------------------------------- */}
+      <ExternalAgentHealth externalAgents={health.externalAgents} />
+
+      {/* ---------------------------------------------------------------
           Containment
           --------------------------------------------------------------- */}
       <section className="pv-panel" aria-labelledby="health-containment">
@@ -356,6 +361,182 @@ export function Health({ health }: HealthProps) {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * The four external-agent conditions, on the health page.
+ *
+ * Each is a state that is invisible until somebody opens the right screen, and
+ * each is quietly getting worse while nobody does. They are stated in words and
+ * counted, never signalled by colour alone.
+ *
+ * The order is the order they get worse in: a plane that is on and empty is
+ * reporting zeros it has not earned, contained agents are stopped and staying
+ * stopped, over-budget agents are being refused, and an expiring credential is
+ * the one problem here that can still be prevented entirely.
+ */
+function ExternalAgentHealth({
+  externalAgents,
+}: {
+  readonly externalAgents: HealthViewModel["externalAgents"];
+}) {
+  return (
+    <section className="pv-panel" aria-labelledby="health-external-agents">
+      <h2 className="pv-panel-heading" id="health-external-agents">
+        External agents
+      </h2>
+
+      {externalAgents === undefined ? (
+        <Callout tone="warning" title="This deployment does not report on external agents">
+          <p>
+            The health payload carries nothing about the external-agent plane. That is not the same
+            as the plane being switched off, and it is not the same as nothing being enrolled — it
+            means this console cannot tell you either way.
+          </p>
+        </Callout>
+      ) : !externalAgents.planeEnabled ? (
+        <p>
+          <Badge tone="neutral" glyph="○">
+            Not enabled — the shipped state
+          </Badge>{" "}
+          No agent running outside this platform is governed here. Nothing is being refused and
+          nothing is being recorded, because there is nothing enrolled to refuse or record.
+        </p>
+      ) : (
+        <div className="pv-stack">
+          {externalAgents.enabledWithNothingEnrolled ? (
+            <Callout tone="warning" title="The plane is enabled and nothing is enrolled">
+              <p>
+                Every external-agent figure this platform reports is therefore a zero it has not
+                earned: no spend, no refusals, no contained agents. If teams or vendors are running
+                agents elsewhere, they are running ungoverned and this page cannot see them.
+                Enrolling them is what makes these figures true.
+              </p>
+              <p>
+                <Link to="/external-agents">Open the external agent roster</Link>
+              </p>
+            </Callout>
+          ) : (
+            <p className="pv-lede-text">
+              <Badge tone="success" glyph="✓">
+                Enabled
+              </Badge>{" "}
+              {formatCount(externalAgents.enrolledCount)} enrolled,{" "}
+              {formatCount(externalAgents.activeCount)} of them active.
+            </p>
+          )}
+
+          <DefinitionList
+            items={[
+              {
+                term: "Contained",
+                description:
+                  externalAgents.contained.length === 0 ? (
+                    <span>
+                      None. No external agent is stopped.
+                    </span>
+                  ) : (
+                    <span className="pv-stack-tight">
+                      <Badge tone="danger" glyph="⊘">
+                        {pluralise(externalAgents.contained.length, "agent is", "agents are")}{" "}
+                        contained
+                      </Badge>
+                      <ul className="pv-prose-list">
+                        {externalAgents.contained.map((entry) => (
+                          <li key={entry.agentId}>
+                            <Link to={`/external-agents/${entry.agentId}`}>{entry.name}</Link> on{" "}
+                            <span className="pv-mono">{entry.hostPlatform}</span>, owned by{" "}
+                            {entry.owner}
+                            {entry.since === undefined
+                              ? ""
+                              : `, stopped ${formatDateTime(entry.since)}`}
+                            {entry.reason === undefined ? "" : ` — ${entry.reason}`}
+                          </li>
+                        ))}
+                      </ul>
+                      <span className="pv-meta">
+                        A contained agent stays contained until a person releases it.
+                      </span>
+                    </span>
+                  ),
+              },
+              {
+                term: "Over budget",
+                description:
+                  externalAgents.overBudget.length === 0 ? (
+                    <span>None. Every enrolled agent is inside its ceiling for the current period.</span>
+                  ) : (
+                    <span className="pv-stack-tight">
+                      <Badge tone="danger" glyph="▲">
+                        {pluralise(externalAgents.overBudget.length, "agent is", "agents are")} over
+                        budget
+                      </Badge>
+                      <ul className="pv-prose-list">
+                        {externalAgents.overBudget.map((entry) => (
+                          <li key={entry.agentId}>
+                            <Link to={`/external-agents/${entry.agentId}`}>{entry.name}</Link> has
+                            spent {formatUsd(entry.spentUsd)} of {formatUsd(entry.ceilingUsd)}{" "}
+                            {entry.budgetPeriod === "lifetime"
+                              ? "(lifetime)"
+                              : `for period ${entry.periodKey}`}
+                            , owned by {entry.owner}
+                          </li>
+                        ))}
+                      </ul>
+                      <span className="pv-meta">
+                        An agent at its ceiling is refused on spend, which from the vendor&rsquo;s
+                        side looks the same as this platform being broken.
+                      </span>
+                    </span>
+                  ),
+              },
+              {
+                term: "Credentials nearing expiry",
+                description:
+                  externalAgents.credentialsNearingExpiry.length === 0 ? (
+                    <span>
+                      None within {pluralise(externalAgents.expiryHorizonDays, "day", "days")}.
+                    </span>
+                  ) : (
+                    <span className="pv-stack-tight">
+                      <Badge tone="warning" glyph="▲">
+                        {pluralise(
+                          externalAgents.credentialsNearingExpiry.length,
+                          "credential expires",
+                          "credentials expire",
+                        )}{" "}
+                        within {pluralise(externalAgents.expiryHorizonDays, "day", "days")}
+                      </Badge>
+                      <ul className="pv-prose-list">
+                        {externalAgents.credentialsNearingExpiry.map((entry) => (
+                          <li key={entry.credentialId}>
+                            <Link to={`/external-agents/${entry.agentId}`}>{entry.agentName}</Link>
+                            {": "}
+                            {entry.label} ({entry.kind}){" "}
+                            {entry.expired ? "EXPIRED" : "expires"}{" "}
+                            <time dateTime={entry.expiresAt}>
+                              {formatDateTime(entry.expiresAt)}
+                            </time>
+                          </li>
+                        ))}
+                      </ul>
+                      <span className="pv-meta">
+                        This is the one failure here with a deadline attached, and the only one
+                        that can be prevented entirely by acting a few days early.
+                      </span>
+                    </span>
+                  ),
+              },
+            ]}
+          />
+
+          <p>
+            <Link to="/external-agents">Open the external agent roster</Link>
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
 

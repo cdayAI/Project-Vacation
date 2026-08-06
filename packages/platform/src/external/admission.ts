@@ -5,6 +5,7 @@ import type { Id } from "../kernel/ids.js";
 import type { AuditLog } from "../audit/log.js";
 import { decision as auditDecision } from "../audit/log.js";
 import type { ApprovalService } from "../guard/approvals.js";
+import type { ContainmentController } from "../guard/containment.js";
 import { screen } from "../guard/screen.js";
 import type { RiskTier } from "../guard/types.js";
 import type { EnrollmentStore, SpendStore } from "./port.js";
@@ -14,7 +15,6 @@ import type {
   AdmissionRequest,
   DenialClass,
   EnrolledAgent,
-  ExternalAgentId,
 } from "./types.js";
 
 /**
@@ -119,10 +119,35 @@ export class AdmissionService {
     private readonly audit: AuditLog,
     private readonly clock: Clock,
     options: AdmissionOptions = {},
+    /**
+     * The platform's own containment.
+     *
+     * Optional so the chain can be tested without one, and always supplied by
+     * `buildExternalPlane`. When absent, the platform-pause check is skipped —
+     * which is safe only because the composition root never omits it, and is
+     * why it is the last parameter rather than something a caller chooses.
+     */
+    private readonly containment?: ContainmentController,
   ) {
     this.approvalThreshold = options.approvalThreshold ?? "high_consequence";
     this.approvalTtlMs = options.approvalTtlMs ?? 24 * 60 * 60 * 1000;
     this.approverRoles = options.approverRoles ?? ["supervisor", "compliance_reviewer"];
+  }
+
+  /** Why the platform as a whole is refusing, or null when it is not. */
+  private async platformStopReason(): Promise<string | null> {
+    if (!this.containment) return null;
+    try {
+      await this.containment.assertClear({});
+      return null;
+    } catch (error) {
+      if (error instanceof DeniedError) {
+        // allow-swallow: turned into a structured denial by the caller two
+        // lines below. Asking is the point; the refusal is not lost.
+        return error.message;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -199,6 +224,27 @@ export class AdmissionService {
         `Enrollment for ${agent.name} expired at ${agent.expiresAt}.`,
         agent,
       );
+    }
+
+    // The platform's own containment, which is a different lever from the
+    // agent's status and is pulled by a different person for a different
+    // reason. An operator who globally pauses the platform during an incident
+    // does not mean "except for the vendors".
+    //
+    // `report` is exempt, and deliberately. A report describes work that has
+    // already happened somewhere we do not control; refusing to write it down
+    // does not un-happen it, it only means the pause created a hole in the
+    // record exactly where an investigator will look. This is the same
+    // principle that lets a compensation step run under containment.
+    //
+    // Classed as infrastructure, never misbehaviour: an agent politely asking
+    // during our pause has done nothing wrong, and containing it for our
+    // decision would punish the one that behaved correctly.
+    if (request.operation !== "report") {
+      const paused = await this.platformStopReason();
+      if (paused) {
+        return this.deny(request, "infrastructure", "containment.global_pause", paused, agent);
+      }
     }
 
     // The tool, and the operator's rating for it.

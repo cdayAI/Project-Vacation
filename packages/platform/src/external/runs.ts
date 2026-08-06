@@ -4,6 +4,7 @@ import type { Clock } from "../kernel/clock.js";
 import { DeniedError, InvalidInputError } from "../kernel/errors.js";
 import { digestValue } from "../kernel/hash.js";
 import type { Id, IdGenerator } from "../kernel/ids.js";
+import type { ContainmentController } from "../guard/containment.js";
 import type { RunStore } from "../record/port.js";
 import type { ActorRef, IsoTimestamp, OperatingMode, RunStatus } from "../record/types.js";
 import {
@@ -124,8 +125,42 @@ export class LiveRunService {
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
     settings: LiveRunSettings,
+    /**
+     * The platform's own containment, separate from the agent's status.
+     *
+     * The agent's status answers "is this agent stopped". This answers "is the
+     * platform stopped", and the two are different levers pulled by different
+     * people for different reasons. A global pause means no new work starts
+     * anywhere — an operator who engages one during an incident does not mean
+     * "except for the vendors".
+     *
+     * Optional so an embedding that has no containment controller still
+     * composes. `buildExternalPlane` always passes one.
+     */
+    private readonly containment?: ContainmentController,
   ) {
     this.settings = assertSettings(settings);
+  }
+
+  /**
+   * Why the platform as a whole is refusing, or null when it is not.
+   *
+   * Reported rather than thrown, because the heartbeat has to turn this into a
+   * `stop` directive and `start` has to turn it into a refusal.
+   */
+  private async platformStopReason(): Promise<string | null> {
+    if (!this.containment) return null;
+    try {
+      await this.containment.assertClear({});
+      return null;
+    } catch (error) {
+      if (error instanceof DeniedError) {
+        // allow-swallow: converted into a stop reason immediately below, which
+        // is the whole purpose of asking. The caller refuses either way.
+        return error.message;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -145,6 +180,14 @@ export class LiveRunService {
     const agent = await this.requireAgent(input.agentId);
     const now = this.clock.nowIso();
     assertAdmissible(agent, now);
+
+    // A paused platform starts nothing. Refusing the registration rather than
+    // recording work we have just said must not happen is the honest answer:
+    // the agent asked "may I begin", and while a pause is engaged it may not.
+    const paused = await this.platformStopReason();
+    if (paused) {
+      throw new DeniedError("containment.global_pause", paused, { agentId: agent.id });
+    }
 
     const goal = screenedText("goal", input.goal, MAX_GOAL_LENGTH);
     const subject = boundedSubject(
@@ -258,7 +301,9 @@ export class LiveRunService {
     }
 
     const agent = await this.requireAgent(agentId);
-    const blocked = stopReasonFor(agent, now);
+    // The platform's pause reaches work already in flight through exactly the
+    // same channel the agent's own containment does. There is no other channel.
+    const blocked = (await this.platformStopReason()) ?? stopReasonFor(agent, now);
     if (blocked) {
       // The agent is being stopped, so the run is closed here rather than left
       // for the reclaim sweep. The agent has just been told to stop and will

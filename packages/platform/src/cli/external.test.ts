@@ -119,16 +119,19 @@ async function run(command: CommandArgs, actor: ActorRef = OPERATOR): Promise<Ca
 }
 
 /**
- * Run a verb expecting it to be refused, and hand back the refusal *and* what
- * it printed on the way out.
+ * Run a verb that is not going to succeed, and hand back everything about it.
  *
- * The output matters as much as the exception here: a refusal that does not
- * tell the operator what to type instead is a refusal they will work around.
+ * Two shapes of failure matter here and they are deliberately different. A
+ * `DeniedError` propagates — a refusal is an outcome the operator must see with
+ * its reason code — and lands in `error`. A malformed command is a usage error
+ * and comes back as exit code 2 with the message on stderr. The output matters
+ * as much as either: a refusal that does not tell the operator what to type
+ * instead is a refusal they will work around.
  */
 async function refused(
   command: CommandArgs,
   actor: ActorRef = OPERATOR,
-): Promise<{ error: Error; stdout: string; stderr: string }> {
+): Promise<{ error: Error | null; code: number | null; stdout: string; stderr: string }> {
   const out: string[] = [];
   const err: string[] = [];
   const realLog = console.log;
@@ -136,24 +139,32 @@ async function refused(
   console.log = (...parts: unknown[]) => out.push(parts.map(String).join(" "));
   console.error = (...parts: unknown[]) => err.push(parts.map(String).join(" "));
   try {
-    await commandAgents(command, {
+    const code = await commandAgents(command, {
       plane: platform.external,
       approvals: platform.approvals,
       nowIso: () => platform.clock.nowIso(),
       actor,
       correlationId: "cli-test",
     });
+    if (code === 0) throw new Error("Expected a refusal and the command succeeded.");
+    return { error: null, code, stdout: out.join("\n"), stderr: err.join("\n") };
   } catch (error) {
-    return { error: error as Error, stdout: out.join("\n"), stderr: err.join("\n") };
+    return { error: error as Error, code: null, stdout: out.join("\n"), stderr: err.join("\n") };
   } finally {
     console.log = realLog;
     console.error = realError;
   }
-  throw new Error("Expected a refusal and the command succeeded.");
 }
 
+/** The thrown refusal. Fails loudly if the verb merely exited non-zero. */
 async function refusal(command: CommandArgs, actor: ActorRef = OPERATOR): Promise<Error> {
-  return (await refused(command, actor)).error;
+  const outcome = await refused(command, actor);
+  if (outcome.error === null) {
+    throw new Error(
+      `Expected a thrown refusal; the verb exited ${String(outcome.code)} instead.\n${outcome.stderr}`,
+    );
+  }
+  return outcome.error;
 }
 
 const ENROLL_FLAGS: Readonly<Record<string, string | readonly string[] | true>> = {
@@ -369,7 +380,10 @@ describe("pv agents — typed reasons", () => {
     const { name } = await enrolledAgent();
     const outcome = await refused(args(["contain", name]));
 
-    expect(outcome.error.message).toMatch(/--reason is required/);
+    // A malformed command is a usage error, not a crash: exit 2 and a message,
+    // rather than a stack trace that reads like the platform broke.
+    expect(outcome.code).toBe(2);
+    expect(outcome.stderr).toMatch(/--reason is required/);
     // The vocabulary is printed, so an operator learns what to type from the
     // refusal itself rather than from a document they do not have open at 2am.
     expect(outcome.stderr).toMatch(/suspected_compromise/);
@@ -379,9 +393,10 @@ describe("pv agents — typed reasons", () => {
 
   it("refuses a reason outside the vocabulary rather than recording free prose", async () => {
     const { name } = await enrolledAgent();
-    const error = await refusal(args(["contain", name], { reason: "because-i-said-so" }));
-    expect(error.message).toMatch(/is not a recognised reason/);
-    expect(error.message).toMatch(/deliberately no "other"/);
+    const outcome = await refused(args(["contain", name], { reason: "because-i-said-so" }));
+    expect(outcome.code).toBe(2);
+    expect(outcome.stderr).toMatch(/is not a recognised reason/);
+    expect(outcome.stderr).toMatch(/deliberately no "other"/);
   });
 
   it("records the code and the note together, code first", async () => {
@@ -412,8 +427,9 @@ describe("pv agents — typed reasons", () => {
 
     // A containment code is not a release code: the two answer different
     // questions and sharing a list would record the answer to neither.
-    const error = await refusal(args(["release", name], { reason: "under_investigation" }));
-    expect(error.message).toMatch(/is not a recognised reason/);
+    const wrongVocabulary = await refused(args(["release", name], { reason: "under_investigation" }));
+    expect(wrongVocabulary.code).toBe(2);
+    expect(wrongVocabulary.stderr).toMatch(/is not a recognised reason/);
 
     const released = await run(args(["release", name], { reason: "investigated_and_clear" }));
     expect(released.code).toBe(0);
@@ -584,8 +600,9 @@ describe("pv agents — credentials", () => {
     const stored = await platform.external.stores.credentials.listCredentials(agentId);
     const credentialId = stored[0]?.id ?? "";
 
-    const error = await refusal(args(["credential", "revoke", credentialId]));
-    expect(error.message).toMatch(/--reason is required/);
+    const noReason = await refused(args(["credential", "revoke", credentialId]));
+    expect(noReason.code).toBe(2);
+    expect(noReason.stderr).toMatch(/--reason is required/);
 
     const revoked = await run(args(["credential", "revoke", credentialId], { reason: "rotated" }));
     expect(revoked.code).toBe(0);

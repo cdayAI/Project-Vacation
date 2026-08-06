@@ -328,6 +328,219 @@ export interface ExecutiveView {
   readonly measurementCaveat: string;
 }
 
+// ---------------------------------------------------------------------------
+// External agents — the ones MVW already runs elsewhere
+// ---------------------------------------------------------------------------
+
+/**
+ * An agent running outside this platform, as the roster shows it.
+ *
+ * Two fields are worth reading carefully.
+ *
+ * `credentialKinds` names WHICH kinds of credential this agent holds and never
+ * carries a value, a hash, or a key. There is nothing to carry: a bearer token
+ * is stored as a hash and shown once at mint, an HMAC secret is stored as a
+ * name resolved from a secret manager. This field exists so an operator can see
+ * that an agent authenticates with a signed request rather than a string —
+ * which is a real difference in exposure — without the console ever being a
+ * place a credential could leak from.
+ *
+ * `spentUsd` is spend for the CURRENT budget period, named in `periodKey`, and
+ * never a lifetime total dressed up as one. A monthly ceiling compared against
+ * an all-time figure would show every long-lived agent as permanently over
+ * budget, and an operator who learns to ignore that column has lost the alert.
+ */
+export type ExternalAgentStatus = "active" | "contained" | "revoked";
+export type CredentialKind = "bearer" | "jwt" | "hmac" | "envelope";
+export type BudgetPeriod = "monthly" | "lifetime";
+
+export interface ExternalAgentView {
+  readonly agentId: string;
+  readonly name: string;
+  /** The person accountable for it. Never a shared mailbox. */
+  readonly owner: string;
+  readonly department: string;
+  /** Where it actually runs — a CRM, a cloud agent service, a bought product. */
+  readonly hostPlatform: string;
+  readonly purpose: string;
+  readonly status: ExternalAgentStatus;
+  readonly statusReason?: string;
+  readonly statusChangedAt?: string;
+  readonly statusChangedBy?: string;
+  readonly riskCeiling: RiskTier;
+  readonly budgetPeriod: BudgetPeriod;
+  /** `lifetime`, or `YYYY-MM`. The period the figures below belong to. */
+  readonly periodKey: string;
+  readonly spentUsd: number;
+  readonly spendCeilingUsd: number;
+  readonly overBudget: boolean;
+  readonly allowedTools: readonly string[];
+  readonly dataScopes: readonly string[];
+  /** Which kinds are held. Never a value — see the note above. */
+  readonly credentialKinds: readonly CredentialKind[];
+  readonly expiresAt: string;
+  readonly expired: boolean;
+  readonly lastSeenAt?: string;
+}
+
+export interface ExternalCredentialView {
+  readonly credentialId: string;
+  readonly kind: CredentialKind;
+  /** The operator's label, e.g. "crm production". Not a value. */
+  readonly label: string;
+  /** True when the credential proves possession of a key, not of a string. */
+  readonly strong: boolean;
+  readonly createdAt: string;
+  readonly createdBy: string;
+  readonly expiresAt?: string;
+  readonly revokedAt?: string;
+  readonly revokedBy?: string;
+  readonly revokedReason?: string;
+  readonly lastUsedAt?: string;
+}
+
+export type ExternalRunStatus = "running" | "finished" | "failed" | "stopped" | "reclaimed";
+
+export interface ExternalAgentRunView {
+  readonly externalRunId: string;
+  /** The run on the operating record. External work is not a separate table. */
+  readonly runId: string;
+  readonly goal: string;
+  readonly status: ExternalRunStatus;
+  readonly startedAt: string;
+  readonly endedAt?: string;
+  readonly outcome?: string;
+  readonly costUsd: number;
+}
+
+/**
+ * A refusal, as it was recorded.
+ *
+ * `reason` is the machine code and `message` is what the platform said at the
+ * time. Neither is turned into plain language here: the console does that at
+ * render time, from the code, so the wording can be written for the supervisor
+ * reading it without changing what the record says.
+ */
+export interface ExternalAgentDenialView {
+  readonly entryId: string;
+  readonly recordedAt: string;
+  readonly reason: string;
+  readonly message?: string;
+  readonly tool?: string;
+  readonly operation?: string;
+  readonly runId?: string;
+  /**
+   * Whether this counted toward automatic containment.
+   *
+   * Our own infrastructure failing does not count. Showing which denials were
+   * the agent's fault and which were ours is the difference between "this
+   * vendor is misbehaving" and "we had an outage".
+   */
+  readonly countedTowardContainment: boolean;
+}
+
+export interface ExternalContainmentEventView {
+  readonly at: string;
+  readonly change: "contained" | "released" | "revoked";
+  readonly by: string;
+  /** True when the rate limiter contained it rather than a person. */
+  readonly automatic: boolean;
+  readonly reason?: string;
+  readonly previousStatus?: string;
+}
+
+export type ExternalParkedActionStatus =
+  | "pending"
+  | "approved"
+  | "committing"
+  | "committed"
+  | "rejected"
+  | "voided"
+  | "expired"
+  | "indeterminate";
+
+export interface ExternalParkedActionView {
+  readonly parkedActionId: string;
+  readonly integration: string;
+  readonly operation: string;
+  readonly status: ExternalParkedActionStatus;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly committedAt?: string;
+  readonly resultSummary?: string;
+  readonly approvalId?: string;
+}
+
+export interface ExternalSpendMeterView {
+  readonly periodKey: string;
+  readonly spentUsd: number;
+  readonly updatedAt: string;
+}
+
+/** One external agent in full: what it did, what it cost, what was refused. */
+export interface ExternalAgentDetailView {
+  readonly agent: ExternalAgentView;
+  readonly credentials: readonly ExternalCredentialView[];
+  readonly runs: readonly ExternalAgentRunView[];
+  /** Total runs on the record, which can exceed the sample in `runs`. */
+  readonly runsTotal: number;
+  readonly denials: readonly ExternalAgentDenialView[];
+  readonly containmentHistory: readonly ExternalContainmentEventView[];
+  readonly parkedActions: readonly ExternalParkedActionView[];
+  readonly spendMeters: readonly ExternalSpendMeterView[];
+}
+
+/**
+ * The four external-agent conditions an operator needs without asking.
+ *
+ * Carried on the health payload rather than behind their own endpoint, because
+ * the point of them is to reach somebody who did not come looking.
+ */
+export interface ExternalAgentHealthView {
+  /** False when this deployment has the plane switched off entirely. */
+  readonly planeEnabled: boolean;
+  readonly enrolledCount: number;
+  readonly activeCount: number;
+  /**
+   * On, and empty.
+   *
+   * The most misleading state this plane can be in: every external figure the
+   * platform reports is then a zero it has not earned.
+   */
+  readonly enabledWithNothingEnrolled: boolean;
+  readonly contained: readonly {
+    readonly agentId: string;
+    readonly name: string;
+    readonly owner: string;
+    readonly department: string;
+    readonly hostPlatform: string;
+    readonly reason?: string;
+    readonly since?: string;
+    readonly by?: string;
+  }[];
+  readonly overBudget: readonly {
+    readonly agentId: string;
+    readonly name: string;
+    readonly owner: string;
+    readonly department: string;
+    readonly periodKey: string;
+    readonly budgetPeriod: BudgetPeriod;
+    readonly spentUsd: number;
+    readonly ceilingUsd: number;
+    readonly overByUsd: number;
+  }[];
+  readonly credentialsNearingExpiry: readonly {
+    readonly credentialId: string;
+    readonly agentId: string;
+    readonly agentName: string;
+    readonly kind: CredentialKind;
+    readonly label: string;
+    readonly expiresAt: string;
+    readonly expired: boolean;
+  }[];
+  readonly expiryHorizonDays: number;
+}
+
 export interface HealthView {
   readonly status: "ok" | "degraded" | "unavailable";
   readonly environment: string;
@@ -339,6 +552,14 @@ export interface HealthView {
   readonly auditHeadSeq: number | null;
   readonly lastAuditVerification?: AuditVerificationView;
   readonly containment: readonly ContainmentView[];
+  /**
+   * Optional so an older platform's payload still renders.
+   *
+   * Absent means "this deployment's health payload does not report on external
+   * agents", which is a different statement from "the plane is off" — and the
+   * console says so rather than rendering a reassuring blank.
+   */
+  readonly externalAgents?: ExternalAgentHealthView;
   /** Loud configuration warnings from startup, surfaced to operators. */
   readonly warnings: readonly string[];
 }

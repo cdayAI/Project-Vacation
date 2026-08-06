@@ -299,6 +299,22 @@ after a partial failure. Nothing observed this, and the enrollment service
 returns a seat on every failure path — but a counter that can drift is worth
 knowing about before somebody reconciles a bill against it.
 
+### L16. Governed execution does not move the agent's spend meter
+
+An agent's spend meter is fed by the reports it files. Actions the platform
+performs on its behalf are recorded on the operating record, but they add
+nothing to the meter, because no connector reports what a call cost and the
+platform will not invent a figure. The consequence is bounded rather than open:
+an agent already at its ceiling is refused everything, execution included, so
+the ceiling still stops it — it just is not moved *by* execution.
+
+Closing this needs a decision that is MVW's, not ours: whether a governed call
+should be charged at a per-operation rate, at whatever the downstream system
+reports, or not at all because the cost lives in a contract somebody else
+signed. Until that is answered, an operator reading a cost figure should know
+it covers what agents reported, plus native work, and not the platform's own
+outbound calls.
+
 ### L15. The audit chain grows with read traffic
 
 Every authorization decision is recorded, including grants for routine reads.

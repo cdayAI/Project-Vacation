@@ -454,6 +454,110 @@ describe("governing an agent that runs elsewhere", () => {
     await h.platform.close();
   });
 
+  it("stops an external agent's reads and parks when the platform is paused", async () => {
+    const h = await harness();
+    const agent = await h.enroll();
+
+    await h.platform.containment.engage(
+      "global",
+      "",
+      ADMIN.actorId,
+      "Incident 2026-08-10: suspected bad data in the owner records feed.",
+    );
+
+    // A read is an outbound call made with the platform's credentials. A global
+    // pause is an operator saying "stop touching the systems of record", and an
+    // external agent's read is exactly that.
+    await expect(
+      h.platform.external.execution.execute({
+        agentId: agent.id,
+        integration: "owner_records",
+        operation: "lookup_owner",
+        mode: "read",
+        request: { ownerId: "own_4821" },
+      }),
+    ).rejects.toMatchObject({ reason: "containment.global_pause" });
+    expect(h.performed).toEqual([]);
+
+    // And a write is not merely deferred: no approval is raised at all, so the
+    // queue does not fill with requests that arrived while everything was
+    // supposed to be stopped.
+    await expect(
+      h.platform.external.execution.execute({
+        agentId: agent.id,
+        integration: "owner_records",
+        operation: "issue_goodwill_credit",
+        mode: "write",
+        request: { ownerId: "own_4821", amountUsd: 50, reason: "Goodwill" },
+      }),
+    ).rejects.toMatchObject({ reason: "containment.global_pause" });
+
+    const queue = await h.platform.approvals.list({ status: ["pending"] });
+    expect(queue).toHaveLength(0);
+    await h.platform.close();
+  });
+
+  it("refuses a screen during a platform pause, but still accepts the report", async () => {
+    const h = await harness();
+    const agent = await h.enroll();
+
+    await h.platform.containment.engage("global", "", ADMIN.actorId, "Incident 2026-08-10.");
+
+    const denied = await h.platform.external.admission.admit({
+      agentId: agent.id,
+      operation: "screen",
+      tool: "lookup_owner",
+      declaredRisk: "routine",
+    });
+    expect(denied.outcome).toBe("denied");
+    expect(denied.reason).toBe("containment.global_pause");
+
+    // Asking politely during our pause is not misbehaviour, so it must not
+    // count toward containing the agent.
+    const still = await h.platform.external.enrollment.require(agent.id);
+    expect(still.status).toBe("active");
+
+    // A report describes work that already happened somewhere we do not
+    // control. Refusing to write it down does not un-happen it; it puts a hole
+    // in the record exactly where an investigator will look.
+    const reported = await h.platform.external.admission.admit({
+      agentId: agent.id,
+      operation: "report",
+      tool: "draft_reply",
+      declaredRisk: "routine",
+    });
+    expect(reported.outcome).toBe("allowed");
+    await h.platform.close();
+  });
+
+  it("tells a live external run to stop when the platform is paused", async () => {
+    const h = await harness();
+    const agent = await h.enroll();
+
+    const run = await h.platform.external.liveRuns.start({
+      agentId: agent.id,
+      goal: "Reconcile owner statements.",
+    });
+
+    await h.platform.containment.engage(
+      "global",
+      "",
+      ADMIN.actorId,
+      "Incident 2026-08-10: pausing everything.",
+    );
+
+    h.clock.advance(10_000);
+    const beat = await h.platform.external.liveRuns.heartbeat(agent.id, run.id);
+    expect(beat.directive).toBe("stop");
+    expect(beat.reason).toMatch(/paused/i);
+
+    // And nothing new begins while the pause holds.
+    await expect(
+      h.platform.external.liveRuns.start({ agentId: agent.id, goal: "Something else." }),
+    ).rejects.toMatchObject({ reason: "containment.global_pause" });
+    await h.platform.close();
+  });
+
   it("performs a governed write only after a human approves that exact request", async () => {
     const h = await harness();
     const agent = await h.enroll();

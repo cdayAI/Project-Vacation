@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { loadConfig } from "../kernel/config.js";
 import { FixedClock } from "../kernel/clock.js";
@@ -1040,6 +1042,45 @@ describe("external agent surface: governed execution", () => {
     });
 
     expect(response.statusCode).toBe(409);
+  });
+});
+
+describe("external agent surface: the published contract", () => {
+  /**
+   * The OpenAPI document is what a vendor builds against.
+   *
+   * A published contract that has drifted from the implementation is worse than
+   * no contract: it is read as authoritative, and the drift is discovered by
+   * somebody outside this organisation, at their expense. So the two are
+   * compared here rather than by eye at review time.
+   *
+   * Parsed with a line scan rather than a YAML library on purpose — adding a
+   * dependency to check a document would be a poor trade, and the path keys are
+   * the one part of the file whose shape is fixed.
+   */
+  it("documents exactly the routes the surface registers, and no others", async () => {
+    const h = await buildHarness();
+
+    const document = readFileSync(
+      fileURLToPath(new URL("../../../../docs/external-agents/openapi.yaml", import.meta.url)),
+      "utf8",
+    );
+    const documented = new Set(
+      [...document.matchAll(/^ {2}(\/api\/external\/[^\s:]*):$/gm)].map((match) => match[1]),
+    );
+
+    const registered = new Set(
+      [...(h.app as unknown as { registeredRoutes: Set<string> }).registeredRoutes]
+        .map((entry) => entry.split(" ")[1] ?? "")
+        .filter((url) => url.startsWith("/api/external/"))
+        // Fastify names path parameters `:name`; OpenAPI names them `{name}`.
+        .map((url) => url.replace(/:([A-Za-z0-9_]+)/g, "{$1}")),
+    );
+
+    expect([...registered].sort()).toEqual([...documented].sort());
+
+    await h.app.close();
+    await h.platform.close();
   });
 });
 

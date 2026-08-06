@@ -7,6 +7,8 @@ import {
   ContainmentControlsRoute,
   DiscoveryBacklogRoute,
   ExecutiveViewRoute,
+  ExternalAgentDetailRoute,
+  ExternalAgentsRoute,
   HealthRoute,
   ImprovementProposalRoute,
   ImprovementQueueRoute,
@@ -50,6 +52,15 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
   { id: "work", path: "/work", label: "Work queue", capability: "work.read" },
   { id: "approvals", path: "/approvals", label: "Approvals", capability: "approvals.read" },
   { id: "roles", path: "/roles", label: "Agent roles", capability: "roles.read" },
+  // Top-level rather than nested under roles: an agent running in a vendor's
+  // CRM is not a role this platform can dispatch to, and filing it under one
+  // would suggest the platform runs it.
+  {
+    id: "external-agents",
+    path: "/external-agents",
+    label: "External agents",
+    capability: "external_agents.read",
+  },
   {
     id: "improvements",
     path: "/improvements",
@@ -135,6 +146,18 @@ export const ROUTES: readonly RouteDefinition[] = [
     path: "/roles/:roleId",
     title: "Agent role",
     render: (params) => <RoleDetailRoute roleId={params["roleId"] ?? ""} />,
+  },
+  {
+    id: "external-agents",
+    path: "/external-agents",
+    title: "External agents",
+    render: () => <ExternalAgentsRoute />,
+  },
+  {
+    id: "external-agent-detail",
+    path: "/external-agents/:agentId",
+    title: "External agent",
+    render: (params) => <ExternalAgentDetailRoute agentId={params["agentId"] ?? ""} />,
   },
   {
     id: "improvements",

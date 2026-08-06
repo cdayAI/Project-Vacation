@@ -6,6 +6,8 @@ import type {
   DenialView,
   DiscoveryCandidateView,
   ExecutiveView,
+  ExternalAgentDetailView,
+  ExternalAgentView,
   HealthView,
   ImprovementClusterView,
   ImprovementProposalView,
@@ -197,6 +199,24 @@ export interface ConsoleClient {
     query?: ListQuery,
     options?: RequestOptions,
   ): Promise<Outcome<Page<DiscoveryCandidateView>>>;
+
+  /**
+   * The roster of agents running outside this platform.
+   *
+   * Filtering is deliberately not a parameter here. The roster is bounded by
+   * the deployment's seat cap — tens of entries, not tens of thousands — so the
+   * whole of it arrives and the view filters in the browser. That keeps a
+   * filtered count honest: "2 contained" means two of everything enrolled, not
+   * two of whatever page happened to load.
+   */
+  externalAgents(
+    query?: ListQuery,
+    options?: RequestOptions,
+  ): Promise<Outcome<Page<ExternalAgentView>>>;
+  externalAgent(
+    agentId: string,
+    options?: RequestOptions,
+  ): Promise<Outcome<ExternalAgentDetailView>>;
 
   executive(options?: RequestOptions): Promise<Outcome<ExecutiveView>>;
 }
@@ -421,6 +441,23 @@ export function createConsoleClient(options: ClientOptions = {}): ConsoleClient 
     discoveryCandidates: (query = {}, requestOptions) =>
       get<Page<DiscoveryCandidateView>>(
         `/discovery/candidates${buildQuery({ limit: query.limit, offset: query.offset })}`,
+        requestOptions,
+      ),
+
+    externalAgents: (query = {}, requestOptions) =>
+      get<Page<ExternalAgentView>>(
+        // Hyphenated and plural, and deliberately not under `/external`: that
+        // prefix is the surface external agents themselves call, authenticated
+        // with their own credentials. These two are console reads behind an
+        // operator's session, and collapsing the two namespaces would put a
+        // human-facing route one path segment away from an agent-facing one.
+        `/external-agents${buildQuery({ limit: query.limit, offset: query.offset })}`,
+        requestOptions,
+      ),
+
+    externalAgent: (agentId, requestOptions) =>
+      get<ExternalAgentDetailView>(
+        `/external-agents/${encodeURIComponent(agentId)}`,
         requestOptions,
       ),
 

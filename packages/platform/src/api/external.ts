@@ -642,7 +642,7 @@ export function registerExternalRoutes(
           z.object({ externalRunId: identifier }).strict(),
           request.params,
         );
-        parse(heartbeatBody, request.body ?? {});
+        assertBodyAgentMatches(parse(heartbeatBody, request.body ?? {}).agentId, identity);
 
         await assertWithinRate(plane.rateLimiter, identity.agentId, "run.heartbeat");
 

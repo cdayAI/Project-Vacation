@@ -4,14 +4,12 @@ import type { RiskTier } from "../guard/types.js";
 import { DeniedError, InvalidInputError } from "../kernel/errors.js";
 import type { Id } from "../kernel/ids.js";
 import type { ActorRef } from "../record/types.js";
-import type { CredentialService } from "../external/credentials.js";
 import {
   ENROLL_ACTION,
   REVOKE_ACTION,
   enrollmentProposalDigest,
   revocationProposalDigest,
   type EnrollRequest,
-  type EnrollmentService,
   type OperatorContext,
 } from "../external/enrollment.js";
 import {
@@ -393,6 +391,25 @@ export async function commandAgents(
   args: CommandArgs,
   context: AgentsCommandContext,
 ): Promise<number> {
+  try {
+    return await dispatch(args, context);
+  } catch (error) {
+    // A malformed command is a usage error, not a crash. `InvalidInputError` is
+    // "your request does not make sense", which deserves the message and exit
+    // code 2 rather than a stack trace that reads like the platform broke.
+    //
+    // `DeniedError` is deliberately NOT caught here. A refusal is an outcome
+    // the operator has to see with its reason code, and it propagates to the
+    // top-level handler that prints it and exits non-zero.
+    if (error instanceof InvalidInputError) {
+      note(`${error.message}${error.field ? ` (${error.field})` : ""}`);
+      return 2;
+    }
+    throw error;
+  }
+}
+
+async function dispatch(args: CommandArgs, context: AgentsCommandContext): Promise<number> {
   const sub = args.positional[1];
 
   switch (sub) {
@@ -955,8 +972,11 @@ function typedReason(
 
 async function containAgent(args: CommandArgs, context: AgentsCommandContext): Promise<number> {
   const { plane } = context;
-  const agent = await resolveAgent(plane, args.positional[2]);
+  // The reason first, then the lookup. Validating it costs nothing and needs no
+  // store, so an operator who typed the verb without a reason is shown the
+  // vocabulary immediately rather than being told the agent name is wrong.
   const reason = typedReason(args, CONTAINMENT_REASONS, "containment");
+  const agent = await resolveAgent(plane, args.positional[2]);
 
   const contained = await plane.enrollment.contain(operatorContext(args, context), agent.id, reason);
 
@@ -969,8 +989,11 @@ async function containAgent(args: CommandArgs, context: AgentsCommandContext): P
 
 async function releaseAgent(args: CommandArgs, context: AgentsCommandContext): Promise<number> {
   const { plane } = context;
-  const agent = await resolveAgent(plane, args.positional[2]);
+  // The reason first, then the lookup. Validating it costs nothing and needs no
+  // store, so an operator who typed the verb without a reason is shown the
+  // vocabulary immediately rather than being told the agent name is wrong.
   const reason = typedReason(args, RELEASE_REASONS, "release");
+  const agent = await resolveAgent(plane, args.positional[2]);
 
   const released = await plane.enrollment.release(operatorContext(args, context), agent.id, reason);
 
@@ -981,8 +1004,11 @@ async function releaseAgent(args: CommandArgs, context: AgentsCommandContext): P
 
 async function revokeAgent(args: CommandArgs, context: AgentsCommandContext): Promise<number> {
   const { plane } = context;
-  const agent = await resolveAgent(plane, args.positional[2]);
+  // The reason first, then the lookup. Validating it costs nothing and needs no
+  // store, so an operator who typed the verb without a reason is shown the
+  // vocabulary immediately rather than being told the agent name is wrong.
   const reason = typedReason(args, REVOCATION_REASONS, "revocation");
+  const agent = await resolveAgent(plane, args.positional[2]);
 
   if (flagPresent(args, "raise-approval")) {
     const approval = await context.approvals.request({
@@ -1201,4 +1227,3 @@ async function resolveAgent(
   return plane.enrollment.require(reference as ExternalAgentId);
 }
 
-export { EXTERNAL_PLANE_DISABLED };
