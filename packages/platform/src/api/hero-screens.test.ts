@@ -558,6 +558,16 @@ describe("the work queue", () => {
     expect(badSort.statusCode).toBe(400);
   });
 
+  it("means open work in every saved view", async () => {
+    await seed("rescission.package_check", "awaiting_approval");
+    const done = await seed("owner_services.response_draft", "succeeded");
+
+    const body = (await app.inject({ method: "GET", url: "/api/runs?view=unassigned" })).json();
+    // A queue of things that finished last month is not a queue. The pill
+    // beside it would carry a count nobody can act on.
+    expect(body.items.map((item: { runId: string }) => item.runId)).not.toContain(done.id);
+  });
+
   it("excludes work whose value is unknown from the high-value view", async () => {
     await seed("rescission.package_check", "awaiting_approval");
     const body = (await app.inject({ method: "GET", url: "/api/runs?view=high_value" })).json();

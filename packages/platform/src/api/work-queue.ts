@@ -203,7 +203,11 @@ export function parseWorkQueueQuery(
   // A saved view is shorthand for a filter set, and the explicit parameters win
   // where they disagree — otherwise a link with `?view=breaching&breaching=false`
   // would show breaching items, which is not what it says.
-  const viewStatus = view === "all_open" ? OPEN_STATUSES : undefined;
+  //
+  // Every saved view means *open* work. "Unassigned" listing runs that finished
+  // last month would be a queue of things nobody needs to pick up, and the pill
+  // beside it would carry a count nobody can act on.
+  const viewStatus = view === undefined ? undefined : OPEN_STATUSES;
 
   return {
     status: status ?? viewStatus,
