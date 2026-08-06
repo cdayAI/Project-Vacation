@@ -162,9 +162,14 @@ export function boundedText(
   // they would be invisible in a diff, and a reviewer could not tell whether
   // the set had been widened or narrowed. Prose keeps tab and newline;
   // everything else — a name, a tool, a scope — takes neither.
+  //
+  // The lint rule below exists to catch control characters that arrived in a
+  // pattern by accident. Here they are the entire subject of the pattern.
+  /* eslint-disable no-control-regex */
   const controls = options.multiline
     ? /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
     : /[\u0000-\u001F\u007F]/;
+  /* eslint-enable no-control-regex */
   if (controls.test(trimmed)) {
     throw new InvalidInputError(
       `${field} contains control characters, which are refused. They render one way in a console, another in a log, and a third in a database, and the gap between those readings is where a spoofed record hides.`,
@@ -236,6 +241,39 @@ export function boundedMoney(field: string, value: unknown, max: number): number
     throw new InvalidInputError(`${field} is ${value}, past the configured maximum of ${max}.`, field);
   }
   return value;
+}
+
+/**
+ * Bound a subject map — the opaque references saying what a piece of work was
+ * about.
+ *
+ * Both the key count and each value's length are bounded, because bounding only
+ * the values leaves the count carrying the payload instead: ten thousand keys
+ * of a hundred characters is a megabyte assembled entirely from legal fields.
+ */
+export function boundedSubject(
+  field: string,
+  value: unknown,
+  maxKeys: number,
+  maxLength: number,
+): Record<string, string> {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new InvalidInputError(`${field} must be an object of string references.`, field);
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > maxKeys) {
+    throw new InvalidInputError(
+      `${field} has ${entries.length} keys, past the limit of ${maxKeys}.`,
+      field,
+    );
+  }
+  const out: Record<string, string> = {};
+  for (const [key, entry] of entries) {
+    const name = boundedText(`${field} key`, key, 64);
+    out[name] = boundedText(`${field}.${name}`, entry, maxLength);
+  }
+  return out;
 }
 
 /** Refuse a count that is not a positive integer within its cap. */

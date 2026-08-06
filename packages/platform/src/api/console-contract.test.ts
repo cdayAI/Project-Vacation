@@ -65,9 +65,10 @@ const KNOWN_UNIMPLEMENTED = [
  * and yields nothing. The second failure is the dangerous one: a path the test
  * silently never checked looks exactly like a path that passed.
  */
-function extractClientPaths(source: string): string[] {
+function extractClientPaths(text: string): string[] {
   const paths = new Set<string>();
   const PATH_CHARS = /[A-Za-z0-9/_.-]/;
+  const source = withoutComments(text);
 
   for (let i = 0; i < source.length - 1; i += 1) {
     const quote = source[i];
@@ -117,6 +118,64 @@ function extractClientPaths(source: string): string[] {
   }
 
   return [...paths].sort();
+}
+
+/**
+ * Blank out comments, preserving offsets.
+ *
+ * Prose about a path is not a call to it. A comment explaining that the roster
+ * is "deliberately not under `/external`" was read as a call to `/api/external`
+ * and demanded a route nothing invokes — which teaches the reader that this
+ * test's failures are noise, and that is how a real drift gets waved through.
+ *
+ * String-aware, because `"https://…"` inside a literal is not the start of a
+ * comment, and blanking from there would swallow the rest of the line.
+ */
+function withoutComments(source: string): string {
+  const out: string[] = [];
+  let quote: string | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const char = source[i] ?? "";
+
+    if (quote) {
+      out.push(char);
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      out.push(char);
+      continue;
+    }
+
+    if (char === "/" && source[i + 1] === "/") {
+      while (i < source.length && source[i] !== "\n") {
+        out.push(" ");
+        i += 1;
+      }
+      out.push("\n");
+      continue;
+    }
+
+    if (char === "/" && source[i + 1] === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      for (let scan = i; scan < stop; scan += 1) {
+        out.push(source[scan] === "\n" ? "\n" : " ");
+      }
+      i = stop - 1;
+      continue;
+    }
+
+    out.push(char);
+  }
+
+  return out.join("");
 }
 
 /** Every route the server registers, as `METHOD /path`. */

@@ -82,20 +82,21 @@ export class RateLimiter {
   }
 
   /**
-   * Count one request and refuse if it is over the limit.
+   * Count one request and report whether it is within the limit.
    *
    * Counting happens first and unconditionally, including for the request that
    * is about to be refused. An agent that could avoid being counted by being
    * over the limit would find that its penalty for flooding is that flooding
    * stops being measured.
    *
-   * @throws {DeniedError} `ceiling.rate_exceeded` when over the limit, and
-   *   `record.unavailable` when the ledger cannot be read or written — a limit
-   *   we cannot enforce refuses rather than waves the request through.
+   * @throws {DeniedError} `record.unavailable` when the ledger cannot be read
+   *   or written — a limit we cannot enforce refuses rather than waves the
+   *   request through.
    */
-  async admit(agentId: ExternalAgentId, operation: string): Promise<RateLimitReading> {
-    const limit = this.policy.perOperationPerMinute;
-
+  async check(
+    agentId: ExternalAgentId,
+    operation: string,
+  ): Promise<{ readonly allowed: boolean; readonly count: number }> {
     let used: number;
     try {
       used = await this.limits.recordRequest(
@@ -116,7 +117,27 @@ export class RateLimiter {
       );
     }
 
-    if (used > limit) {
+    // Reporting rather than throwing, because the admission chain has to record
+    // the denial against the agent and answer it in a structured form. The
+    // chain, not this method, decides what a refusal looks like.
+    return { allowed: used <= this.policy.perOperationPerMinute, count: used };
+  }
+
+  /**
+   * Count one request and refuse if it is over the limit.
+   *
+   * The refusing form of `check`, for callers that want the denial raised
+   * rather than reported — and which therefore also want the denial counted
+   * toward containment, since being over a limit is the agent's own doing.
+   *
+   * @throws {DeniedError} `ceiling.rate_exceeded` when over the limit, and
+   *   `record.unavailable` when the ledger cannot be read or written.
+   */
+  async admit(agentId: ExternalAgentId, operation: string): Promise<RateLimitReading> {
+    const limit = this.policy.perOperationPerMinute;
+    const { allowed, count: used } = await this.check(agentId, operation);
+
+    if (!allowed) {
       const outcome = await this.noteDenial(agentId, {
         denialClass: "misbehaviour",
         reason: `over the ${limit}-per-minute limit for ${operation}`,
@@ -136,6 +157,21 @@ export class RateLimiter {
     }
 
     return { operation, used, limit, remaining: Math.max(0, limit - used) };
+  }
+
+  /**
+   * The narrow denial hook the admission chain calls.
+   *
+   * Present so `RateLimiter` satisfies `RateLimiterLike` without the chain
+   * having to know about windows, containment thresholds or outcomes. It
+   * delegates to `noteDenial`, which is where the one decision lives.
+   */
+  async recordDenial(
+    agentId: ExternalAgentId,
+    denialClass: DenialClass,
+    reason = "refused by the admission chain",
+  ): Promise<void> {
+    await this.noteDenial(agentId, { denialClass, reason });
   }
 
   /**

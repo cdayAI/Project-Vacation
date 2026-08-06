@@ -339,6 +339,17 @@ describe("the artifact allowlist", () => {
     );
   });
 
+  it("keeps a body that stays inside every bound", () => {
+    expect(() =>
+      assertArtifactContent("routing_rule", {
+        matchSignature: "deadline.wrong_jurisdiction",
+        routeTo: "compliance_review_queue",
+        priority: 2,
+        active: true,
+      }),
+    ).not.toThrow();
+  });
+
   it("names the absence of an artifact rather than leaving a hole", () => {
     const absent = absentArtifact("routing_rule", "intake.route");
     expect(absent.version).toBe(0);

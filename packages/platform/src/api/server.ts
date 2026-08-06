@@ -2,8 +2,16 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cookie from "@fastify/cookie";
 import { DeniedError, InvalidInputError } from "../kernel/errors.js";
 import { verifyChain } from "../audit/chain.js";
+import {
+  EXTERNAL_PLANE_DISABLED,
+  externalAgentHealth,
+  externalHealthPorts,
+} from "../external/health.js";
 import type { ActorRef } from "../record/types.js";
 import type { Platform } from "../platform.js";
+import { externalRouteDeps, registerExternalRoutes } from "./external.js";
+import { externalAgentDetail, rosterRow } from "./external-roster.js";
+import type { ExternalAgentId } from "../external/types.js";
 
 /**
  * The HTTP surface.
@@ -184,6 +192,16 @@ export function createServer(options: ServerOptions): FastifyInstance {
   const healthHandler = async () => {
     const head = await platform.audit.head();
     const switches = await platform.containment.list();
+    // The four external-agent conditions an operator needs without asking. They
+    // ride on the health payload rather than living behind their own endpoint
+    // because the whole point of them is to be seen by somebody who did not
+    // come looking — see external/health.ts.
+    const externalAgents = platform.external.enabled
+      ? await externalAgentHealth(
+          externalHealthPorts(platform.external.stores),
+          platform.clock.nowIso(),
+        )
+      : EXTERNAL_PLANE_DISABLED;
     return {
       status: "ok",
       environment: platform.config.environment,
@@ -195,6 +213,7 @@ export function createServer(options: ServerOptions): FastifyInstance {
       discoveryEnabled: platform.config.discoveryEnabled,
       modelProvider: platform.config.modelProvider,
       auditHeadSeq: head?.seq ?? null,
+      externalAgents,
       containment: switches.map((entry) => ({
         scope: entry.scope,
         target: entry.target,
@@ -523,6 +542,61 @@ export function createServer(options: ServerOptions): FastifyInstance {
       offset: 0,
     })),
   );
+
+  // -------------------------------------------------------------------------
+  // The operator's view of the external-agent plane
+  // -------------------------------------------------------------------------
+  //
+  // Session-authenticated console reads, hyphenated and plural, and
+  // deliberately NOT under `/api/external` — that prefix belongs to the agents
+  // themselves and carries a different authentication path entirely.
+  //
+  // The whole roster arrives in one page. It is bounded by the deployment's
+  // seat cap, so a filtered count in the console stays honest: "2 contained"
+  // means two of everything enrolled, not two of whatever page loaded.
+
+  app.get("/api/external-agents", async (request) =>
+    authorized(request, "record.read_run", async () => {
+      const query = request.query as Record<string, string | undefined>;
+      const limit = Math.min(Number(query.limit ?? 200) || 200, 500);
+      const offset = Number(query.offset ?? 0) || 0;
+      const now = platform.clock.nowIso();
+
+      const [agents, total] = await Promise.all([
+        platform.external.stores.agents.listAgents({ limit, offset }),
+        platform.external.stores.agents.countAgents(),
+      ]);
+
+      const items = await Promise.all(agents.map((agent) => rosterRow(platform, agent, now)));
+      return { items, total, limit, offset };
+    }),
+  );
+
+  app.get("/api/external-agents/:agentId", async (request, reply) =>
+    authorized(request, "record.read_run", async () => {
+      const { agentId } = request.params as { agentId: string };
+      const detail = await externalAgentDetail(
+        platform,
+        agentId as ExternalAgentId,
+        platform.clock.nowIso(),
+      );
+      if (!detail) {
+        void reply.status(404);
+        return { error: "not_found", message: `No external agent is enrolled under ${agentId}.` };
+      }
+      return detail;
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // The inbound surface for agents running outside this platform
+  // -------------------------------------------------------------------------
+  //
+  // Registered as an encapsulated plugin under /api/external, with its own
+  // authentication, its own body bounds, and its own error handler. Nothing
+  // above it applies: these callers are third parties presenting agent
+  // credentials, not operators holding a session. See api/external.ts.
+  registerExternalRoutes(app, externalRouteDeps(platform));
 
   return app;
 }

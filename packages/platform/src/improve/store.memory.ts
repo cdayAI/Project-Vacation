@@ -571,17 +571,31 @@ function assertArtifactRow(artifact: ArtifactRecord): void {
   if (!isDigest(artifact.digest)) {
     throw new InvalidInputError(`An artifact version needs a sha256 digest.`, "digest");
   }
-  // Mirrors the provenance CHECK: a version installed by the loop names both
-  // the proposal and the approval it came from.
+  // Mirrors the provenance CHECK. Version 1 is the artifact as the deployment
+  // declared it, reviewed in source control. Every version after it names the
+  // proposal and the approval that produced it — which is what makes "nothing
+  // changes behaviour without a recorded human decision" a property of the
+  // store rather than only of the code path that usually writes to it.
   const hasProposal = artifact.proposalId !== undefined;
   const hasApproval = artifact.approvalId !== undefined;
-  if (hasProposal !== hasApproval) {
+
+  if (artifact.version === 1) {
+    if (hasProposal || hasApproval) {
+      throw new InvalidInputError(
+        `The first version of artifact "${artifact.id}" comes from deployment configuration and carries no runtime approval. A first version proposed by the loop would be the loop creating an artifact, which it does not do.`,
+        "approvalId",
+      );
+    }
+    return;
+  }
+
+  if (!hasProposal || !hasApproval) {
     throw new InvalidInputError(
-      `An artifact version installed by the improvement loop names both the proposal and the approval it was applied on.`,
+      `Version ${artifact.version} of artifact "${artifact.id}" names no proposal and approval. Every version after the first was applied on a human decision, and the record says which one.`,
       "approvalId",
     );
   }
-  if (hasApproval && !String(artifact.approvalId).startsWith("apr_")) {
+  if (!String(artifact.approvalId).startsWith("apr_")) {
     throw new InvalidInputError(
       `An artifact version's approvalId must be an approval identifier.`,
       "approvalId",

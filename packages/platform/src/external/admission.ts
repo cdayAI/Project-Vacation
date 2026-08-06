@@ -343,6 +343,7 @@ export class AdmissionService {
         correlationId: request.correlationId,
         subject: {
           ...boundedSubject(request.subject),
+          principal: "external",
           externalAgentId: agent.id,
           agentName: agent.name,
           tool: request.tool,
@@ -397,6 +398,10 @@ export class AdmissionService {
       correlationId: request.correlationId,
       subject: {
         ...boundedSubject(request.subject),
+        // The same marker the operating record carries, so one filter finds
+        // every trace of external work — runs, approvals, audit entries —
+        // rather than three conventions a reader has to know about.
+        principal: "external",
         externalAgentId: agent.id,
         agentName: agent.name,
         hostPlatform: agent.hostPlatform,
@@ -424,7 +429,7 @@ export class AdmissionService {
     // because our own database blipped punishes them for our outage and teaches
     // them the platform is unreliable rather than strict.
     if (denialClass === "misbehaviour") {
-      await this.rateLimiter.recordDenial(request.agentId, denialClass);
+      await this.rateLimiter.recordDenial(request.agentId, denialClass, `${reason}: ${message}`);
     }
 
     try {

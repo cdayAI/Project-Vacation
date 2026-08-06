@@ -24,5 +24,16 @@ export interface RateLimiterLike {
    * releases it; our own infrastructure failures are excluded upstream, because
    * containing a team for our outage punishes them for our problem.
    */
-  recordDenial(agentId: ExternalAgentId, denialClass: DenialClass): Promise<void>;
+  recordDenial(
+    agentId: ExternalAgentId,
+    denialClass: DenialClass,
+    /**
+     * Why, in a sentence an operator can read.
+     *
+     * Carried because an automatic containment says "after N denials" and the
+     * first question anyone asks is "denials of what". Optional so a caller
+     * with nothing useful to add is not forced to invent something.
+     */
+    reason?: string,
+  ): Promise<void>;
 }

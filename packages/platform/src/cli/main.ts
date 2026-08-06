@@ -41,6 +41,11 @@ Project Vacation — operator commands
                      [--target <name>] --reason <text>
   containment release --scope <...> [--target <name>] --reason <text>
 
+  agents <verb>                   Govern the agents MVW runs elsewhere.
+                                  list, show, health, enroll, update, contain,
+                                  release, revoke, credential, runs, parked.
+                                  Run "agents" alone for the full usage.
+
   actions list                    Show the action registry with risk tiers
   config show                     Show effective configuration and warnings
   health                          Report platform health
@@ -392,6 +397,33 @@ async function main(): Promise<number> {
         return await commandContainment(args, platform);
       case "actions":
         return commandActions(args, platform);
+      case "agents": {
+        // Imported here rather than at the top so that a deployment with no
+        // external-agent plane never loads the module at all, and so that this
+        // file's own dependency graph stays as small as its other commands'.
+        const { commandAgents, AGENTS_USAGE } = await import("./external.js");
+        if (args.positional[1] === undefined) {
+          console.error(AGENTS_USAGE);
+          return 2;
+        }
+        if (!platform.external.enabled) {
+          // Refused rather than served against an empty roster. An empty roster
+          // reads as "nothing is running out there", which is a claim a
+          // deployment with the plane switched off has not earned and cannot
+          // make. The plane ships off; turning it on is a deliberate act.
+          console.error(
+            "The external-agent plane is switched off in this deployment (PV_EXTERNAL_AGENTS_ENABLED). Nothing is governed here, which is different from having a plane with nothing enrolled in it.",
+          );
+          return 78; // EX_CONFIG
+        }
+        return await commandAgents(args, {
+          plane: platform.external,
+          approvals: platform.approvals,
+          nowIso: () => platform.clock.nowIso(),
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
+      }
       case "health":
         return await commandHealth(args, platform);
       case "serve": {

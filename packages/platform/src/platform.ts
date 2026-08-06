@@ -20,6 +20,9 @@ import { ContainmentController } from "./guard/containment.js";
 import { ActionRegistry } from "./guard/registry.js";
 import { Authorizer } from "./guard/authorize.js";
 import { createSandbox, type Sandbox } from "./guard/sandbox.js";
+import { buildExternalPlane, type ExternalPlane } from "./external/plane.js";
+import type { Connector } from "./external/connectors.js";
+import type { SecretResolver } from "./external/credentials.js";
 import { PLATFORM_ACTIONS } from "./actions.js";
 
 /**
@@ -57,6 +60,15 @@ export interface Platform {
   readonly registry: ActionRegistry;
   readonly authorizer: Authorizer;
   readonly sandbox: Sandbox;
+  /**
+   * Governance for agents running outside this platform.
+   *
+   * Always composed, whatever `PV_EXTERNAL_AGENTS_ENABLED` says. The flag
+   * decides whether the inbound surface answers, not whether the controls
+   * exist: a plane assembled only when enabled would be a plane whose first
+   * exercise happened in production on the day somebody switched it on.
+   */
+  readonly external: ExternalPlane;
   /** Present only when the Postgres store is in use. */
   readonly db?: Db;
   /** Release connections. Safe to call more than once. */
@@ -74,6 +86,16 @@ export interface BuildOptions {
   readonly logger?: Logger;
   /** Reuse an existing in-memory database, for tests that inspect it. */
   readonly memoryDb?: MemoryDb;
+  /**
+   * Governed operations external agents may be granted.
+   *
+   * Empty by default. A deployment that has not decided which systems an
+   * external agent may reach through this platform should expose none, rather
+   * than a plausible-looking set nobody approved.
+   */
+  readonly connectors?: readonly Connector[];
+  /** Resolves HMAC secrets by name at verify time. */
+  readonly secrets?: SecretResolver;
 }
 
 export async function buildPlatform(
@@ -99,6 +121,7 @@ export async function buildPlatform(
   let approvals: ApprovalService;
   let containment: ContainmentController;
   let db: Db | undefined;
+  let memoryDb: MemoryDb | undefined;
   let pool: pg.Pool | undefined;
 
   if (config.store === "postgres") {
@@ -117,6 +140,7 @@ export async function buildPlatform(
     containment = new ContainmentController(new PgContainmentStore(db), clock, auditLog);
   } else {
     const memory = options.memoryDb ?? new MemoryDb();
+    memoryDb = memory;
     runs = new MemoryRunStore(memory, clock, ids);
     auditLog = new AuditLog(new MemoryAuditStore(memory), clock, ids);
     approvals = new ApprovalService(new MemoryApprovalStore(memory), clock, ids, auditLog);
@@ -151,6 +175,21 @@ export async function buildPlatform(
     clock,
   });
 
+  const external = buildExternalPlane({
+    config,
+    clock,
+    ids,
+    audit: auditLog,
+    record: runs,
+    approvals,
+    authorizer,
+    containment,
+    db,
+    memoryDb,
+    ...(options.connectors ? { connectors: options.connectors } : {}),
+    ...(options.secrets ? { secrets: options.secrets } : {}),
+  });
+
   // The startup banner is not decoration. An operator must be able to see, at a
   // glance, whether the sandbox is contained and whether employee observation
   // is switched on — without reading the environment.
@@ -160,6 +199,7 @@ export async function buildPlatform(
     sandboxContained: sandbox.isContained,
     discoveryEnabled: config.discoveryEnabled,
     modelProvider: config.modelProvider,
+    externalAgentsEnabled: config.externalAgentsEnabled,
   });
   for (const warning of config.warnings) logger.warn(warning);
 
@@ -176,6 +216,7 @@ export async function buildPlatform(
     registry,
     authorizer,
     sandbox,
+    external,
     db,
     async close() {
       if (pool) await pool.end();

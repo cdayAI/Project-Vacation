@@ -3,6 +3,7 @@ import { FixedClock, MINUTE, HOUR, DAY } from "../kernel/clock.js";
 import { SeededIdGenerator } from "../kernel/ids.js";
 import { digestValue } from "../kernel/hash.js";
 import { DeniedError, InvalidInputError } from "../kernel/errors.js";
+import { RISK_TIERS as CONFIG_RISK_TIERS } from "../kernel/config.js";
 import { MemoryDb } from "../store/db.js";
 import { MemoryRunStore } from "../record/store.memory.js";
 import { MemoryAuditStore } from "../audit/store.memory.js";
@@ -18,6 +19,7 @@ import { Authorizer } from "./authorize.js";
 import { screen, screenSafely } from "./screen.js";
 import { DisabledSandbox, SubprocessSandbox, ExternalSandbox, createSandbox } from "./sandbox.js";
 import type { ContainmentStore } from "./port.js";
+import { RISK_TIERS } from "./types.js";
 
 /**
  * Tests for the governance spine.
@@ -151,6 +153,16 @@ async function makeRun(h: Harness, requestedBy: ActorRef) {
 // ---------------------------------------------------------------------------
 
 describe("action registry", () => {
+  /**
+   * `kernel/config.ts` sits below the guard and cannot import its types, so it
+   * spells the tiers out again to validate `PV_EXTERNAL_APPROVAL_THRESHOLD`.
+   * If the two lists ever drift, a configured threshold could name a tier that
+   * does not exist — an approval gate that silently never fires.
+   */
+  it("agrees with the tier list configuration validates against", () => {
+    expect([...CONFIG_RISK_TIERS]).toEqual([...RISK_TIERS]);
+  });
+
   it("refuses an action nobody classified", () => {
     const h = build();
     expect(() => h.registry.require("contact.send_carrier_pigeon")).toThrow(DeniedError);

@@ -538,6 +538,37 @@ async function approvedProposal(h: Harness): Promise<{
   return { roleId, proposal: drafted, approvalId: approval.id };
 }
 
+/**
+ * Somebody else's approved change, landing on the same artifact.
+ *
+ * Written through the store rather than the applier because the scenario is
+ * "another operator got there first", and the point of the test is what the
+ * *first* operator's revert or application does when it finds the world moved.
+ * The provenance is supplied because the store refuses a version above the
+ * first that names no proposal and no approval.
+ */
+async function installAnotherChange(
+  h: Harness,
+  version: number,
+  expectedHeadVersion: number,
+): Promise<void> {
+  const content = { promptTemplateId: TASK, promptTemplateVersion: 1 };
+  await h.stores.artifacts.installArtifact({
+    artifact: {
+      kind: "prompt_binding",
+      id: BINDING_ID,
+      version,
+      content,
+      digest: digestValue({ kind: "prompt_binding", id: BINDING_ID, version, content }),
+      recordedAt: h.clock.nowIso(),
+      recordedBy: SUPERVISOR,
+      proposalId: h.ids.next("proposal"),
+      approvalId: h.ids.next("approval"),
+    },
+    expectedHeadVersion,
+  });
+}
+
 async function auditKinds(h: Harness): Promise<readonly AuditEventType[]> {
   const entries = await h.audit.list();
   return entries.map((entry) => entry.eventType);
@@ -1387,25 +1418,9 @@ describe("apply and revert", () => {
       secondsSinceAuthentication: 5,
     });
 
-    // Somebody moved the artifact on. Reverting now would restore a state
-    // nobody chose over the one that is live.
-    await h.stores.artifacts.installArtifact({
-      artifact: {
-        kind: "prompt_binding",
-        id: BINDING_ID,
-        version: 3,
-        content: { promptTemplateId: TASK, promptTemplateVersion: 1 },
-        digest: digestValue({
-          kind: "prompt_binding",
-          id: BINDING_ID,
-          version: 3,
-          content: { promptTemplateId: TASK, promptTemplateVersion: 1 },
-        }),
-        recordedAt: h.clock.nowIso(),
-        recordedBy: ADMIN,
-      },
-      expectedHeadVersion: 2,
-    });
+    // Another approved change has landed on top. Reverting now would restore a
+    // state nobody chose over the one that is live.
+    await installAnotherChange(h, 3, 2);
 
     const denial = await denialOf(async () =>
       h.applier.revert({
@@ -1859,23 +1874,7 @@ describe("the gate: no autonomous application", () => {
     const h = build();
     const { proposal, approvalId } = await approvedProposal(h);
 
-    await h.stores.artifacts.installArtifact({
-      artifact: {
-        kind: "prompt_binding",
-        id: BINDING_ID,
-        version: 2,
-        content: { promptTemplateId: TASK, promptTemplateVersion: 1 },
-        digest: digestValue({
-          kind: "prompt_binding",
-          id: BINDING_ID,
-          version: 2,
-          content: { promptTemplateId: TASK, promptTemplateVersion: 1 },
-        }),
-        recordedAt: h.clock.nowIso(),
-        recordedBy: SUPERVISOR,
-      },
-      expectedHeadVersion: 1,
-    });
+    await installAnotherChange(h, 2, 1);
 
     const denial = await denialOf(async () =>
       h.applier.apply({
@@ -1973,6 +1972,33 @@ describe("the gate: no autonomous application", () => {
     );
     expect(denial.reason).toBe("authorization.action_not_permitted");
     expect(denial.message).toContain("cannot be enabled by configuration");
+  });
+
+  it("refuses a stored artifact version that names no human decision", async () => {
+    const h = build();
+    await seed(h);
+    const content = { promptTemplateId: TASK, promptTemplateVersion: 2 };
+
+    // Reaching past the applier entirely, straight at the store. The version
+    // above the first has to name the proposal and the approval that produced
+    // it, so this is refused by the store as well as by everything above it.
+    await expect(
+      h.stores.artifacts.installArtifact({
+        artifact: {
+          kind: "prompt_binding",
+          id: BINDING_ID,
+          version: 2,
+          content,
+          digest: digestValue({ kind: "prompt_binding", id: BINDING_ID, version: 2, content }),
+          recordedAt: h.clock.nowIso(),
+          recordedBy: ADMIN,
+        },
+        expectedHeadVersion: 1,
+      }),
+    ).rejects.toBeInstanceOf(InvalidInputError);
+
+    const head = await h.artifacts.require("prompt_binding", BINDING_ID);
+    expect(head.version).toBe(1);
   });
 
   it("records every refusal in the chain, so fifty attempts are visible", async () => {

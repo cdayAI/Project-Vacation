@@ -203,13 +203,22 @@ export class ExecutionService {
 
     const now = this.clock.now();
 
+    // Read once, and use it for both the preview and the approval summary. The
+    // approver needs to know which agent, on whose platform, is asking — the
+    // request body alone cannot tell them.
+    const agent = await this.enrollment.getAgent(request.agentId);
+
     const action: ParkedAction = {
       id: this.ids.next("parkedAction"),
       agentId: request.agentId,
       integration: request.integration,
       operation: request.operation,
       requestDigest,
-      preview: previewOf(request.request),
+      preview: previewOf(request.request, {
+        action: `${request.integration}.${request.operation}`,
+        agent: agent ? `${agent.name} (${agent.department}, owner ${agent.owner})` : request.agentId,
+        ...(agent ? { hostPlatform: agent.hostPlatform } : {}),
+      }),
       status: "pending",
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + this.parkedTtlMs).toISOString(),
@@ -221,7 +230,6 @@ export class ExecutionService {
     let approvalId: Id<"approval">;
     try {
       {
-        const agent = await this.enrollment.getAgent(request.agentId);
         const approval = await this.approvals.request({
           action: "external.execute_write",
           // The approval binds to the digest of the exact request, so a human's
@@ -568,8 +576,23 @@ export class ExecutionService {
  */
 export function previewOf(
   request: Record<string, unknown>,
+  /**
+   * What is being done, and by whom.
+   *
+   * First rows deliberately, because a list of field values answers "with what"
+   * and never "what". An approver who has to infer the operation from the shape
+   * of the payload is being asked to guess.
+   */
+  context?: {
+    readonly action?: string;
+    readonly agent?: string;
+    readonly hostPlatform?: string;
+  },
 ): readonly { readonly label: string; readonly value: string }[] {
   const preview: { label: string; value: string }[] = [];
+  if (context?.action) preview.push({ label: "Action", value: context.action });
+  if (context?.agent) preview.push({ label: "Requested by", value: context.agent });
+  if (context?.hostPlatform) preview.push({ label: "Running on", value: context.hostPlatform });
   for (const [key, value] of Object.entries(request).slice(0, 32)) {
     let rendered: string;
     if (value === null || value === undefined) rendered = "(none)";

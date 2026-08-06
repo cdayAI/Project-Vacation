@@ -1,4 +1,5 @@
 import type { ActionDefinition } from "./guard/registry.js";
+import { EXTERNAL_AGENT_ACTIONS } from "./external/enrollment.js";
 
 /**
  * The action registry contents.
@@ -292,4 +293,12 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     allowedRoles: [],
     humanInvolvement: "human_only",
   },
+
+  // ---------------------------------------------------------------------
+  // The external-agent lifecycle, defined next to the plane it governs and
+  // spliced in here so that this file remains the one list a reviewer reads.
+  // Governing an agent MVW already has is an effect this platform produces
+  // like any other, and it is refused if it is not in this registry.
+  // ---------------------------------------------------------------------
+  ...EXTERNAL_AGENT_ACTIONS,
 ];

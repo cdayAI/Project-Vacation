@@ -127,12 +127,15 @@ CREATE TABLE IF NOT EXISTS improvement_artifact (
   ),
   CONSTRAINT improvement_artifact_digest_shape CHECK (digest ~ '${DIGEST_SQL}'),
   CONSTRAINT improvement_artifact_recorded_at_utc CHECK (recorded_at ~ '${ISO_UTC_SQL}'),
-  -- A version installed by the loop names both the proposal and the approval.
-  -- Version 1 may carry neither: it comes from deployment configuration, which
-  -- is reviewed in source control rather than approved at runtime.
+  -- Version 1 is the artifact as the deployment declared it: reviewed in source
+  -- control, so it carries no runtime approval. **Every version after it names
+  -- the proposal and the approval that produced it**, which is what makes "no
+  -- behaviour change without a recorded human decision" true of the table
+  -- rather than only of the code path that usually writes to it.
   CONSTRAINT improvement_artifact_provenance CHECK (
-    (proposal_id IS NULL AND approval_id IS NULL)
-    OR (proposal_id IS NOT NULL AND approval_id IS NOT NULL AND approval_id ~ '^apr_')
+    (version = 1 AND proposal_id IS NULL AND approval_id IS NULL)
+    OR (version > 1 AND proposal_id IS NOT NULL AND approval_id IS NOT NULL
+        AND approval_id ~ '^apr_')
   )
 );
 
