@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { DenialView } from "../api/contract";
 import { DefinitionList, type DefinitionItem } from "../components";
 
@@ -87,6 +88,10 @@ export interface DenialProps {
 
 export function Denial({ denial, attempted, headingLevel = 2 }: DenialProps) {
   const Heading = `h${headingLevel}` as "h1" | "h2" | "h3";
+  // Generated rather than fixed: a decision that is refused renders a second
+  // Denial inside ApprovalDetail, and two elements sharing an id would leave
+  // aria-labelledby pointing at whichever one the browser found first.
+  const headingId = useId();
 
   const detailItems: DefinitionItem[] = Object.entries(denial.detail).map(([key, value]) => ({
     term: key,
@@ -94,8 +99,8 @@ export function Denial({ denial, attempted, headingLevel = 2 }: DenialProps) {
   }));
 
   return (
-    <section className="pv-denial" aria-labelledby="denial-heading">
-      <Heading className="pv-denial-heading" id="denial-heading">
+    <section className="pv-denial" aria-labelledby={headingId}>
+      <Heading className="pv-denial-heading" id={headingId}>
         {attempted === undefined ? "The platform refused this action" : `Refused: ${attempted}`}
       </Heading>
 

@@ -1070,6 +1070,54 @@ describe("audit log content rules", () => {
     ).rejects.toThrow(/credential/);
   });
 
+  it("refuses a payload smuggled across many small keys", async () => {
+    // Every value here is under the per-value cap. The payload is carried by
+    // the number of keys instead, which is the shape a per-value check misses.
+    const subject: Record<string, string> = {};
+    for (let i = 0; i < 20_000; i += 1) subject[`k${i}`] = "x".repeat(200);
+
+    await expect(
+      h.audit.record({
+        eventType: "run.started",
+        actor: actor("agent-1", ["owner_services_agent"]),
+        subject,
+        inputDigests: {},
+        decision: {},
+      }),
+    ).rejects.toThrow(/past the limit of 32/);
+  });
+
+  it("refuses an entry whose total content is oversized even within the key limits", async () => {
+    // Thirty-two keys is legal; thirty-two keys of 250 characters each is not,
+    // once the whole entry is measured.
+    const subject: Record<string, string> = {};
+    for (let i = 0; i < 32; i += 1) subject[`k${i}`] = "x".repeat(250);
+    const decision: Record<string, string> = {};
+    for (let i = 0; i < 64; i += 1) decision[`d${i}`] = "y".repeat(1000);
+
+    await expect(
+      h.audit.record({
+        eventType: "run.started",
+        actor: actor("agent-1", ["owner_services_agent"]),
+        subject,
+        inputDigests: {},
+        decision,
+      }),
+    ).rejects.toThrow(/past the 16384-byte limit/);
+  });
+
+  it("still accepts an ordinary decision with several fields", async () => {
+    await expect(
+      h.audit.record({
+        eventType: "authorization.granted",
+        actor: actor("agent-1", ["owner_services_agent"]),
+        subject: { contractId: "ctr_demo", state: "FL", action: "contract.check_rescission" },
+        inputDigests: { proposal: digestValue({ a: 1 }), policy: digestValue({ b: 2 }) },
+        decision: { risk: "sensitive", mode: "supervised", reversible: true, cost: 0.01 },
+      }),
+    ).resolves.toBeDefined();
+  });
+
   it("refuses a nested payload in the decision", async () => {
     await expect(
       h.audit.record({

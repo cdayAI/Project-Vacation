@@ -1,4 +1,5 @@
 import type { Clock } from "../kernel/clock.js";
+import { canonicalJson } from "../kernel/canonical.js";
 import { DeniedError } from "../kernel/errors.js";
 import type { Digest } from "../kernel/hash.js";
 import { isDigest } from "../kernel/hash.js";
@@ -24,6 +25,14 @@ import type { AuditEntry, AuditEventType, AuditFilter, NewAuditEntry } from "./t
  *   3. A failed append raises. "The receipt is unavailable" must stop the
  *      action, not be logged and stepped over.
  */
+/**
+ * Ceiling on the canonical size of one entry's content.
+ *
+ * Generous enough that no legitimate decision comes close, small enough that a
+ * seven-year chain stays cheap to store and quick to verify.
+ */
+const MAX_ENTRY_CONTENT_BYTES = 16 * 1024;
+
 export class AuditLog {
   constructor(
     private readonly store: AuditStore,
@@ -82,6 +91,45 @@ export class AuditLog {
    * record of something that should never have been retained.
    */
   private assertNoRawPayloads(content: NewAuditEntry): void {
+    // Bound the shape before bounding the values.
+    //
+    // Capping each value's length is not enough on its own: every individual
+    // value can sit under its cap while the number of keys carries the payload
+    // instead. Twenty thousand keys of two hundred characters is a four-megabyte
+    // audit entry composed entirely of legal values — which defeats the point of
+    // storing fingerprints, makes verification hashing expensive forever, and is
+    // a denial-of-service against the store. So the counts are capped too, and
+    // so is the total size of the whole entry.
+    const shapeLimits = [
+      { name: "inputDigests", value: content.inputDigests ?? {}, max: 32 },
+      { name: "subject", value: content.subject ?? {}, max: 32 },
+      { name: "decision", value: content.decision ?? {}, max: 64 },
+    ] as const;
+
+    for (const limit of shapeLimits) {
+      const count = Object.keys(limit.value).length;
+      if (count > limit.max) {
+        throw new DeniedError(
+          "record.unavailable",
+          `Audit ${limit.name} has ${count} keys, past the limit of ${limit.max}. An audit entry records a decision, not a dataset.`,
+          { field: limit.name, count, eventType: content.eventType },
+        );
+      }
+    }
+
+    const contentSize = canonicalJson({
+      subject: content.subject ?? {},
+      inputDigests: content.inputDigests ?? {},
+      decision: content.decision ?? {},
+    }).length;
+    if (contentSize > MAX_ENTRY_CONTENT_BYTES) {
+      throw new DeniedError(
+        "record.unavailable",
+        `Audit entry content is ${contentSize} bytes, past the ${MAX_ENTRY_CONTENT_BYTES}-byte limit. Record a digest of the material instead of the material.`,
+        { size: contentSize, eventType: content.eventType },
+      );
+    }
+
     for (const [key, value] of Object.entries(content.inputDigests ?? {})) {
       if (typeof value !== "string" || !isDigest(value)) {
         throw new DeniedError(

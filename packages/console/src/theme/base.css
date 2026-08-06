@@ -197,8 +197,13 @@ pre {
   text-decoration: none;
 }
 
-.pv-skip-link:focus-visible {
+/* :focus rather than :focus-visible. The skip link is unreachable except by
+   keyboard, so there is no mouse-focus case to exclude, and :focus is the one
+   that no browser has ever been inconsistent about. */
+.pv-skip-link:focus {
   transform: translateY(0);
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
 }
 
 /* -----------------------------------------------------------------------------

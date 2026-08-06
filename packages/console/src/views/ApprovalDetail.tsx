@@ -84,6 +84,14 @@ export function ApprovalDetail({
       : (approval.viewerMayNotDecideReason ??
         "You are not eligible to decide this approval. Eligibility is set by role, and by the rule that nobody approves their own proposal.");
 
+  // An unavailable control that does not say why is worse than no control.
+  const decideControlDescribedBy =
+    blockingReason !== null
+      ? "approval-decide-blocked"
+      : submitting
+        ? "approval-decide-submitting"
+        : undefined;
+
   const proposalItems: DefinitionItem[] = approval.proposal.map((entry) => ({
     term: entry.label,
     description: entry.value,
@@ -319,11 +327,17 @@ export function ApprovalDetail({
           </p>
         )}
 
+        {submitting && (
+          <p id="approval-decide-submitting" className="pv-meta" role="status">
+            Recording your decision. The controls are unavailable until the platform answers.
+          </p>
+        )}
+
         <div className="pv-row" style={{ marginTop: "var(--pv-space-4)" }}>
           <Button
             variant="primary"
             unavailable={blockingReason !== null || submitting}
-            describedBy={blockingReason !== null ? "approval-decide-blocked" : undefined}
+            describedBy={decideControlDescribedBy}
             onClick={() => openDialog("granted")}
           >
             Approve this action
@@ -331,7 +345,7 @@ export function ApprovalDetail({
           <Button
             variant="danger"
             unavailable={blockingReason !== null || submitting}
-            describedBy={blockingReason !== null ? "approval-decide-blocked" : undefined}
+            describedBy={decideControlDescribedBy}
             onClick={() => openDialog("rejected")}
           >
             Reject

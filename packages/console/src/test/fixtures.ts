@@ -267,14 +267,6 @@ export const approvalViewerMayNotDecide: ApprovalView = {
   requiresStepUp: false,
 };
 
-export const approvalExpired: ApprovalView = {
-  ...approvalViewerMayNotDecide,
-  approvalId: "apr_01k3n0a1b2",
-  expiresAt: "2026-01-01T00:00:00.000Z",
-  viewerMayDecide: true,
-  requiresStepUp: false,
-};
-
 export const runWithRefusedStep: RunDetailView = {
   runId: "run_01k3m6h1c5",
   kind: "loan_file.evidence_pack",
