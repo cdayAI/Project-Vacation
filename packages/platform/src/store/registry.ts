@@ -7,6 +7,9 @@ import { MIGRATIONS as IDENTITY_MIGRATIONS } from "../identity/migrations.js";
 import { MIGRATIONS as CONTACT_MIGRATIONS } from "../contact/migrations.js";
 import { MIGRATIONS as INTEGRATIONS_MIGRATIONS } from "../integrations/migrations.js";
 import { MIGRATIONS as DOCUMENT_MIGRATIONS } from "../documents/migrations.js";
+import { MIGRATIONS as DISCOVERY_MIGRATIONS } from "../discovery/migrations.js";
+import { MIGRATIONS as ROLE_MIGRATIONS } from "../roles/migrations.js";
+import { MIGRATIONS as ENGINE_MIGRATIONS } from "../engine/migrations.js";
 import { orderMigrations, type Migration } from "./migrate.js";
 
 /**
@@ -43,6 +46,9 @@ const SOURCES: readonly (readonly Migration[])[] = [
   CONTACT_MIGRATIONS,
   INTEGRATIONS_MIGRATIONS,
   DOCUMENT_MIGRATIONS,
+  DISCOVERY_MIGRATIONS,
+  ROLE_MIGRATIONS,
+  ENGINE_MIGRATIONS,
 ];
 
 /**

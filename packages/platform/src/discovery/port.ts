@@ -126,8 +126,16 @@ export interface DiscoveryStore {
 
   countObservations(filter: ObservationFilter): Promise<number>;
 
-  /** Delete every observation recorded before `cutoff`. Returns the row count. */
-  purgeObservationsBefore(cutoff: IsoTimestamp): Promise<number>;
+  /**
+   * Delete every observation recorded before `cutoff`. Returns the row count.
+   *
+   * `subjectRef` narrows the purge to one person, which is what an enrollment
+   * that chose a shorter retention period than the deployment default needs.
+   * Omitting it purges across every subject, including observations whose
+   * enrollment no longer exists — the rows nobody is looking for are exactly
+   * the rows a per-enrollment sweep would miss.
+   */
+  purgeObservationsBefore(cutoff: IsoTimestamp, subjectRef?: string): Promise<number>;
 
   /**
    * Destroy everything held about one person, in one operation.
