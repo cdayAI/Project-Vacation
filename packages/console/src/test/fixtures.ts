@@ -1,8 +1,10 @@
 import type {
   ApprovalView,
+  ApprovalDetailView,
   AuditEntryView,
   AuditVerificationView,
   ContainmentView,
+  CorrectionView,
   DenialView,
   DiscoveryCandidateView,
   ExecutiveView,
@@ -17,6 +19,7 @@ import type {
   SessionView,
   WorkflowInstanceView,
   WorkQueueItem,
+  WorkQueuePage,
 } from "../api/contract";
 
 /**
@@ -51,10 +54,29 @@ export const agentOperator = {
   roles: ["owner_services_agent"],
 } as const;
 
+export const associationManager = {
+  actorId: "act_9d51ab73",
+  displayName: "Yolanda Sarmiento",
+  roles: ["association_manager"],
+} as const;
+
+export const platformAdmin = {
+  actorId: "act_31f0b28c",
+  displayName: "Ewan Castellanos",
+  roles: ["platform_admin"],
+} as const;
+
 export const auditor = {
   actorId: "act_04e6cc19",
   displayName: "Helen Braithwaite",
   roles: ["auditor"],
+} as const;
+
+/** A vendor's agent running in MVW's CRM, not in this platform. */
+export const externalAgentActor = {
+  actorId: "xag_01k3p7c2m9",
+  displayName: "sf-quotebot",
+  roles: ["external_agent"],
 } as const;
 
 export const session: SessionView = {
@@ -131,104 +153,295 @@ export const alarmingPlatform: HealthView = {
   warnings: ["Model inventory is using a development configuration file."],
 };
 
+/**
+ * The work queue, in the seven columns §3.1 fixes.
+ *
+ * Deliberately mixed. Some rows carry an owner name and a case value because
+ * a deployment with its systems of record connected has them; others carry
+ * only the honest absence a deployment without them reports. A screen tested
+ * against one of those states is a screen that falls over the first time it
+ * meets the other, and the absent state is the one this repository ships in.
+ */
 export const workQueueItems: readonly WorkQueueItem[] = [
   {
     runId: "run_01k3m9x2p7",
     kind: "rescission.package_check",
-    title: "Rescission package check — contract CTR-2026-FL-0184423 (FL)",
+    title: "Rescission package check — contract CTR-2026-FL-0184423",
+    subtitle: "Public offering statement receipt missing from the delivered package · FL",
     status: "awaiting_approval",
     mode: "supervised",
     createdAt: "2026-08-04T13:02:11.000Z",
+    slaStartedAt: "2026-08-04T13:02:11.000Z",
     dueAt: "2026-08-05T13:02:11.000Z",
+    slaPolicy: "Rescission package check — one business day",
     slaBreached: true,
+    owner: { accountRef: "CTR-2026-FL-0184423", name: "M. Delgado" },
+    valueUsd: 28_400,
+    assignment: "assigned",
+    assignee: supervisor,
     assignedRole: "owner_services_supervisor",
+    nextAction: "Approve or reject the parked action",
+    nextActionApprovalId: "apr_01k3n2f6r4",
     costUsd: 0.4821,
     waitingOn: "A supervisor to approve sending the corrected disclosure package.",
   },
   {
     runId: "run_01k3m9y8q1",
     kind: "rescission.clock_compute",
-    title: "Rescission deadline recompute — contract CTR-2026-SC-0177015 (SC)",
+    title: "Rescission deadline recompute — contract CTR-2026-SC-0177015",
+    subtitle: "Shadow — nothing this run proposes will land · SC",
     status: "running",
     mode: "shadow",
     createdAt: "2026-08-06T07:41:55.000Z",
+    slaStartedAt: "2026-08-06T07:41:55.000Z",
     dueAt: "2026-08-06T19:41:55.000Z",
+    slaPolicy: "Statutory clock recompute — twelve hours",
     slaBreached: false,
+    owner: { accountRef: "CTR-2026-SC-0177015", name: "R. Ashworth" },
+    valueUsd: 19_950,
+    assignment: "unassigned",
+    nextAction: "Wait — the platform is working on it",
     costUsd: 0.0037,
     waitingOn: "The statutory rules corpus for South Carolina to finish loading.",
   },
   {
     runId: "run_01k3m8w4t9",
     kind: "association.board_pack",
-    title: "Board pack assembly — Coral Bay Owners Association, Inc. (FL), Q3 2026",
+    title: "Board pack assembly — Coral Bay Owners Association, Inc., Q3 2026",
+    subtitle: "Reserve study extract outstanding · FL",
     status: "awaiting_human",
     mode: "assisted",
     createdAt: "2026-08-03T16:20:00.000Z",
+    slaStartedAt: "2026-08-03T16:20:00.000Z",
     dueAt: "2026-08-07T16:20:00.000Z",
+    slaPolicy: "Association board pack — four days before the meeting",
     slaBreached: false,
+    owner: { accountRef: "ASN-FL-0031", name: "Coral Bay Owners Association, Inc." },
+    valueUsd: 1_412_000,
+    assignment: "assigned",
+    assignee: associationManager,
     assignedRole: "association_manager",
+    nextAction: "Complete the human task",
     costUsd: 2.1408,
     waitingOn: "The reserve study extract for the 2026 fiscal year.",
   },
   {
+    runId: "run_01k3mc2f80",
+    kind: "maintenance_fee.collection_review",
+    title: "Maintenance-fee collection review — interest SUN-2019-AZ-0044120",
+    subtitle: "62 days past due · AZ",
+    status: "awaiting_approval",
+    mode: "supervised",
+    createdAt: "2026-08-05T08:00:00.000Z",
+    slaStartedAt: "2026-08-05T08:00:00.000Z",
+    dueAt: "2026-08-07T08:00:00.000Z",
+    slaPolicy: "Maintenance-fee collection review — two days",
+    slaBreached: false,
+    owner: { accountRef: "SUN-2019-AZ-0044120", name: "T. Okonkwo" },
+    valueUsd: 1_284,
+    assignment: "assigned",
+    assignee: complianceReviewer,
+    assignedRole: "compliance_reviewer",
+    nextAction: "Approve or reject the parked action",
+    nextActionApprovalId: "apr_01k3n3z9w7",
+    costUsd: 0.1147,
+    waitingOn: "A compliance reviewer to approve the first arrears notice.",
+  },
+  {
     runId: "run_01k3m7r6v2",
     kind: "owner_services.response_draft",
-    title: "Owner enquiry draft — points reinstatement, member 4471-889-02",
+    title: "Owner enquiry draft — points reinstatement, membership MBR-4471-889-02",
+    subtitle: "A draft reply was produced and placed in the agent's queue.",
     status: "succeeded",
     mode: "assisted",
     createdAt: "2026-08-05T11:05:30.000Z",
+    slaStartedAt: "2026-08-05T11:05:31.000Z",
+    dueAt: "2026-08-05T15:05:31.000Z",
+    slaPolicy: "Owner enquiry first response — four hours",
     slaBreached: false,
+    // The state this repository ships in: opaque reference, no name, and a
+    // sentence saying why rather than a blank cell.
+    owner: {
+      accountRef: "MBR-4471-889-02",
+      nameUnknown:
+        "The operating record holds an opaque account reference, never an owner's name. Connect the owner system of record to show one here.",
+    },
+    valueUnknown:
+      "Case value comes from the contract and billing systems of record, which are not connected to this deployment.",
+    assignment: "assigned",
     assignedRole: "owner_services_agent",
+    nextAction: "Check the result and close the case",
     costUsd: 0.0912,
   },
   {
     runId: "run_01k3m6h1c5",
     kind: "loan_file.evidence_pack",
-    title: "Delinquency evidence pack — loan LN-2024-NV-0930881 (NV)",
+    title: "Delinquency evidence pack — loan LN-2024-NV-0930881",
+    subtitle:
+      "The platform refused to rank or sequence borrowers. It will assemble the evidence and a person decides the treatment. · NV",
     status: "denied",
     mode: "supervised",
     createdAt: "2026-08-02T09:15:44.000Z",
-    dueAt: "2026-08-04T09:15:44.000Z",
-    slaBreached: true,
+    slaStartedAt: "2026-08-02T09:15:45.000Z",
+    dueAt: "2026-08-04T09:15:45.000Z",
+    slaPolicy: "Delinquency evidence pack — two days",
+    slaBreached: false,
+    owner: { accountRef: "LN-2024-NV-0930881", name: "J. Mbeki" },
+    valueUsd: 41_770,
+    assignment: "assigned",
     assignedRole: "consumer_finance_analyst",
+    nextAction: "Read the refusal and take it forward by hand",
     costUsd: 0.0,
-    waitingOn: "Nothing — the platform refused this action and it will not proceed.",
+    waitingOn: "nothing — the platform refused this and it will not proceed",
   },
   {
     runId: "run_01k3m5d0b8",
     kind: "association.budget_variance",
-    title: "Budget variance narrative — Palmetto Dunes Vacation Owners Association, Inc. (SC)",
+    title: "Budget variance narrative — Palmetto Dunes Vacation Owners Association, Inc.",
+    subtitle: "Shadow — nothing this run proposes will land · SC",
     status: "pending",
     mode: "shadow",
     createdAt: "2026-08-06T06:00:00.000Z",
+    slaStartedAt: "2026-08-06T06:00:00.000Z",
+    dueAt: "2026-08-09T06:00:00.000Z",
+    slaPolicy: "Budget variance narrative — three days",
     slaBreached: false,
+    owner: { accountRef: "ASN-SC-0114", name: "Palmetto Dunes Vacation Owners Association, Inc." },
+    valueUsd: 903_500,
+    assignment: "unassigned",
+    nextAction: "Start the run",
     costUsd: 0.0,
   },
   {
     runId: "run_01k3m4a7n3",
     kind: "rescission.package_check",
-    title: "Rescission package check — contract CTR-2026-HI-0166204 (HI)",
+    title: "Rescission package check — contract CTR-2026-HI-0166204",
+    subtitle: "The retrieval step failed three times against the contract records system. · HI",
     status: "failed",
     mode: "supervised",
     createdAt: "2026-08-01T22:48:03.000Z",
+    slaStartedAt: "2026-08-01T22:48:03.000Z",
     dueAt: "2026-08-02T22:48:03.000Z",
-    slaBreached: true,
+    slaPolicy: "Rescission package check — one business day",
+    slaBreached: false,
+    owner: { accountRef: "CTR-2026-HI-0166204", name: "L. Kahananui" },
+    valueUsd: 33_100,
+    assignment: "assigned",
     assignedRole: "owner_services_supervisor",
+    nextAction: "Review the failure and decide whether to retry",
     costUsd: 0.3311,
-    waitingOn: "Nothing — the run failed and has not been restarted.",
+  },
+  {
+    // A kind nobody has agreed a service level for. The age column has no band
+    // to draw, and the screen says so instead of inventing a deadline.
+    runId: "run_01k3md0k41",
+    kind: "inventory.recovery_forecast",
+    title: "Inventory recovery forecast — Kaanapali phase 3",
+    subtitle: "Shadow — nothing this run proposes will land · HI",
+    status: "running",
+    mode: "shadow",
+    createdAt: "2026-08-06T05:12:00.000Z",
+    slaStartedAt: "2026-08-06T05:12:00.000Z",
+    slaTargetUnknown:
+      'No service-level target is declared for "inventory.recovery_forecast", so this item has no age band.',
+    slaBreached: false,
+    ownerUnknown: "This run carries no account reference, so there is no owner to show.",
+    valueUnknown:
+      "Case value comes from the contract and billing systems of record, which are not connected to this deployment.",
+    assignment: "not_tracked",
+    nextAction: "Wait — the platform is working on it",
+    costUsd: 0.6104,
   },
 ];
 
-export const approvalAwaitingDecision: ApprovalView = {
+/** The queue as the endpoint returns it, filter state and all. */
+export const workQueue: WorkQueuePage = {
+  items: workQueueItems,
+  total: workQueueItems.length,
+  limit: 50,
+  offset: 0,
+  totalIsExact: true,
+  view: "all_open",
+  sort: "age_desc",
+  highValueFloorUsd: 1000,
+};
+
+/**
+ * A page whose count is not the whole truth.
+ *
+ * Reached when a filter the store cannot apply is resolved over a bounded
+ * window. The console has to say so: a result count that quietly rounds down
+ * is how a supervisor concludes the queue is shorter than it is.
+ */
+export const workQueueInexactCount: WorkQueuePage = {
+  ...workQueue,
+  items: workQueueItems.filter((item) => item.slaBreached),
+  total: 1,
+  totalIsExact: false,
+  view: "breaching",
+};
+
+export const workQueueEmpty: WorkQueuePage = {
+  ...workQueue,
+  items: [],
+  total: 0,
+  view: "all_open",
+};
+
+/**
+ * The approval an approver opens first: a corrected disclosure package that
+ * moves a statutory cancellation deadline.
+ *
+ * Fully populated, because a deployment with its document store and its
+ * corpus wired has all of this. The artifact re-digests to the proposal
+ * digest, which is what makes the inline preview safe to read — a preview
+ * that merely represented the proposal would let somebody read one letter and
+ * sign another.
+ */
+export const approvalAwaitingDecision: ApprovalDetailView = {
   approvalId: "apr_01k3n2f6r4",
-  action: "documents.send_corrected_disclosure",
-  actionDescription:
-    "Send a corrected disclosure package to the purchaser on contract CTR-2026-FL-0184423",
+  action: "document.generate_owner_facing",
+  actionDescription: "Generate a document that will be delivered to an owner.",
+  ask: "Produce a document an owner will receive — CTR-2026-FL-0184423",
   risk: "high_consequence",
   reversible: false,
   summary:
     "The original disclosure package for this Florida contract omitted the public offering statement receipt. Sending a corrected package restarts the statutory rescission period from the date of delivery, which moves the purchaser's cancellation deadline and the associated funding hold.",
-  proposalDigest: "9c4f1ea77b0d38625af0c9b34e1d5a8206ff73c19ad48be05723c6d1f8904b7e",
+  proposalDigest: "sha256:9c4f1ea77b0d38625af0c9b34e1d5a8206ff73c19ad48be05723c6d1f8904b7e",
+  provenance: {
+    kind: "workflow",
+    label: "Rescission package check",
+    actor: agentOperator,
+    origin: "rescission.package_check",
+    runId: "run_01k3m9x2p7",
+    basis: "Raised by a workflow step on a run in the operating record.",
+  },
+  effects: [
+    "The corrected package is rendered from the approved template at revision 3 and stored against contract CTR-2026-FL-0184423.",
+    "It becomes deliverable by certified mail with return receipt; the delivery step that follows does not ask again.",
+    "The purchaser's cancellation deadline moves from 12 August to 20 August 2026, and the funding hold extends to 21 August.",
+    "The rendered document's digest is bound to this approval, so a document altered afterwards cannot be delivered under it.",
+  ],
+  ifRejected:
+    "No document is produced. The contract stays flagged for compliance review and the drafting step can be re-run with different inputs.",
+  rule: {
+    ruleId: "document.generate_owner_facing",
+    name: "Generate owner facing (document)",
+    threshold: "high consequence · 2 approvers · step-up re-authentication",
+    risk: "high_consequence",
+    humanInvolvement: "a human approves before the effect lands",
+    approvalsRequired: 2,
+    requiresStepUp: true,
+    source: "action_registry",
+    registered: true,
+  },
+  blastRadius: {
+    ownersAffected: 1,
+    moneyUsd: 28_400,
+    reversal:
+      "A document that has not yet been delivered can be superseded by a new version. Once it has left the platform it cannot be withdrawn.",
+    jurisdictions: ["FL"],
+  },
   proposal: [
     { label: "Contract", value: "CTR-2026-FL-0184423" },
     { label: "State", value: "FL" },
@@ -239,7 +452,117 @@ export const approvalAwaitingDecision: ApprovalView = {
     { label: "Current rescission deadline", value: "12 August 2026, 23:59 America/New_York" },
     { label: "Deadline if this is sent", value: "20 August 2026, 23:59 America/New_York" },
     { label: "Funding hold extended to", value: "21 August 2026" },
-    { label: "Statutory basis", value: "Fla. Stat. §721.10 (placeholder citation — unverified)" },
+  ],
+  artifact: {
+    kind: "letter",
+    title: "Corrected disclosure package — cover letter",
+    mediaType: "text/plain",
+    body: [
+      "Coral Bay Owners Association, Inc.",
+      "Re: Contract CTR-2026-FL-0184423",
+      "",
+      "Dear Purchaser,",
+      "",
+      "We are writing to correct the disclosure package delivered to you on 30 July 2026.",
+      "That package did not include your signed receipt for the public offering statement.",
+      "A complete package, including the receipt at revision 3, is enclosed.",
+      "",
+      "Because the corrected package is being delivered today, your right to cancel this",
+      "purchase runs from the date you receive it. Your cancellation deadline is now",
+      "20 August 2026 at 11:59 pm Eastern time. Nothing you have already signed shortens",
+      "that period.",
+      "",
+      "To cancel, write to the address on the enclosed notice. You do not have to give a",
+      "reason, and you will owe nothing.",
+      "",
+      "Owner Services",
+    ].join("\n"),
+    digest: "sha256:9c4f1ea77b0d38625af0c9b34e1d5a8206ff73c19ad48be05723c6d1f8904b7e",
+    matchesProposalDigest: true,
+  },
+  evidence: [
+    {
+      citationId: "chk_fl_721_00412",
+      source: "Florida timeshare disclosure and cancellation rules",
+      version: "2026.2",
+      effectiveFrom: "2026-01-01",
+      jurisdiction: "FL",
+      passage:
+        "A purchaser may cancel a contract until midnight of the tenth calendar day after whichever is later: the date the purchaser signed the contract, or the date on which the purchaser received the last of all documents required to be provided.",
+      sourceUri: "https://example.invalid/corpus/fl-timeshare/2026.2#00412",
+      stale: false,
+    },
+    {
+      citationId: "chk_fl_721_00418",
+      source: "Florida timeshare disclosure and cancellation rules",
+      version: "2026.2",
+      effectiveFrom: "2026-01-01",
+      jurisdiction: "FL",
+      passage:
+        "Where a required document is delivered after execution, the cancellation period runs from delivery of that document and any earlier expiry is of no effect.",
+      sourceUri: "https://example.invalid/corpus/fl-timeshare/2026.2#00418",
+      stale: false,
+    },
+    {
+      citationId: "chk_int_disc_00087",
+      source: "Internal disclosure package standard",
+      version: "2024.3",
+      effectiveFrom: "2024-06-01",
+      effectiveTo: "2026-06-01",
+      passage:
+        "A disclosure package is complete only when the purchaser's signed receipt for the public offering statement is included at the current revision.",
+      stale: true,
+    },
+  ],
+  priorDecisions: [
+    {
+      approvalId: "apr_01k3jd8x02",
+      ask: "Produce a document an owner will receive — CTR-2026-FL-0179886",
+      decidedBy: complianceReviewer,
+      decision: "granted",
+      decidedAt: "2026-07-31T14:22:05.000Z",
+      outcome: "completed",
+      outcomeDetail: "The corrected package was delivered and the deadline moved as calculated.",
+      runId: "run_01k3jd8wzz",
+    },
+    {
+      approvalId: "apr_01k3j1v7m5",
+      ask: "Produce a document an owner will receive — CTR-2026-FL-0178402",
+      decidedBy: supervisor,
+      decision: "rejected",
+      decidedAt: "2026-07-29T09:47:31.000Z",
+      outcome: "not_carried_out",
+      outcomeDetail: "Rejected — the action never happened.",
+    },
+    {
+      approvalId: "apr_01k3hp3q88",
+      ask: "Produce a document an owner will receive — CTR-2026-SC-0177015",
+      decidedBy: complianceReviewer,
+      decision: "granted",
+      decidedAt: "2026-07-27T16:03:12.000Z",
+      outcome: "failed",
+      outcomeDetail: "The document renderer could not resolve the association's registered address.",
+      runId: "run_01k3hp3q7a",
+    },
+    {
+      approvalId: "apr_01k3h4d1n0",
+      ask: "Produce a document an owner will receive — CTR-2026-FL-0175330",
+      decidedBy: supervisor,
+      decision: "granted",
+      decidedAt: "2026-07-24T11:15:40.000Z",
+      outcome: "completed",
+      outcomeDetail: "The corrected package was delivered.",
+      runId: "run_01k3h4d1mp",
+    },
+    {
+      approvalId: "apr_01k3g8b6t2",
+      ask: "Produce a document an owner will receive — CTR-2026-HI-0166204",
+      decidedBy: complianceReviewer,
+      decision: "granted",
+      decidedAt: "2026-07-21T08:55:19.000Z",
+      outcome: "awaiting_execution",
+      outcomeDetail: "Granted, and not yet spent. The action has not happened yet.",
+    },
   ],
   requestedBy: agentOperator,
   requestedAt: "2026-08-06T08:11:00.000Z",
@@ -252,24 +575,330 @@ export const approvalAwaitingDecision: ApprovalView = {
       actor: complianceReviewer,
       decision: "granted",
       decidedAt: "2026-08-06T08:44:19.000Z",
-      note: "Rescission recompute checked against the FL rule as loaded. Note the rule is still marked unverified in the corpus.",
+      note: "Rescission recompute checked against the FL rule as loaded. Note the internal package standard is past its review date.",
     },
   ],
   viewerMayDecide: true,
   requiresStepUp: true,
+  runId: "run_01k3m9x2p7",
 };
 
-export const approvalViewerMayNotDecide: ApprovalView = {
+/**
+ * The same screen with the fields this deployment cannot source.
+ *
+ * The honest state, and the one this repository ships in: the record keeps a
+ * digest of the proposal rather than its content, and nothing links an
+ * approval to the passages behind it. Every gap carries a sentence. A screen
+ * tested only against the populated fixture above is a screen that renders
+ * four blank cells the first time it meets a real deployment.
+ */
+export const approvalWithUnknowns: ApprovalDetailView = {
   ...approvalAwaitingDecision,
-  approvalId: "apr_01k3n3z9w7",
-  action: "contact.send_collections_letter",
+  approvalId: "apr_01k3n5m2b8",
+  action: "contact.send_owner_message",
   actionDescription:
-    "Send a maintenance-fee arrears letter to the owner of interest SUN-2019-AZ-0044120",
-  risk: "sensitive",
+    "Send a message to an owner. Passes the contact gate and requires approval; a sent message cannot be unsent.",
+  ask: "Send a message to an owner — CTR-2026-FL-0184423",
+  summary: "Notify the purchaser that their corrected package is on its way.",
+  effects: [
+    "The message leaves the platform through the messaging integration and reaches the owner.",
+    "The contact compliance gate is consulted first: a suppressed destination or a quiet-hours window refuses the send even after this approval.",
+    "The message, its template version, and this approval are written to the operating record as one linked event.",
+  ],
+  ifRejected:
+    "Nothing is sent. The case returns to the owner-services queue with the rejection reason attached, and the reason is captured as improvement signal.",
+  rule: {
+    ruleId: "contact.send_owner_message",
+    name: "Send owner message (contact)",
+    threshold: "high consequence · 1 approver · step-up re-authentication",
+    risk: "high_consequence",
+    humanInvolvement: "a human approves before the effect lands",
+    approvalsRequired: 1,
+    requiresStepUp: true,
+    source: "action_registry",
+    registered: true,
+  },
+  blastRadius: {
+    ownersAffectedUnknown:
+      "The proposal does not state how many owners it reaches, and this platform cannot count them without the contract system of record.",
+    moneyUnknown:
+      "No monetary amount is stated on this proposal. Money moves in MVW's billing systems, which this deployment does not read.",
+    reversal:
+      "A sent message cannot be recalled. The only remedy is a second, corrective message, which is itself a new approval.",
+    jurisdictions: ["FL"],
+  },
+  artifact: undefined,
+  artifactUnknown:
+    "This deployment holds a digest of the proposal, not its content, so there is nothing to preview inline. The digest below is what the decision binds to.",
+  evidence: [],
+  evidenceUnknown:
+    "No corpus is connected to this deployment's approval path, so the passages behind this proposal cannot be shown here.",
+  priorDecisions: [],
+  approvalsRequired: 1,
+  approvalsGranted: 0,
+  decisions: [],
+};
+
+/**
+ * A vendor's agent asking for something, badged as such.
+ *
+ * The rule is unregistered on purpose: `external.issue_refund` is a tool name
+ * from somebody else's product, and this platform has deliberately not
+ * classified what it does. Saying so is the point — an approver seeing "issue
+ * a refund" needs to know it was asked for by a bot running in the CRM, not by
+ * a colleague, because it changes what they check before saying yes.
+ */
+export const approvalFromExternalAgent: ApprovalDetailView = {
+  approvalId: "apr_01k3p8h4d6",
+  action: "external.issue_refund",
+  actionDescription:
+    'An external agent\'s operation. "external.issue_refund" is not a registered platform action, so this platform has not classified what it does.',
+  ask: 'Let sf-quotebot run "issue_refund" — MBR-4471-889-02',
+  risk: "high_consequence",
+  reversible: false,
+  summary:
+    '[external agent] sf-quotebot on Salesforce Agentforce requests "issue_refund" — quotes and adjusts owner billing enquiries raised in the CRM',
+  proposalDigest: "sha256:2b6e0c9145af73d0182ce4b975a3f60821dd7ec4f0b93a5162d80fae4c317b09",
+  provenance: {
+    kind: "external_agent",
+    label: "sf-quotebot",
+    actor: externalAgentActor,
+    origin: "Salesforce Agentforce",
+    accountable: "Marc Webb, Owner Services Technology",
+    basis:
+      "The approval's subject carries the external-agent marker written by the admission chain.",
+  },
+  effects: [
+    "sf-quotebot performs \"issue_refund\" on Salesforce Agentforce.",
+    "The effect happens in that system, not in this one. This platform records that it was authorised, at what risk rating, and what it cost.",
+    "What the tool actually does is the vendor's declaration, not a capability this platform has classified.",
+  ],
+  ifRejected:
+    "The action does not happen. The request is closed as rejected and the reason is captured as improvement signal.",
+  rule: {
+    ruleId: "external.issue_refund",
+    name: "Admission threshold for external.issue_refund",
+    threshold: "high consequence · 1 approver · step-up re-authentication",
+    risk: "high_consequence",
+    humanInvolvement: "a human approves before the effect lands",
+    approvalsRequired: 1,
+    requiresStepUp: true,
+    source: "external_admission",
+    registered: false,
+  },
+  blastRadius: {
+    ownersAffected: 1,
+    moneyUsd: 412.5,
+    reversal:
+      "No reversal procedure is declared, and this action is not marked reversible. Treat it as permanent.",
+    jurisdictions: [],
+  },
+  proposal: [
+    { label: "principal", value: "external" },
+    { label: "agentName", value: "sf-quotebot" },
+    { label: "hostPlatform", value: "Salesforce Agentforce" },
+    { label: "owner", value: "Marc Webb, Owner Services Technology" },
+    { label: "department", value: "Owner Services Technology" },
+    { label: "tool", value: "issue_refund" },
+    { label: "membershipId", value: "MBR-4471-889-02" },
+    { label: "amountUsd", value: "412.50" },
+    { label: "effectiveRisk", value: "high_consequence" },
+  ],
+  artifactUnknown:
+    "This deployment holds a digest of the proposal, not its content, so there is nothing to preview inline. The digest below is what the decision binds to.",
+  evidence: [],
+  evidenceUnknown:
+    "This proposal cites no passages. That is worth asking about before approving anything that turns on an authority.",
+  priorDecisions: [
+    {
+      approvalId: "apr_01k3nz2p71",
+      ask: 'Let sf-quotebot run "issue_refund" — MBR-3320-771-08',
+      decidedBy: supervisor,
+      decision: "rejected",
+      decidedAt: "2026-08-05T13:09:44.000Z",
+      outcome: "not_carried_out",
+      outcomeDetail: "Rejected — the action never happened.",
+    },
+    {
+      approvalId: "apr_01k3nm7v33",
+      ask: 'Let sf-quotebot run "issue_refund" — MBR-1180-204-11',
+      decidedBy: supervisor,
+      decision: "rejected",
+      decidedAt: "2026-08-04T10:31:02.000Z",
+      outcome: "not_carried_out",
+      outcomeDetail: "Rejected — the action never happened.",
+    },
+    {
+      approvalId: "apr_01k3n9r0c7",
+      ask: 'Let sf-quotebot run "issue_refund" — MBR-6640-119-03',
+      decidedBy: complianceReviewer,
+      decision: "granted",
+      decidedAt: "2026-08-03T15:52:18.000Z",
+      outcome: "refused",
+      outcomeDetail:
+        "The platform refused the action after it was approved: the agent's spend ceiling for the period was already reached.",
+      runId: "run_01k3n9r0bt",
+    },
+  ],
+  requestedBy: externalAgentActor,
+  requestedAt: "2026-08-06T10:02:00.000Z",
+  expiresAt: "2026-08-06T11:02:00.000Z",
+  approvalsRequired: 1,
+  approvalsGranted: 0,
+  eligibleRoles: ["supervisor", "compliance_reviewer"],
+  decisions: [],
+  viewerMayDecide: true,
+  requiresStepUp: true,
+};
+
+/** A change to what the platform itself will do next. The third badge. */
+export const approvalSystemChange: ApprovalDetailView = {
+  approvalId: "apr_01k3pb1r90",
+  action: "improvement.apply",
+  actionDescription:
+    "Apply an improvement proposal. Changes the platform's behaviour; there is no configuration that removes this gate.",
+  ask: "Change how the platform behaves — role_rescission_window",
+  risk: "high_consequence",
+  reversible: true,
+  summary:
+    "Bind the rescission-window task to prompt template rescission-extract v9, which adds the delivery-date branch the South Carolina cases needed.",
+  proposalDigest: "sha256:74c0a1d9e2b58f3607ac41bd9e05f28316cd7a4b0e93f215d8a6c07b3e15942d",
+  provenance: {
+    kind: "system_change",
+    label: platformAdmin.actorId,
+    actor: platformAdmin,
+    origin: "prompt_binding:rescission.extract",
+    basis:
+      '"improvement.apply" is declared in the action registry as changing what the platform itself will do next.',
+  },
+  effects: [
+    "The proposed value replaces the current head of prompt_binding:rescission.extract, and every run reading it from that moment uses the new value.",
+    "A snapshot of the value being replaced is taken first, so the change can be undone in one action.",
+    "The change is watched afterwards against its pre-change baseline; a regression alerts and offers the revert rather than taking it.",
+  ],
+  ifRejected:
+    "The artifact is untouched. The proposal is closed and the rejection is recorded against the failure cluster that produced it.",
+  rule: {
+    ruleId: "improvement.apply",
+    name: "Apply (improvement)",
+    threshold: "high consequence · 1 approver · step-up re-authentication",
+    risk: "high_consequence",
+    humanInvolvement: "a human approves before the effect lands",
+    approvalsRequired: 1,
+    requiresStepUp: true,
+    source: "action_registry",
+    registered: true,
+  },
+  blastRadius: {
+    ownersAffectedUnknown:
+      "The proposal does not state how many owners it reaches, and this platform cannot count them without the contract system of record.",
+    moneyUnknown:
+      "No monetary amount is stated on this proposal. Money moves in MVW's billing systems, which this deployment does not read.",
+    reversal:
+      "Revert to the snapshot taken at apply time, through `improvement.revert`, which needs no second approver.",
+    jurisdictions: [],
+  },
+  proposal: [
+    { label: "artifactId", value: "prompt_binding:rescission.extract" },
+    { label: "roleId", value: "role_rescission_window" },
+    { label: "fromVersion", value: "8" },
+    { label: "toVersion", value: "9" },
+    { label: "observations", value: "37" },
+  ],
+  artifact: {
+    kind: "configuration",
+    title: "prompt_binding:rescission.extract — version 9",
+    mediaType: "application/json",
+    body: JSON.stringify(
+      {
+        artifactId: "prompt_binding:rescission.extract",
+        fromVersion: 8,
+        observations: 37,
+        roleId: "role_rescission_window",
+        toVersion: 9,
+      },
+      null,
+      2,
+    ),
+    digest: "sha256:74c0a1d9e2b58f3607ac41bd9e05f28316cd7a4b0e93f215d8a6c07b3e15942d",
+    matchesProposalDigest: true,
+  },
+  evidence: [],
+  evidenceUnknown:
+    "This proposal cites no passages. That is worth asking about before approving anything that turns on an authority.",
+  priorDecisions: [
+    {
+      approvalId: "apr_01k3k2w8f4",
+      ask: "Change how the platform behaves — role_owner_services_drafting",
+      decidedBy: supervisor,
+      decision: "granted",
+      decidedAt: "2026-08-01T09:12:00.000Z",
+      outcome: "completed",
+      outcomeDetail: "The change applied and has held against its baseline for five days.",
+      runId: "run_01k3k2w8ex",
+    },
+  ],
+  requestedBy: platformAdmin,
+  requestedAt: "2026-08-06T09:40:00.000Z",
+  expiresAt: "2026-08-07T09:40:00.000Z",
+  approvalsRequired: 1,
+  approvalsGranted: 0,
+  eligibleRoles: ["supervisor", "compliance_reviewer", "platform_admin"],
+  decisions: [],
+  viewerMayDecide: true,
+  requiresStepUp: true,
+};
+
+/**
+ * An artifact preview the platform cannot vouch for.
+ *
+ * `matchesProposalDigest` is false: the body re-digests to something other
+ * than what the approval binds to. The console must say so loudly rather than
+ * letting the preview stand in for the thing being authorised — reading one
+ * letter and signing another is exactly what digest binding exists to stop.
+ */
+export const approvalWithUnverifiedArtifact: ApprovalDetailView = {
+  ...approvalAwaitingDecision,
+  approvalId: "apr_01k3pd6y15",
+  artifact: {
+    ...(approvalAwaitingDecision.artifact ?? {
+      kind: "letter" as const,
+      title: "",
+      mediaType: "text/plain",
+      body: "",
+      digest: "",
+      matchesProposalDigest: false,
+    }),
+    digest: "sha256:0aa1e6c88b73f52d09417ea6c3b508d21fa9764e0c8b3157dae204936f1c8b7e",
+    matchesProposalDigest: false,
+  },
+};
+
+export const approvalViewerMayNotDecide: ApprovalDetailView = {
+  ...approvalWithUnknowns,
+  approvalId: "apr_01k3n3z9w7",
+  action: "contact.send_owner_message",
+  ask: "Send a message to an owner — SUN-2019-AZ-0044120",
+  risk: "high_consequence",
   reversible: false,
   summary:
     "A first-stage arrears notice for an owner 62 days past due on the 2026 maintenance fee at Sunridge Canyon Owners Association. The letter is generated from the approved template and carries no settlement offer.",
-  proposalDigest: "1a7d0b9e5c34f8261099ab7de4c05f31872b6ad9e0c14f7358be2201d6a9c4f5",
+  proposalDigest: "sha256:1a7d0b9e5c34f8261099ab7de4c05f31872b6ad9e0c14f7358be2201d6a9c4f5",
+  provenance: {
+    kind: "workflow",
+    label: supervisor.actorId,
+    actor: supervisor,
+    origin: "maintenance_fee.collection_review",
+    runId: "run_01k3mc2f80",
+    basis: "Raised by a workflow step on a run in the operating record.",
+  },
+  blastRadius: {
+    ownersAffected: 1,
+    moneyUsd: 1_284,
+    reversal:
+      "A sent message cannot be recalled. The only remedy is a second, corrective message, which is itself a new approval.",
+    jurisdictions: ["AZ"],
+  },
   proposal: [
     { label: "Owner reference", value: "OWN-0044120" },
     { label: "Interest", value: "SUN-2019-AZ-0044120" },
@@ -289,20 +918,46 @@ export const approvalViewerMayNotDecide: ApprovalView = {
   decisions: [],
   viewerMayDecide: false,
   viewerMayNotDecideReason:
-    "You raised this proposal, and nobody may approve their own. A compliance reviewer has to decide it.",
+    "You requested this action, so you cannot approve it.",
   requiresStepUp: false,
+  runId: "run_01k3mc2f80",
 };
 
+/**
+ * The approval queue's rows.
+ *
+ * A queue row is a strict subset of the detail view — no evidence, no artifact
+ * preview, no prior-decision lookback — because those are per-approval reads
+ * and running them for every row nobody has opened would make the queue slow
+ * in exact proportion to how carefully the detail screen was built.
+ */
+export const approvalQueue: readonly ApprovalView[] = [
+  approvalAwaitingDecision,
+  approvalFromExternalAgent,
+  approvalSystemChange,
+  approvalViewerMayNotDecide,
+];
+
+/**
+ * A run the platform refused partway through.
+ *
+ * The refusal is the interesting part: the model step that would have ranked
+ * borrowers by recovery likelihood was denied, and nothing followed. Note that
+ * the denied step is not `correctable` — a refusal produced nothing to
+ * disagree with, and a "correction" filed against one would be a complaint
+ * about the refusal, which belongs on the refusal.
+ */
 export const runWithRefusedStep: RunDetailView = {
   runId: "run_01k3m6h1c5",
   kind: "loan_file.evidence_pack",
-  title: "Delinquency evidence pack — loan LN-2024-NV-0930881 (NV)",
+  title: "Delinquency evidence pack — loan LN-2024-NV-0930881",
   status: "denied",
   mode: "supervised",
   requestedBy: agentOperator,
   createdAt: "2026-08-02T09:15:44.000Z",
   startedAt: "2026-08-02T09:15:45.000Z",
   endedAt: "2026-08-02T09:16:02.000Z",
+  elapsedMs: 17_000,
   denialReason:
     "The platform refused to rank or sequence borrowers. It will assemble the evidence and a person decides the treatment.",
   steps: [
@@ -310,51 +965,116 @@ export const runWithRefusedStep: RunDetailView = {
       stepId: "stp_01k3m6h1c5_1",
       seq: 1,
       name: "Load loan file",
-      kind: "integration.read",
+      kind: "integration_call",
+      type: "action",
       status: "succeeded",
       startedAt: "2026-08-02T09:15:45.000Z",
       endedAt: "2026-08-02T09:15:47.400Z",
       durationMs: 2400,
       costUsd: 0,
       attempt: 1,
-      inputDigest: "44b1c07e9f2a5d8360cb14e7a09f5b2d3c81746ee0af9b25d3708c1a6e5f2093",
-      outputDigest: "c0d9a3b7e14f8256bb037ae9152d4c6f8a91e0374bd25c68f1a94e307db6512c",
+      inputDigest: "sha256:44b1c07e9f2a5d8360cb14e7a09f5b2d3c81746ee0af9b25d3708c1a6e5f2093",
+      outputDigest: "sha256:c0d9a3b7e14f8256bb037ae9152d4c6f8a91e0374bd25c68f1a94e307db6512c",
       detail: { loanId: "LN-2024-NV-0930881", state: "NV", daysPastDue: 121 },
+      citations: [],
+      correctable: false,
     },
     {
       stepId: "stp_01k3m6h1c5_2",
       seq: 2,
       name: "Extract contract and policy terms",
-      kind: "knowledge.retrieve",
+      kind: "retrieval",
+      type: "retrieval",
       status: "succeeded",
       startedAt: "2026-08-02T09:15:47.400Z",
       endedAt: "2026-08-02T09:15:52.900Z",
       durationMs: 5500,
       costUsd: 0.0184,
       attempt: 2,
-      inputDigest: "7e2f9c04a1b83d5f60cc21e4738a95b0df6172c8e93a04bd5271fc860a3e4197",
-      outputDigest: "b31e7d0c9a5426f8017cb2e94d80af35162e7c9b04daf1836e25c07a9b41d5e6",
+      inputDigest: "sha256:7e2f9c04a1b83d5f60cc21e4738a95b0df6172c8e93a04bd5271fc860a3e4197",
+      outputDigest: "sha256:b31e7d0c9a5426f8017cb2e94d80af35162e7c9b04daf1836e25c07a9b41d5e6",
       detail: { corpus: "nv-consumer-finance", passages: 6 },
+      provenance: {
+        retrieved: [
+          {
+            chunkId: "chk_nv_cf_00412",
+            documentTitle: "Nevada consumer finance servicing policy",
+            documentVersion: "2025.4",
+            effectiveFrom: "2025-10-01T00:00:00.000Z",
+            jurisdiction: "NV",
+            excerpt:
+              "A servicer shall provide written notice of default not less than thirty days before commencing any remedy affecting the borrower's interest.",
+            sourceUri: "https://example.invalid/corpus/nv-consumer-finance/2025.4#00412",
+            stale: false,
+          },
+          {
+            chunkId: "chk_int_col_00097",
+            documentTitle: "Internal collections treatment matrix",
+            documentVersion: "2024.1",
+            effectiveFrom: "2024-02-15T00:00:00.000Z",
+            effectiveTo: "2026-02-15T00:00:00.000Z",
+            excerpt:
+              "Accounts between 90 and 150 days past due are referred for manual review before any treatment is selected.",
+            stale: true,
+          },
+        ],
+        asserted: [],
+        computed: [],
+        recorded: true,
+        basis: "Recorded by the step itself.",
+      },
+      citations: [
+        {
+          chunkId: "chk_nv_cf_00412",
+          documentTitle: "Nevada consumer finance servicing policy",
+          documentVersion: "2025.4",
+          effectiveFrom: "2025-10-01T00:00:00.000Z",
+          jurisdiction: "NV",
+          excerpt:
+            "A servicer shall provide written notice of default not less than thirty days before commencing any remedy affecting the borrower's interest.",
+          sourceUri: "https://example.invalid/corpus/nv-consumer-finance/2025.4#00412",
+          stale: false,
+        },
+        {
+          chunkId: "chk_int_col_00097",
+          documentTitle: "Internal collections treatment matrix",
+          documentVersion: "2024.1",
+          effectiveFrom: "2024-02-15T00:00:00.000Z",
+          effectiveTo: "2026-02-15T00:00:00.000Z",
+          excerpt:
+            "Accounts between 90 and 150 days past due are referred for manual review before any treatment is selected.",
+          stale: true,
+        },
+      ],
+      correctable: true,
     },
     {
       stepId: "stp_01k3m6h1c5_3",
       seq: 3,
       name: "Rank borrowers by recovery likelihood",
-      kind: "model.infer",
+      kind: "model_call",
+      type: "model",
       status: "denied",
       startedAt: "2026-08-02T09:15:52.900Z",
       endedAt: "2026-08-02T09:16:02.000Z",
       durationMs: 9100,
       costUsd: 0,
       attempt: 1,
-      inputDigest: "2d8b4f16c0e7a935bb51d8c204ef7361a09b5e2748cdf0136ba97e4c5d208f71",
+      inputDigest: "sha256:2d8b4f16c0e7a935bb51d8c204ef7361a09b5e2748cdf0136ba97e4c5d208f71",
       denialReason:
         "Ranking or sequencing consumers is not a registered action for this role. Where an outcome could be adverse to a consumer, the person decides and the platform gathers the evidence.",
       detail: { reasonCode: "authorization.action_not_permitted", riskTier: "prohibited" },
+      failure: {
+        what: "Ranking or sequencing consumers is not a registered action for this role. Where an outcome could be adverse to a consumer, the person decides and the platform gathers the evidence.",
+        attempt: 1,
+        followedBy: "Nothing followed. The run stopped here.",
+      },
+      citations: [],
+      correctable: false,
     },
   ],
   totalCostUsd: 0.0184,
-  costByCategory: { "model.infer": 0.0, "knowledge.retrieve": 0.0184, "integration.read": 0.0 },
+  costByCategory: { model: 0.0, integration: 0.0184 },
   workflowInstanceId: "wfi_01k3m6h1bz",
   roleId: "role_consumer_finance_evidence",
   roleVersion: 3,
@@ -383,70 +1103,387 @@ export const runWithRefusedStep: RunDetailView = {
   ],
 };
 
-export const runSucceeded: RunDetailView = {
+/**
+ * The rescission run the approval screen's hero case came from.
+ *
+ * Every step type the timeline draws appears once — retrieval, model, action,
+ * human, wait — and the model step carries all three kinds of provenance, so a
+ * screen rendering this has to have solved the distinction rather than the
+ * happy path of one of them.
+ */
+export const runWithFullProvenance: RunDetailView = {
+  runId: "run_01k3m9x2p7",
+  kind: "rescission.package_check",
+  title: "Rescission package check — contract CTR-2026-FL-0184423",
+  status: "awaiting_approval",
+  mode: "supervised",
+  requestedBy: agentOperator,
+  createdAt: "2026-08-04T13:02:11.000Z",
+  startedAt: "2026-08-04T13:02:12.000Z",
+  elapsedMs: undefined,
+  outcome: undefined,
+  steps: [
+    {
+      stepId: "stp_01k3m9x2p7_1",
+      seq: 1,
+      name: "Retrieve the delivered disclosure package",
+      kind: "retrieval",
+      type: "retrieval",
+      status: "succeeded",
+      startedAt: "2026-08-04T13:02:12.000Z",
+      endedAt: "2026-08-04T13:02:12.120Z",
+      durationMs: 120,
+      costUsd: 0,
+      attempt: 1,
+      outputDigest: "sha256:1d9f47c0b5e83a26107cd4e9b7f025a8361ce07d4b29fa5168e30c7a9d4b6152",
+      detail: { corpus: "fl-timeshare", passages: 3, cited: 2 },
+      provenance: {
+        retrieved: [
+          {
+            chunkId: "chk_fl_721_00412",
+            documentTitle: "Florida timeshare disclosure and cancellation rules",
+            documentVersion: "2026.2",
+            effectiveFrom: "2026-01-01T00:00:00.000Z",
+            jurisdiction: "FL",
+            excerpt:
+              "A purchaser may cancel a contract until midnight of the tenth calendar day after whichever is later: the date the purchaser signed the contract, or the date on which the purchaser received the last of all documents required to be provided.",
+            sourceUri: "https://example.invalid/corpus/fl-timeshare/2026.2#00412",
+            stale: false,
+          },
+          {
+            chunkId: "chk_fl_721_00418",
+            documentTitle: "Florida timeshare disclosure and cancellation rules",
+            documentVersion: "2026.2",
+            effectiveFrom: "2026-01-01T00:00:00.000Z",
+            jurisdiction: "FL",
+            excerpt:
+              "Where a required document is delivered after execution, the cancellation period runs from delivery of that document and any earlier expiry is of no effect.",
+            sourceUri: "https://example.invalid/corpus/fl-timeshare/2026.2#00418",
+            stale: false,
+          },
+        ],
+        asserted: [],
+        computed: [],
+        recorded: true,
+        basis: "Recorded by the step itself.",
+      },
+      citations: [],
+      correctable: true,
+    },
+    {
+      stepId: "stp_01k3m9x2p7_2",
+      seq: 2,
+      name: "Determine the rescission window",
+      kind: "model_call",
+      type: "model",
+      status: "succeeded",
+      startedAt: "2026-08-04T13:02:12.120Z",
+      endedAt: "2026-08-04T13:02:13.540Z",
+      durationMs: 1420,
+      costUsd: 0.0113,
+      attempt: 1,
+      inputDigest: "sha256:5c81b0e7a4f92d3618ac07be5d4f193268ba0ce7f3d91a4562c80eb17a4d9036",
+      outputDigest: "sha256:e7104ab35c9f8d2601bc7ae4d905f3128a6bd0e94f27c135ba806e2d5c91437f",
+      detail: { promptVersion: "rescission-extract-v8", groundedPassages: 2 },
+      provenance: {
+        retrieved: [
+          {
+            chunkId: "chk_fl_721_00418",
+            documentTitle: "Florida timeshare disclosure and cancellation rules",
+            documentVersion: "2026.2",
+            effectiveFrom: "2026-01-01T00:00:00.000Z",
+            jurisdiction: "FL",
+            excerpt:
+              "Where a required document is delivered after execution, the cancellation period runs from delivery of that document and any earlier expiry is of no effect.",
+            sourceUri: "https://example.invalid/corpus/fl-timeshare/2026.2#00418",
+            stale: false,
+          },
+        ],
+        asserted: [
+          {
+            text: "The purchaser has not taken occupancy, so no waiver of the cancellation period applies.",
+            outputDigest:
+              "sha256:e7104ab35c9f8d2601bc7ae4d905f3128a6bd0e94f27c135ba806e2d5c91437f",
+          },
+        ],
+        computed: [
+          {
+            label: "rescissionDeadline",
+            value: "2026-08-20T23:59:00-04:00",
+            derivation:
+              "Ten calendar days from delivery of the last required document (10 August 2026), inclusive of the delivery date, expiring at midnight America/New_York.",
+          },
+        ],
+        recorded: true,
+        basis: "Recorded by the step itself.",
+      },
+      citations: [
+        {
+          chunkId: "chk_fl_721_00418",
+          documentTitle: "Florida timeshare disclosure and cancellation rules",
+          documentVersion: "2026.2",
+          effectiveFrom: "2026-01-01T00:00:00.000Z",
+          jurisdiction: "FL",
+          excerpt:
+            "Where a required document is delivered after execution, the cancellation period runs from delivery of that document and any earlier expiry is of no effect.",
+          sourceUri: "https://example.invalid/corpus/fl-timeshare/2026.2#00418",
+          stale: false,
+        },
+      ],
+      correctable: true,
+    },
+    {
+      stepId: "stp_01k3m9x2p7_3",
+      seq: 3,
+      name: "Render the corrected disclosure package",
+      kind: "document_generation",
+      type: "action",
+      status: "succeeded",
+      startedAt: "2026-08-04T13:02:13.540Z",
+      endedAt: "2026-08-04T13:02:14.980Z",
+      durationMs: 1440,
+      costUsd: 0.0009,
+      attempt: 1,
+      outputDigest: "sha256:9c4f1ea77b0d38625af0c9b34e1d5a8206ff73c19ad48be05723c6d1f8904b7e",
+      detail: { template: "corrected-disclosure-cover", revision: 3 },
+      citations: [],
+      correctable: false,
+    },
+    {
+      stepId: "stp_01k3m9x2p7_4",
+      seq: 4,
+      name: "Verify the public offering statement receipt",
+      kind: "human_task",
+      type: "human",
+      status: "succeeded",
+      startedAt: "2026-08-04T13:02:15.000Z",
+      endedAt: "2026-08-04T13:22:41.000Z",
+      durationMs: 1_226_000,
+      costUsd: 0,
+      attempt: 1,
+      detail: { actorId: "act_2c88de40" },
+      human: { actor: complianceReviewer, tookMs: 1_226_000 },
+      citations: [],
+      correctable: false,
+    },
+    {
+      stepId: "stp_01k3m9x2p7_5",
+      seq: 5,
+      name: "Await approval to produce the owner-facing document",
+      kind: "approval_gate",
+      type: "wait",
+      status: "waiting",
+      startedAt: "2026-08-04T13:22:41.000Z",
+      costUsd: 0,
+      attempt: 1,
+      detail: { approvalId: "apr_01k3n2f6r4", approvalsRequired: 2, approvalsGranted: 1 },
+      citations: [],
+      correctable: false,
+    },
+  ],
+  totalCostUsd: 0.0122,
+  costByCategory: { model: 0.0113, compute: 0.0009 },
+  workflowInstanceId: "wfi_01k3m9x2p6",
+  roleId: "role_rescission_window",
+  roleVersion: 8,
+  citations: [
+    {
+      chunkId: "chk_fl_721_00412",
+      documentTitle: "Florida timeshare disclosure and cancellation rules",
+      documentVersion: "2026.2",
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      jurisdiction: "FL",
+      excerpt:
+        "A purchaser may cancel a contract until midnight of the tenth calendar day after whichever is later: the date the purchaser signed the contract, or the date on which the purchaser received the last of all documents required to be provided.",
+      sourceUri: "https://example.invalid/corpus/fl-timeshare/2026.2#00412",
+      stale: false,
+    },
+    {
+      chunkId: "chk_fl_721_00418",
+      documentTitle: "Florida timeshare disclosure and cancellation rules",
+      documentVersion: "2026.2",
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+      jurisdiction: "FL",
+      excerpt:
+        "Where a required document is delivered after execution, the cancellation period runs from delivery of that document and any earlier expiry is of no effect.",
+      sourceUri: "https://example.invalid/corpus/fl-timeshare/2026.2#00418",
+      stale: false,
+    },
+  ],
+};
+
+/**
+ * A run whose steps never declared their own provenance.
+ *
+ * The state this repository ships in, and the one the screen must render
+ * without misleading anybody. The model step's provenance is `recorded: false`
+ * and its single asserted line says the output is unsourced — which is the
+ * honest reading, and considerably more useful than an empty block that would
+ * read as "nothing was claimed".
+ */
+export const runWithDerivedProvenance: RunDetailView = {
   runId: "run_01k3m7r6v2",
   kind: "owner_services.response_draft",
-  title: "Owner enquiry draft — points reinstatement, member 4471-889-02",
+  title: "Owner enquiry draft — points reinstatement, membership MBR-4471-889-02",
   status: "succeeded",
   mode: "assisted",
   requestedBy: agentOperator,
   createdAt: "2026-08-05T11:05:30.000Z",
   startedAt: "2026-08-05T11:05:31.000Z",
   endedAt: "2026-08-05T11:05:39.200Z",
+  elapsedMs: 8200,
   outcome: "A draft reply was produced and placed in the agent's queue for editing and sending.",
   steps: [
     {
       stepId: "stp_01k3m7r6v2_1",
       seq: 1,
       name: "Screen inbound message",
-      kind: "guard.screen",
+      kind: "automated_action",
+      type: "action",
       status: "succeeded",
       startedAt: "2026-08-05T11:05:31.000Z",
       endedAt: "2026-08-05T11:05:31.180Z",
       durationMs: 180,
       costUsd: 0,
       attempt: 1,
-      outputDigest: "e1a5c93d7b0248f6013ca9e57d2b46081f37c0ae95d2b6431e08fa7c5d90b2e4",
+      outputDigest: "sha256:e1a5c93d7b0248f6013ca9e57d2b46081f37c0ae95d2b6431e08fa7c5d90b2e4",
       detail: { verdict: "clean" },
+      citations: [],
+      correctable: false,
     },
     {
       stepId: "stp_01k3m7r6v2_2",
       seq: 2,
       name: "Draft reply",
-      kind: "model.infer",
+      kind: "model_call",
+      type: "model",
       status: "succeeded",
       startedAt: "2026-08-05T11:05:31.180Z",
       endedAt: "2026-08-05T11:05:39.200Z",
       durationMs: 8020,
       costUsd: 0.0912,
       attempt: 1,
-      inputDigest: "3f7a1b0dc95e2846b0a1cd47f39b2e5081c6ad74e920f3b856d1470ac2e98b3d",
-      outputDigest: "8b0e2c4a7d19f5360ca8b1e73d024f95617ae8c30b2d94f157ea6031cb8d472f",
+      inputDigest: "sha256:3f7a1b0dc95e2846b0a1cd47f39b2e5081c6ad74e920f3b856d1470ac2e98b3d",
+      outputDigest: "sha256:8b0e2c4a7d19f5360ca8b1e73d024f95617ae8c30b2d94f157ea6031cb8d472f",
       detail: { promptVersion: "owner-reply-v7", groundedPassages: 3 },
+      provenance: {
+        retrieved: [],
+        asserted: [
+          {
+            text: "This model step recorded 3 grounded passage(s) but no citation ids, so its statements cannot be checked against a source from here.",
+            outputDigest:
+              "sha256:8b0e2c4a7d19f5360ca8b1e73d024f95617ae8c30b2d94f157ea6031cb8d472f",
+          },
+        ],
+        computed: [],
+        recorded: false,
+        basis:
+          "Derived from the step's kind and the detail it recorded. The step did not declare its own provenance, so this is inference about the step rather than the step's own account of itself.",
+      },
+      citations: [],
+      correctable: true,
     },
   ],
   totalCostUsd: 0.0912,
-  costByCategory: { "model.infer": 0.0912, "guard.screen": 0.0 },
+  costByCategory: { model: 0.0912 },
   roleId: "role_owner_services_drafting",
   roleVersion: 11,
-  citations: [
+  citations: [],
+};
+
+/** A run whose first attempt failed and was retried. */
+export const runWithRetriedStep: RunDetailView = {
+  runId: "run_01k3m4a7n3",
+  kind: "rescission.package_check",
+  title: "Rescission package check — contract CTR-2026-HI-0166204",
+  status: "failed",
+  mode: "supervised",
+  requestedBy: agentOperator,
+  createdAt: "2026-08-01T22:48:03.000Z",
+  startedAt: "2026-08-01T22:48:04.000Z",
+  endedAt: "2026-08-01T22:49:41.000Z",
+  elapsedMs: 97_000,
+  outcome: "The contract records system did not answer on any of three attempts.",
+  steps: [
     {
-      chunkId: "chk_pts_00214",
-      documentTitle: "Points reinstatement policy",
-      documentVersion: "2026.2",
-      effectiveFrom: "2026-01-01T00:00:00.000Z",
-      excerpt:
-        "Points cancelled within the reinstatement window may be restored once per membership year on written request from the owner of record.",
-      sourceUri: "https://example.invalid/corpus/points-policy/2026.2#00214",
-      stale: false,
+      stepId: "stp_01k3m4a7n3_1",
+      seq: 1,
+      name: "Load contract",
+      kind: "integration_call",
+      type: "action",
+      status: "failed",
+      startedAt: "2026-08-01T22:48:04.000Z",
+      endedAt: "2026-08-01T22:48:34.000Z",
+      durationMs: 30_000,
+      costUsd: 0,
+      attempt: 1,
+      error: "The contract records system did not answer within 30 seconds.",
+      detail: { integration: "contract-records", timeoutMs: 30_000 },
+      failure: {
+        what: "The contract records system did not answer within 30 seconds.",
+        attempt: 1,
+        followedBy: "Retried as attempt 2.",
+        followedByStepId: "stp_01k3m4a7n3_2",
+      },
+      citations: [],
+      correctable: false,
+    },
+    {
+      stepId: "stp_01k3m4a7n3_2",
+      seq: 2,
+      name: "Load contract",
+      kind: "integration_call",
+      type: "action",
+      status: "failed",
+      startedAt: "2026-08-01T22:48:34.000Z",
+      endedAt: "2026-08-01T22:49:04.000Z",
+      durationMs: 30_000,
+      costUsd: 0,
+      attempt: 2,
+      error: "The contract records system did not answer within 30 seconds.",
+      detail: { integration: "contract-records", timeoutMs: 30_000 },
+      failure: {
+        what: "The contract records system did not answer within 30 seconds.",
+        attempt: 2,
+        followedBy: 'Escalated to a person: "Load the contract by hand".',
+        followedByStepId: "stp_01k3m4a7n3_3",
+      },
+      citations: [],
+      correctable: false,
+    },
+    {
+      stepId: "stp_01k3m4a7n3_3",
+      seq: 3,
+      name: "Load the contract by hand",
+      kind: "human_task",
+      type: "human",
+      status: "waiting",
+      startedAt: "2026-08-01T22:49:04.000Z",
+      costUsd: 0,
+      attempt: 1,
+      detail: {},
+      human: {
+        actorUnknown:
+          "This step did not record who did it. A human task whose owner is unknown cannot be chased.",
+      },
+      citations: [],
+      correctable: false,
     },
   ],
+  totalCostUsd: 0,
+  costByCategory: {},
+  roleId: "role_rescission_window",
+  roleVersion: 8,
+  citations: [],
 };
+
+/** Kept under its original name for tests that predate the timeline work. */
+export const runSucceeded: RunDetailView = runWithDerivedProvenance;
 
 export const emptyRun: RunDetailView = {
   runId: "run_01k3m5d0b8",
   kind: "association.budget_variance",
-  title: "Budget variance narrative — Palmetto Dunes Vacation Owners Association, Inc. (SC)",
+  title: "Budget variance narrative — Palmetto Dunes Vacation Owners Association, Inc.",
   status: "pending",
   mode: "shadow",
   requestedBy: supervisor,
@@ -455,6 +1492,24 @@ export const emptyRun: RunDetailView = {
   totalCostUsd: 0,
   costByCategory: {},
   citations: [],
+};
+
+/** A correction accepted, and the sentence saying it changes nothing. */
+export const correctionRecorded: CorrectionView = {
+  observationId: "obs_01k3pf9m28",
+  recorded: true,
+  signature: "deadline.wrong_jurisdiction",
+  recordedAt: "2026-08-06T11:04:22.000Z",
+  effect:
+    "Recorded against this run as improvement signal. It changes nothing on its own: a change to how the platform behaves needs a proposal, a measured evaluation, and a human approval.",
+};
+
+/** The same correction submitted twice. Frequency must not be inflated. */
+export const correctionDeduplicated: CorrectionView = {
+  ...correctionRecorded,
+  recorded: false,
+  effect:
+    "An identical correction was already recorded, so this one was not counted twice. Frequency decides which failure gets attention, and a retry must not inflate it.",
 };
 
 export const spendCeilingDenial: DenialView = {

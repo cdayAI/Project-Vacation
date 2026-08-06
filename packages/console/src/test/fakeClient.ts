@@ -1,10 +1,12 @@
 import type { ConsoleClient, Outcome } from "../api/client";
-import type { ApprovalView, ContainmentView, Page } from "../api/contract";
+import type { ApprovalDetailView, ContainmentView, CorrectionView, Page } from "../api/contract";
 import {
   approvalAwaitingDecision,
+  approvalQueue,
   auditEntries,
   auditVerificationIntact,
   containmentClear,
+  correctionRecorded,
   discoveryCandidates,
   executiveSnapshot,
   externalAgentDetail,
@@ -18,7 +20,7 @@ import {
   runWithRefusedStep,
   session,
   workflowInstanceStuck,
-  workQueueItems,
+  workQueue,
 } from "./fixtures";
 
 function page<T>(items: readonly T[]): Page<T> {
@@ -36,12 +38,13 @@ export function createFakeClient(overrides: Partial<ConsoleClient> = {}): Consol
   const base: ConsoleClient = {
     session: () => Promise.resolve(session),
     health: () => Promise.resolve(healthyPlatform),
-    workQueue: () => Promise.resolve(page(workQueueItems)),
-    approvals: () => Promise.resolve(page([approvalAwaitingDecision])),
+    workQueue: () => Promise.resolve(workQueue),
+    approvals: () => Promise.resolve(page(approvalQueue)),
     approval: () => Promise.resolve(approvalAwaitingDecision),
-    decideApproval: (): Promise<Outcome<ApprovalView>> =>
+    decideApproval: (): Promise<Outcome<ApprovalDetailView>> =>
       Promise.resolve(approvalAwaitingDecision),
     run: () => Promise.resolve(runWithRefusedStep),
+    correctStep: (): Promise<Outcome<CorrectionView>> => Promise.resolve(correctionRecorded),
 
     workflowInstance: () => Promise.resolve(workflowInstanceStuck),
 

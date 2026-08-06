@@ -52,64 +52,397 @@ export interface SessionView {
   readonly readOnly: boolean;
 }
 
-/** One row in the work queue. */
+// ---------------------------------------------------------------------------
+// The work queue — design specification §3.1
+// ---------------------------------------------------------------------------
+
+/**
+ * The owner a piece of work is about.
+ *
+ * `accountRef` is the opaque reference the operating record holds. `name` is
+ * absent unless an owner system of record is connected, and `nameUnknown` says
+ * so — the record is deliberately built to hold references rather than names,
+ * so a missing name here is the platform working correctly rather than a bug.
+ */
+export interface WorkQueueOwner {
+  readonly accountRef: string;
+  readonly name?: string;
+  readonly nameUnknown?: string;
+}
+
+/** How a row's assignment is known. Three states, not two. */
+export type AssignmentState =
+  /** Somebody or some role owns it. */
+  | "assigned"
+  /** Nobody owns it, and the platform knows that. */
+  | "unassigned"
+  /**
+   * The platform does not model assignment for this work.
+   *
+   * Distinct from `unassigned` on purpose. "Nobody has picked this up" is a
+   * call to action; "we do not track who picked this up" is a gap in the
+   * deployment, and an operator does something different about each.
+   */
+  | "not_tracked";
+
+/**
+ * One row in the work queue.
+ *
+ * The design specification fixes seven columns: status, what, owner, age,
+ * value, assignee, next action. Four of those come out of the operating record
+ * and three depend on systems this deployment may not read, so each of those
+ * three is optional and carries a sentence explaining its absence. The console
+ * renders the sentence. It never renders a zero in place of a number nobody
+ * has.
+ *
+ * **The age band is computed here, not sent.** `slaStartedAt` and `dueAt` are
+ * the target; the console decides where neutral becomes warning and warning
+ * becomes danger. A colour on the wire would put a design threshold in a
+ * serialiser, where the two densities could disagree about it and where
+ * changing it would be an API change.
+ */
 export interface WorkQueueItem {
   readonly runId: string;
   readonly kind: string;
   readonly title: string;
+  /** The second line under the title. Context, never a restatement. */
+  readonly subtitle?: string;
   readonly status: RunStatus;
   readonly mode: OperatingMode;
   readonly createdAt: string;
+  /** When the SLA clock started. Not always `createdAt`. */
+  readonly slaStartedAt?: string;
   readonly dueAt?: string;
+  /** The named policy behind the target, so the number is attributable. */
+  readonly slaPolicy?: string;
+  /** Present when no target is declared for this kind of work. */
+  readonly slaTargetUnknown?: string;
   /** True when the item has passed its SLA. Rendered prominently, not buried. */
   readonly slaBreached: boolean;
+  readonly owner?: WorkQueueOwner;
+  readonly ownerUnknown?: string;
+  /** Case value in US dollars. Absent when no billing system is connected. */
+  readonly valueUsd?: number;
+  readonly valueUnknown?: string;
+  readonly assignment: AssignmentState;
+  readonly assignee?: ActorSummary;
   readonly assignedRole?: string;
+  /** The next action as a verb phrase: "Approve or reject the parked action". */
+  readonly nextAction: string;
+  readonly nextActionApprovalId?: string;
+  /** What the platform has spent on this run. Never the case's value. */
   readonly costUsd: number;
   /** Short plain-language statement of what it is waiting for, if anything. */
   readonly waitingOn?: string;
 }
 
+/** The saved views the filter bar offers as pills. */
+export type SavedView = "all_open" | "mine" | "breaching" | "high_value" | "unassigned";
+
+export type WorkQueueSort =
+  | "age_desc"
+  | "age_asc"
+  | "due_soonest"
+  | "value_desc"
+  | "cost_desc"
+  | "status";
+
 /**
- * An approval request as an approver sees it.
+ * A page of work, and the state that produced it.
  *
- * The console's job here is to show *exactly what is being authorised*. The
- * proposal digest is displayed because it is the thing the approval binds to —
- * an approver should be able to see that the artifact they read is the artifact
- * their decision covers.
+ * `totalIsExact` is here because three of the filters — assignee, breaching,
+ * high value — cannot be pushed into the store: assignment is not a column,
+ * breach is a function of the clock against a target table, and value comes
+ * from a system nobody has connected. They are resolved over a bounded window,
+ * and when that window is full the count is of what was examined rather than
+ * of what exists. A result count that quietly rounds down is how a supervisor
+ * concludes the queue is shorter than it is.
+ */
+export interface WorkQueuePage extends Page<WorkQueueItem> {
+  readonly totalIsExact: boolean;
+  readonly view?: SavedView;
+  readonly sort: WorkQueueSort;
+  /** The floor the "High value" view uses, so the console can name it. */
+  readonly highValueFloorUsd: number;
+}
+
+// ---------------------------------------------------------------------------
+// The approval — design specification §3.2, the hero screen
+// ---------------------------------------------------------------------------
+
+/**
+ * Which of three trust situations this request is.
+ *
+ * A colleague's workflow, a vendor's agent running in somebody else's product,
+ * and a change to what the platform itself will do are three different things
+ * to be asked to authorise. The screen badges them distinctly, and the
+ * platform derives the kind from the record — the external-agent marker, the
+ * action's own declaration — never from the wording of a summary.
+ */
+export type ProvenanceKind = "workflow" | "external_agent" | "system_change";
+
+export interface ApprovalProvenance {
+  readonly kind: ProvenanceKind;
+  /** Who or what asked, as the badge reads it. */
+  readonly label: string;
+  readonly actor: ActorSummary;
+  /** Where an external agent runs, or the workflow behind a run. */
+  readonly origin?: string;
+  /** The person accountable for an external agent. Never a shared mailbox. */
+  readonly accountable?: string;
+  readonly runId?: string;
+  /** Why the platform classified it this way. */
+  readonly basis: string;
+}
+
+export type ApprovalArtifactKind =
+  | "letter"
+  | "message"
+  | "document"
+  | "record_write"
+  | "configuration";
+
+/**
+ * The exact thing that will be produced or written.
+ *
+ * `matchesProposalDigest` is the field that makes an inline preview safe to
+ * trust: it is true only when re-digesting `body` reproduces the digest the
+ * approval binds to. False means the platform is showing something that
+ * *describes* the proposal, and the console must say so — otherwise an
+ * approver reads one letter and signs another, which is the exact attack
+ * digest binding exists to close.
+ */
+export interface ApprovalArtifact {
+  readonly kind: ApprovalArtifactKind;
+  readonly title: string;
+  readonly mediaType: string;
+  readonly body: string;
+  readonly digest: string;
+  readonly matchesProposalDigest: boolean;
+}
+
+/** The named rule and its threshold, with enough identity to link to it. */
+export interface ApprovalRule {
+  readonly ruleId: string;
+  readonly name: string;
+  /** One line: tier, approvers, step-up. */
+  readonly threshold: string;
+  readonly risk: RiskTier;
+  readonly humanInvolvement: string;
+  readonly approvalsRequired: number;
+  readonly requiresStepUp: boolean;
+  readonly source: "action_registry" | "external_admission";
+  /**
+   * False when the action is not a registered platform action.
+   *
+   * External agents raise approvals under their own tool names, which this
+   * platform has deliberately not classified. The screen says the threshold
+   * came from the admission chain rather than implying a registry entry that
+   * does not exist.
+   */
+  readonly registered: boolean;
+}
+
+/**
+ * Who and what this reaches.
+ *
+ * Note what is *not* here: whether the action can be undone. That is
+ * `ApprovalView.reversible`, declared once on the action itself. Repeating it
+ * would be two places to change one fact, and they would eventually disagree.
+ * `reversal` is the procedure, which is a different thing from the flag.
+ */
+export interface ApprovalBlastRadius {
+  readonly ownersAffected?: number;
+  readonly ownersAffectedUnknown?: string;
+  readonly moneyUsd?: number;
+  readonly moneyUnknown?: string;
+  readonly reversal: string;
+  readonly jurisdictions: readonly string[];
+}
+
+/** One evidence item, checkable inline without navigating away. */
+export interface EvidenceItem {
+  readonly citationId: string;
+  readonly source: string;
+  readonly version: string;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string;
+  readonly jurisdiction?: string;
+  /** The exact passage. Never a summary of it. */
+  readonly passage: string;
+  readonly sourceUri?: string;
+  readonly stale: boolean;
+}
+
+export type PriorOutcome =
+  | "completed"
+  | "failed"
+  | "refused"
+  | "not_carried_out"
+  | "awaiting_execution"
+  | "unknown";
+
+/**
+ * One earlier decision on the same action, and how it turned out.
+ *
+ * The single highest-value field on this screen. Five rejections in a row on
+ * the same action tells an approver something no risk tier can, and the
+ * outcome is read from the run the approval was spent on — so a grant whose
+ * run then failed reads as exactly that, not as a success.
+ */
+export interface PriorDecision {
+  readonly approvalId: string;
+  readonly ask: string;
+  readonly decidedBy: ActorSummary;
+  readonly decision: "granted" | "rejected";
+  readonly decidedAt: string;
+  readonly outcome: PriorOutcome;
+  readonly outcomeDetail: string;
+  readonly runId?: string;
+}
+
+/**
+ * An approval as the queue lists it.
+ *
+ * Everything needed to triage, and nothing that costs a per-approval read.
+ * The evidence, the artifact preview, and the prior-decision lookback are on
+ * `ApprovalDetailView` instead, because running them for a hundred rows nobody
+ * has opened would make the queue slow in exact proportion to how carefully
+ * the detail screen was built.
  */
 export interface ApprovalView {
   readonly approvalId: string;
   readonly action: string;
   readonly actionDescription: string;
+  /** The ask in plain language: "Send a message to an owner — CTR-2026-FL-0184423". */
+  readonly ask: string;
   readonly risk: RiskTier;
   readonly reversible: boolean;
   readonly summary: string;
   readonly proposalDigest: string;
-  /** The proposal rendered for a human, field by field. */
-  readonly proposal: readonly { readonly label: string; readonly value: string }[];
+  readonly provenance: ApprovalProvenance;
+  /** Up to four concrete consequences of approving. */
+  readonly effects: readonly string[];
+  /** One line: what happens instead if this is rejected. */
+  readonly ifRejected: string;
+  readonly rule: ApprovalRule;
+  readonly blastRadius: ApprovalBlastRadius;
   readonly requestedBy: ActorSummary;
   readonly requestedAt: string;
   readonly expiresAt: string;
   readonly approvalsRequired: number;
   readonly approvalsGranted: number;
   readonly eligibleRoles: readonly string[];
+  /** False, with a reason, when this viewer may not decide — e.g. self-approval. */
+  readonly viewerMayDecide: boolean;
+  readonly viewerMayNotDecideReason?: string;
+  readonly requiresStepUp: boolean;
+  readonly runId?: string;
+  /**
+   * The proposal rendered for a human, field by field.
+   *
+   * On the queue row rather than the detail view because it costs nothing: it
+   * is the approval's own subject map, already loaded. The three fields that
+   * *do* cost a read each are on `ApprovalDetailView`.
+   */
+  readonly proposal: readonly { readonly label: string; readonly value: string }[];
+  /** Decisions already recorded. Also already loaded, so also free. */
   readonly decisions: readonly {
     readonly actor: ActorSummary;
     readonly decision: "granted" | "rejected";
     readonly decidedAt: string;
     readonly note?: string;
   }[];
-  /** False, with a reason, when this viewer may not decide — e.g. self-approval. */
-  readonly viewerMayDecide: boolean;
-  readonly viewerMayNotDecideReason?: string;
-  readonly requiresStepUp: boolean;
+}
+
+/**
+ * An approval request as an approver sees it, in full.
+ *
+ * The console's job here is to show *exactly what is being authorised*. The
+ * proposal digest is displayed because it is the thing the approval binds to —
+ * an approver should be able to see that the artifact they read is the artifact
+ * their decision covers.
+ */
+export interface ApprovalDetailView extends ApprovalView {
+  readonly artifact?: ApprovalArtifact;
+  /** Present when there is no artifact to preview, saying why. */
+  readonly artifactUnknown?: string;
+  readonly evidence: readonly EvidenceItem[];
+  readonly evidenceUnknown?: string;
+  readonly priorDecisions: readonly PriorDecision[];
+}
+
+// ---------------------------------------------------------------------------
+// Run detail — design specification §3.3
+// ---------------------------------------------------------------------------
+
+/** The five step types the timeline draws an icon for. */
+export type StepType = "retrieval" | "model" | "action" | "human" | "wait";
+
+/** A statement the platform made that no citation supports. */
+export interface AssertedStatement {
+  readonly text: string;
+  /** Digest of the output it belongs to, so it can be traced. */
+  readonly outputDigest?: string;
+}
+
+/** A value the platform worked out itself, with how it got there. */
+export interface ComputedValue {
+  readonly label: string;
+  readonly value: string;
+  /** The rule and inputs behind it. Empty when the step recorded none. */
+  readonly derivation: string;
+}
+
+/**
+ * What a step retrieved, what it asserted, and what it computed.
+ *
+ * The honest core of this product. A supervisor reading a run has to be able
+ * to tell a **citation** from a **claim**: a passage pulled from a governed
+ * source, a statement the platform made on its own, and a value it derived
+ * from rules are three different kinds of trust. A timeline that renders them
+ * identically teaches people to trust all three equally, which is the failure
+ * this distinction exists to prevent.
+ *
+ * `recorded` says which of two things this is. True: the step declared its own
+ * provenance, and this is testimony. False: it was derived from the step's kind
+ * and whatever detail it happened to keep, and this is inference. The console
+ * renders the two differently, and it must — presenting inference as evidence
+ * on the screen whose whole purpose is telling evidence from inference would be
+ * the one unforgivable bug here.
+ */
+export interface StepProvenance {
+  readonly retrieved: readonly CitationView[];
+  readonly asserted: readonly AssertedStatement[];
+  readonly computed: readonly ComputedValue[];
+  readonly recorded: boolean;
+  readonly basis: string;
+}
+
+/** Who did a human step, and how long they took. */
+export interface HumanStepDetail {
+  readonly actor?: ActorSummary;
+  readonly actorUnknown?: string;
+  /** Absent while the task is still open. */
+  readonly tookMs?: number;
+}
+
+/** What happened on a failed step, and the retry or escalation that followed. */
+export interface StepFailureDetail {
+  readonly what: string;
+  readonly attempt: number;
+  readonly followedBy: string;
+  readonly followedByStepId?: string;
 }
 
 export interface StepView {
   readonly stepId: string;
   readonly seq: number;
   readonly name: string;
+  /** The raw machine kind. An engineer reading a bug needs it. */
   readonly kind: string;
+  /** The five-way type the timeline draws. */
+  readonly type: StepType;
   readonly status: string;
   readonly startedAt: string;
   readonly endedAt?: string;
@@ -122,6 +455,57 @@ export interface StepView {
   /** Present when the step was refused. The reason code, plainly worded. */
   readonly denialReason?: string;
   readonly detail: Readonly<Record<string, string | number | boolean>>;
+  readonly provenance?: StepProvenance;
+  readonly human?: HumanStepDetail;
+  readonly failure?: StepFailureDetail;
+  /** Sources this step cited. Empty is a claim about the step, not a gap. */
+  readonly citations: readonly CitationView[];
+  /**
+   * Whether "correct this" is offered on this step.
+   *
+   * Only where a correction means something — a model call or a retrieval that
+   * produced an output a person can disagree with. Offering it on a timer
+   * would collect signal nobody can act on, and the improvement loop ranks by
+   * frequency, so noise there steers which real failure gets attention.
+   */
+  readonly correctable: boolean;
+}
+
+/**
+ * A correction, as the console submits it.
+ *
+ * `signature` is a controlled vocabulary in dotted lower_snake_case, not free
+ * text, because clustering groups on it: a prose summary produces one cluster
+ * per typist and nothing ever recurs.
+ */
+export interface CorrectionRequest {
+  readonly signature: string;
+  readonly note: string;
+  /** Human minutes the correction cost. Half the improvement loop's ranking. */
+  readonly correctionMinutes?: number;
+  /** What the platform produced. Fingerprinted server-side, never stored raw. */
+  readonly before?: string;
+  /** What the person replaced it with. Also fingerprinted, never stored raw. */
+  readonly after?: string;
+  readonly idempotencyKey: string;
+}
+
+/**
+ * What the platform did with a correction.
+ *
+ * `effect` is deliberately part of the payload rather than copy in a
+ * component. A correction is inert evidence: it changes nothing on its own,
+ * and the sentence saying so belongs beside the thing it is true of. The
+ * improvement gate needs a recorded human approval and there is no
+ * configuration that removes it (ADR 0011).
+ */
+export interface CorrectionView {
+  readonly observationId: string;
+  /** False when an identical correction was already recorded. */
+  readonly recorded: boolean;
+  readonly signature: string;
+  readonly recordedAt: string;
+  readonly effect: string;
 }
 
 /** A run with its full step trail — the per-run detail view. */
@@ -135,6 +519,8 @@ export interface RunDetailView {
   readonly createdAt: string;
   readonly startedAt?: string;
   readonly endedAt?: string;
+  /** Wall-clock elapsed, for the sticky header. Absent while still running. */
+  readonly elapsedMs?: number;
   readonly outcome?: string;
   readonly denialReason?: string;
   readonly steps: readonly StepView[];
