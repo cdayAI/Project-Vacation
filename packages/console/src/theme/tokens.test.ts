@@ -65,11 +65,15 @@ function withoutComments(css: string): string {
  * check four colour blocks would be a worse trade than forty lines of string
  * handling that this test itself proves works.
  */
-function blockAfter(css: string, selector: string): string {
-  const start = css.indexOf(selector);
-  if (start === -1) throw new Error(`tokens.css no longer contains the selector ${selector}`);
-  const open = css.indexOf("{", start + selector.length);
-  if (open === -1) throw new Error(`No declaration block follows ${selector}`);
+function blockAfter(css: string, selectorWithBrace: string): string {
+  if (!selectorWithBrace.endsWith("{")) {
+    throw new Error("blockAfter expects the selector text up to and including its opening brace");
+  }
+  const start = css.indexOf(selectorWithBrace);
+  if (start === -1) {
+    throw new Error(`tokens.css no longer contains the selector ${selectorWithBrace}`);
+  }
+  const open = start + selectorWithBrace.length - 1;
   let depth = 1;
   let index = open + 1;
   while (index < css.length && depth > 0) {

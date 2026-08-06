@@ -33,6 +33,15 @@ const WCAG_22_AA: RunOptions = {
       "best-practice",
     ],
   },
+  rules: {
+    // jsdom has no layout engine and no canvas, so axe cannot sample a rendered
+    // pixel and this rule can only ever return "incomplete" — it would report
+    // nothing either way. Contrast is checked properly, and against both value
+    // sets, in theme/tokens.test.ts. Turning the rule off here is what keeps
+    // that the honest answer rather than an assertion that quietly passes
+    // because it never ran.
+    "color-contrast": { enabled: false },
+  },
 };
 
 function describe(violations: readonly Result[]): string {

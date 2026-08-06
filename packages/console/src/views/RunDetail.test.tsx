@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { expectNoAccessibilityViolations, renderSurface } from "../test/axe";
 import { emptyRun, runSucceeded, runWithRefusedStep } from "../test/fixtures";
@@ -22,9 +22,12 @@ describe("RunDetail", () => {
   it("shows total cost and cost by category", () => {
     renderSurface(<RunDetail run={runWithRefusedStep} />);
 
-    expect(screen.getByText("$0.0184")).toBeInTheDocument();
+    // Three places, and all three are wanted: the run total, the category
+    // breakdown, and the step that actually incurred it.
+    expect(screen.getAllByText("$0.0184")).toHaveLength(3);
     expect(screen.getByRole("columnheader", { name: /Category/ })).toBeInTheDocument();
-    expect(screen.getByText("knowledge.retrieve")).toBeInTheDocument();
+    const costTable = screen.getByRole("table");
+    expect(within(costTable).getByText("knowledge.retrieve")).toBeInTheDocument();
   });
 
   it("renders every step with status, duration, cost, attempt, and digests", () => {
@@ -66,7 +69,7 @@ describe("RunDetail", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Version 2025.4")).toBeInTheDocument();
     expect(screen.getAllByText("In effect from").length).toBe(2);
-    expect(screen.getByText("NV")).toBeInTheDocument();
+    expect(screen.getAllByText("NV").length).toBeGreaterThan(0);
     expect(
       screen.getByRole("link", { name: /Open the source document/ }),
     ).toHaveAttribute("href", "https://example.invalid/corpus/nv-consumer-finance/2025.4#00412");
@@ -87,7 +90,7 @@ describe("RunDetail", () => {
 
     expect(screen.getByText("Outcome")).toBeInTheDocument();
     expect(screen.queryByText("This run was refused")).not.toBeInTheDocument();
-    expect(screen.getByText("$0.0912")).toBeInTheDocument();
+    expect(screen.getAllByText("$0.0912").length).toBeGreaterThan(0);
   });
 
   it("handles a run with no steps and no citations", () => {

@@ -45,6 +45,7 @@ Project Vacation — operator commands
   config show                     Show effective configuration and warnings
   health                          Report platform health
   serve                           Run the HTTP API
+  demo run                        Run the seeded demonstration
 
 Global:
   --json                          Machine-readable output where supported
@@ -357,6 +358,18 @@ async function main(): Promise<number> {
       `Configuration error: ${error instanceof Error ? error.message : String(error)}`,
     );
     return 78; // EX_CONFIG
+  }
+
+  if (command === "demo") {
+    if (args.positional[1] !== undefined && args.positional[1] !== "run") {
+      console.error("Unknown demo subcommand. Try: demo run");
+      return 2;
+    }
+    // The demonstration builds its own platform with a fixed clock and a
+    // seeded id generator, because reproducibility is the point.
+    const { runDemo } = await import("../demo/run.js");
+    const result = await runDemo();
+    return result.chainIntact ? 0 : 1;
   }
 
   if (command === "config") {

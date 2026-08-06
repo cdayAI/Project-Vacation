@@ -15,9 +15,12 @@ export const NOT_RECORDED = "Not recorded";
 
 export function formatUsd(amount: number): string {
   if (!Number.isFinite(amount)) return NOT_RECORDED;
-  // Model spend is often fractions of a cent. Rounding it to two places turns
-  // a real number into $0.00, which reads as "free" rather than "very cheap".
-  const fractionDigits = amount !== 0 && Math.abs(amount) < 0.01 ? 4 : 2;
+  // Model and retrieval spend lands in fractions of a cent, and a single run
+  // is often a few cents in total. Two decimal places would render most of
+  // this console's real numbers as $0.00 or $0.02 — precise enough to look
+  // authoritative and too coarse to add up. Anything under a dollar keeps four
+  // places; anything above it reads as money.
+  const fractionDigits = amount !== 0 && Math.abs(amount) < 1 ? 4 : 2;
   return new Intl.NumberFormat(undefined, {
     style: "currency",
     currency: "USD",
@@ -30,9 +33,15 @@ export function formatDateTime(iso: string | undefined): string {
   if (iso === undefined || iso === "") return NOT_RECORDED;
   const value = new Date(iso);
   if (Number.isNaN(value.getTime())) return NOT_RECORDED;
+  // Explicit components rather than dateStyle/timeStyle: the two forms cannot
+  // be combined, and the timezone name has to be shown. An operator reading a
+  // rescission deadline needs to know which clock it is on.
   return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
     timeZoneName: "short",
   }).format(value);
 }

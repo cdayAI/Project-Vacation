@@ -38,55 +38,63 @@ export interface SeedDocument {
 
 export interface SeedCorpus {
   readonly key: string;
+  /** Stable machine name, as the knowledge layer requires. */
   readonly name: string;
+  /** Human-readable label, for the demonstration output only. */
+  readonly label: string;
   readonly owner: string;
   readonly reviewCadenceDays: number;
   readonly classification: "public" | "internal" | "confidential";
-  readonly accessScope: string;
-  readonly description: string;
+  /** Data scopes a reader must hold, matching the `scope:` role convention. */
+  readonly accessScope: readonly string[];
+  readonly purpose: string;
 }
 
 export const SEED_CORPORA: readonly SeedCorpus[] = [
   {
     key: "state-rescission",
-    name: "State rescission rules",
+    name: "state_rescission_rules",
+    label: "State rescission rules",
     owner: "compliance",
     // Statutes change, and a stale rescission rule is a contract-voiding
     // defect rather than a stale FAQ. Ninety days is deliberately short.
     reviewCadenceDays: 90,
     classification: "public",
-    accessScope: "compliance",
-    description:
-      "Cancellation-window authority by state. Governs the rescission workflow. Stale authority here is a correctness risk, not an inconvenience.",
+    accessScope: [],
+    purpose:
+      "Cancellation-window authority by state. Stale authority here is a correctness risk, not an inconvenience.",
   },
   {
     key: "association-governing",
-    name: "Association governing documents",
+    name: "association_governing_documents",
+    label: "Association governing documents",
     owner: "association_management",
     reviewCadenceDays: 365,
     classification: "internal",
-    accessScope: "association",
-    description:
+    accessScope: ["association"],
+    purpose:
       "Declarations, bylaws, budget policy, and reserve-study methodology for managed associations.",
   },
   {
     key: "contact-policy",
-    name: "Owner contact and consent policy",
+    name: "owner_contact_policy",
+    label: "Owner contact and consent policy",
     owner: "compliance",
     reviewCadenceDays: 180,
     classification: "internal",
-    accessScope: "compliance",
-    description:
+    accessScope: ["compliance"],
+    purpose:
       "Consent capture, revocation handling, quiet hours, and frequency caps for owner contact.",
   },
   {
     key: "owner-services-sop",
-    name: "Owner services procedures",
+    name: "owner_services_procedures",
+    label: "Owner services procedures",
     owner: "owner_services",
     reviewCadenceDays: 180,
     classification: "internal",
-    accessScope: "owner_services",
-    description: "Standard operating procedures for the owner-services contact surface.",
+    accessScope: ["owner_services"],
+    purpose: "Standard operating procedures for the owner-services contact surface.",
   },
 ];
 

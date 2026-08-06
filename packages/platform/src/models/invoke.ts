@@ -15,6 +15,7 @@ import {
   isDegradable,
   ProviderError,
   type ModelProvider,
+  type ModelResponse,
   type ProviderRegistry,
 } from "./provider.js";
 import { renderTemplate, type PromptTemplateRegistry } from "./templates.js";
@@ -282,8 +283,16 @@ export class ModelGateway {
         for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
           totalAttempts += 1;
           const attemptStartedAt = this.deps.clock.now();
+
+          // Only the provider call is caught here. Everything after it —
+          // recording the cost, the invocation, the audit entry — must
+          // propagate as itself: a store that cannot be written is not a
+          // provider outage, and degrading to another model because the
+          // audit log was unavailable would call a second model and still
+          // fail to record either of them.
+          let response: ModelResponse;
           try {
-            const response = await provider.invoke({
+            response = await provider.invoke({
               task,
               modelId: binding.modelId,
               modelVersion: binding.modelVersion,
@@ -293,7 +302,20 @@ export class ModelGateway {
               timeoutMs: binding.timeoutMs,
               idempotencyKey: effectiveKey,
             });
+          } catch (error) {
+            if (error instanceof DeniedError) throw error;
+            const providerError = toProviderError(error, binding);
+            failure = providerError;
+            lastFailure = providerError;
 
+            const canRetry =
+              providerError.retryable && attempt < maxAttempts && isDegradable(providerError.kind);
+            if (!canRetry) break;
+            await this.sleep(this.backoffMs(attempt));
+            continue;
+          }
+
+          {
             const latencyMs = Math.max(0, this.deps.clock.now() - attemptStartedAt);
             const costUsd = roundUsd(
               response.inputTokens * binding.costPerInputTokenUsd +
@@ -378,16 +400,6 @@ export class ModelGateway {
               redacted: [...redacted].sort(),
               degraded,
             };
-          } catch (error) {
-            if (error instanceof DeniedError) throw error;
-            const providerError = toProviderError(error, binding);
-            failure = providerError;
-            lastFailure = providerError;
-
-            const canRetry =
-              providerError.retryable && attempt < maxAttempts && isDegradable(providerError.kind);
-            if (!canRetry) break;
-            await this.sleep(this.backoffMs(attempt));
           }
         }
 

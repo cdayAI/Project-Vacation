@@ -17,6 +17,10 @@ export default defineConfig({
     globals: false,
     setupFiles: ["src/test/setup.ts"],
     restoreMocks: true,
+    // The token file is imported with ?raw by the contrast test. Vitest stubs
+    // CSS modules to an empty string by default, which would silently hand
+    // that test nothing to check.
+    css: true,
     testTimeout: 20_000,
   },
 });
