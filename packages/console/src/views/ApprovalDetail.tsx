@@ -189,7 +189,7 @@ export function ApprovalDetail({
           <DefinitionList items={proposalItems} />
         )}
 
-        <div className="pv-stack-tight" style={{ marginTop: "var(--pv-space-5)" }}>
+        <div className="pv-stack-tight pv-space-above-wide">
           <h3>Proposal digest</h3>
           <p className="pv-meta">
             Your decision binds to this digest and to no other proposal. If the proposal is
@@ -255,7 +255,7 @@ export function ApprovalDetail({
         />
 
         {!countdown.expired && countdown.totalMs < EXPIRING_SOON_MS && (
-          <div style={{ marginTop: "var(--pv-space-4)" }}>
+          <div className="pv-space-above">
             <Callout tone="warning" title="This approval expires shortly" live="polite">
               <p>
                 Less than fifteen minutes remain. If it expires, the parked action does not run
@@ -265,7 +265,7 @@ export function ApprovalDetail({
           </div>
         )}
 
-        <h3 style={{ marginTop: "var(--pv-space-5)" }}>Decisions so far</h3>
+        <h3 className="pv-space-above-wide">Decisions so far</h3>
         {approval.decisions.length === 0 ? (
           <p className="pv-meta">Nobody has decided yet.</p>
         ) : (
@@ -303,13 +303,13 @@ export function ApprovalDetail({
         </h2>
 
         {decisionDenial !== undefined && (
-          <div style={{ marginBottom: "var(--pv-space-4)" }}>
+          <div className="pv-space-below">
             <Denial denial={decisionDenial} attempted="recording your decision" headingLevel={3} />
           </div>
         )}
 
         {decisionError !== undefined && (
-          <div style={{ marginBottom: "var(--pv-space-4)" }}>
+          <div className="pv-space-below">
             <Callout tone="danger" title="Your decision was not recorded" live="polite">
               <p>{decisionError}</p>
               <p className="pv-meta">
@@ -333,7 +333,7 @@ export function ApprovalDetail({
           </p>
         )}
 
-        <div className="pv-row" style={{ marginTop: "var(--pv-space-4)" }}>
+        <div className="pv-row pv-space-above">
           <Button
             variant="primary"
             unavailable={blockingReason !== null || submitting}
@@ -352,7 +352,7 @@ export function ApprovalDetail({
           </Button>
         </div>
 
-        <p className="pv-meta" style={{ marginTop: "var(--pv-space-4)" }}>
+        <p className="pv-meta pv-space-above">
           Whether these controls are offered is a courtesy of this screen, not a security
           boundary. The platform re-checks eligibility, the proposal digest, and every other
           control at the chokepoint when the decision is submitted.

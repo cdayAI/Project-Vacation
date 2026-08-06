@@ -11,6 +11,7 @@ import { MemoryDb } from "../store/db.js";
 import { createMemoryKnowledgeStore } from "../knowledge/store.memory.js";
 import { IngestionService } from "../knowledge/ingest.js";
 import { Retriever } from "../knowledge/retrieve.js";
+import { GroundedAnswerService } from "../knowledge/answer.js";
 import { computeRescissionDeadline } from "../timeline/compute.js";
 import { SEED_CONTRACTS, SEED_CORPORA, SEED_DOCUMENTS, type SeedContract } from "./corpus.js";
 
@@ -142,12 +143,20 @@ export async function runDemo(out: Output = createOutput()): Promise<DemoResult>
   const corpusIds = await runIngestion(ingestion, out);
 
   // -------------------------------------------------------------------------
-  out.heading("2. Checking rescission compliance, contract by contract");
+  const answers = new GroundedAnswerService(
+    retriever,
+    knowledgeStore,
+    platform.audit,
+    platform.clock,
+  );
+  await runGroundedAnswers(answers, corpusIds, out);
+
+  // -------------------------------------------------------------------------
+  out.heading("3. Checking rescission compliance, contract by contract");
   out.line();
   out.line("Each contract becomes a run in the operating record. The deadline is");
   out.line("computed from effective-dated rules, never from date arithmetic in a");
   out.line("workflow, and the derivation travels with the answer.");
-  void corpusIds;
 
   for (const contract of SEED_CONTRACTS) {
     const outcome = await checkContract(platform, retriever, contract, out);
@@ -162,7 +171,7 @@ export async function runDemo(out: Output = createOutput()): Promise<DemoResult>
   await runContainment(platform, out);
 
   // -------------------------------------------------------------------------
-  out.heading("5. The record");
+  out.heading("6. The record");
 
   const chain = await platform.audit.readChain();
   const verification = verifyChain(chain);
@@ -284,6 +293,77 @@ async function runIngestion(
   return corpusIds;
 }
 
+/**
+ * Ask the corpus regulated questions, as of two different dates.
+ *
+ * The pair of dates is the point. The same question, asked about a 2024
+ * contract and a 2026 one, must return different authority — because the rule
+ * changed in between. A system that returns today's rule for a 2024 contract
+ * cannot answer "was this compliant when it was signed", which is the only
+ * version of the question that matters once someone is disputing it.
+ */
+async function runGroundedAnswers(
+  answers: GroundedAnswerService,
+  corpusIds: Map<string, string>,
+  out: Output,
+): Promise<void> {
+  out.heading("2. Regulated questions: cited, effective-dated, or refused");
+
+  const rescissionCorpus = corpusIds.get("state-rescission");
+  const scoped = rescissionCorpus ? ([rescissionCorpus] as never) : undefined;
+
+  const question = "Florida cancellation window purchaser disclosure documents";
+  const questions = [
+    { label: "Asked about a contract signed in 2026", question, asOf: "2026-08-06" },
+    { label: "The same question, asked about a contract signed in 2024", question, asOf: "2024-03-15" },
+  ] as const;
+
+  for (const item of questions) {
+    out.line();
+    out.step(`${item.label}  (as of ${item.asOf})`);
+    try {
+      const answer = await answers.groundedAnswer({
+        question: item.question,
+        asOf: item.asOf as never,
+        actor: COMPLIANCE,
+        corpusIds: scoped,
+        jurisdictions: ["US-FL"],
+      });
+      for (const citation of answer.citations) {
+        out.step(
+          `  cited: ${citation.documentTitle.replace(SYNTHETIC_PREFIX, "").trim().slice(0, 44)}`,
+        );
+        out.step(
+          `         version ${citation.version}, in force from ${citation.effectiveFrom}${citation.effectiveTo ? ` to ${citation.effectiveTo}` : ""}`,
+        );
+      }
+      if (answer.citations.length === 0) out.step("  (no citations returned)");
+    } catch (error) {
+      if (error instanceof DeniedError) {
+        out.step(`  REFUSED (${error.reason}) — routed to a human`);
+      } else throw error;
+    }
+  }
+
+  out.line();
+  out.step("A question with no authority behind it:");
+  try {
+    await answers.groundedAnswer({
+      question: "What is the cancellation window for a lease in Antarctica?",
+      asOf: "2026-08-06" as never,
+      actor: COMPLIANCE,
+      corpusIds: scoped,
+    });
+    out.step("  UNEXPECTED: an ungrounded question was answered");
+  } catch (error) {
+    if (error instanceof DeniedError) {
+      out.step(`  REFUSED (${error.reason}) — no grounding, no answer`);
+    } else throw error;
+  }
+}
+
+const SYNTHETIC_PREFIX = "[SYNTHETIC — DEMONSTRATION ONLY]";
+
 /** What happened to one contract. */
 type ContractOutcome = "computed" | "refused";
 
@@ -392,7 +472,7 @@ async function deadlineStep(
 }
 
 async function runApproval(platform: Platform, out: Output): Promise<void> {
-  out.heading("3. A high-consequence action, parked for a human");
+  out.heading("4. A high-consequence action, parked for a human");
   out.line();
   out.line("Notifying an owner of their cancellation deadline is irreversible: a");
   out.line("sent letter cannot be unsent. It requires an approval bound to a digest");
@@ -485,7 +565,7 @@ async function runApproval(platform: Platform, out: Output): Promise<void> {
 }
 
 async function runContainment(platform: Platform, out: Output): Promise<void> {
-  out.heading("4. Stopping work already in flight");
+  out.heading("5. Stopping work already in flight");
   out.line();
   out.line("An operator pauses the platform. The switch is checked before every");
   out.line("action, so a run that started earlier stops too — a kill switch that");

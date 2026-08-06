@@ -1,8 +1,9 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 import type { Clock } from "../kernel/clock.js";
-import { ConfigError, DeniedError } from "../kernel/errors.js";
+import { ConfigError } from "../kernel/errors.js";
 import { digestValue } from "../kernel/hash.js";
 import type { Logger } from "../kernel/logger.js";
+import { identityRefusal } from "./denials.js";
 import type { IdentityStore } from "./port.js";
 import { pkceChallenge, randomToken, secretsEqual, type SecretGenerator } from "./secrets.js";
 import type { AuthorizationRequest, VerifiedIdentity } from "./types.js";
@@ -54,23 +55,12 @@ import type { AuthorizationRequest, VerifiedIdentity } from "./types.js";
  */
 
 /**
- * Identity refusals carry `check` rather than a bespoke denial reason.
- *
- * `DenialReason` in `kernel/errors.ts` is a shared, closed taxonomy that the
- * console, the audit view, and the alerting rules all read. Rather than widen
- * it with a dozen identity-specific codes, every refusal here is
- * `authorization.action_not_permitted` and names the failed check in `detail`,
- * which is what an operator actually needs to see. Configuration problems are
- * the exception: those are `ConfigError`, because they are startup failures
- * rather than someone being turned away.
+ * Every refusal below names its failed check in `detail.check`; see
+ * `denials.ts` for why identity adds no denial reasons of its own.
+ * Configuration problems are the exception and raise `ConfigError`, because
+ * they are startup failures rather than someone being turned away.
  */
-function refuse(
-  check: string,
-  message: string,
-  detail: Record<string, string | number | boolean> = {},
-): DeniedError {
-  return new DeniedError("authorization.action_not_permitted", message, { check, ...detail });
-}
+const refuse = identityRefusal;
 
 export interface OidcSettings {
   /** The issuer identifier, exactly as the provider publishes it. */
@@ -242,7 +232,7 @@ export class OidcAuthenticator {
     private readonly clock: Clock,
     private readonly secrets: SecretGenerator,
     private readonly transport: OidcTransport,
-    private readonly options: OidcAuthenticatorOptions = {},
+    options: OidcAuthenticatorOptions = {},
   ) {
     for (const [field, value] of Object.entries({
       issuer: settings.issuer,

@@ -229,6 +229,21 @@ pre {
    5. Utility
    -------------------------------------------------------------------------- */
 
+/* Three spacing helpers, and deliberately only three. They exist so that a
+   view never has to carry an inline style; a fourth one would be the start of
+   a utility framework, which this console does not have. */
+.pv-space-above {
+  margin-top: var(--pv-space-4);
+}
+
+.pv-space-above-wide {
+  margin-top: var(--pv-space-5);
+}
+
+.pv-space-below {
+  margin-bottom: var(--pv-space-4);
+}
+
 /* Available to screen readers, invisible on screen. Used where a visual cue
    needs a text equivalent that would be redundant if shown. */
 .pv-sr-only {

@@ -69,6 +69,18 @@ describe("seeded demonstration", () => {
     expect(text).toMatch(/Audit chain INTACT/);
   });
 
+  it("answers the same question differently for 2024 and 2026, with citations", async () => {
+    // The effective-dating gate. A system that returns today's rule for a 2024
+    // contract cannot answer "was this compliant when it was signed", which is
+    // the only version of the question that matters once someone disputes it.
+    const captured = capture();
+    await runDemo(captured.out);
+    const text = captured.lines.join("\n");
+
+    expect(text).toMatch(/version 2025\.1, in force from 2025-07-01/);
+    expect(text).toMatch(/version 2019\.1, in force from 2019-01-01 to 2025-06-30/);
+  });
+
   it("never claims a placeholder rule is verified", async () => {
     const captured = capture();
     await runDemo(captured.out);

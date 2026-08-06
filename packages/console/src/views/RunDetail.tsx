@@ -198,7 +198,7 @@ export function RunDetail({ run }: RunDetailProps) {
         </h2>
 
         {staleCitations > 0 && (
-          <div style={{ marginBottom: "var(--pv-space-4)" }}>
+          <div className="pv-space-below">
             <Callout
               tone="warning"
               title={`${pluralise(staleCitations, "citation is", "citations are")} past review`}
