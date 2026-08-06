@@ -37,6 +37,12 @@ export const ID_PREFIXES = {
   incident: "inc",
   candidate: "cnd",
   contract: "ctr",
+  // External agents: those MVW already runs elsewhere, admitted under
+  // governance rather than orchestrated here.
+  externalAgent: "eag",
+  credential: "crd",
+  externalRun: "xrn",
+  parkedAction: "pac",
 } as const;
 
 export type EntityKind = keyof typeof ID_PREFIXES;

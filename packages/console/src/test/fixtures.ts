@@ -6,6 +6,9 @@ import type {
   DenialView,
   DiscoveryCandidateView,
   ExecutiveView,
+  ExternalAgentDetailView,
+  ExternalAgentHealthView,
+  ExternalAgentView,
   HealthView,
   ImprovementClusterView,
   ImprovementProposalView,
@@ -63,6 +66,7 @@ export const session: SessionView = {
     "approvals.decide",
     "runs.read",
     "roles.read",
+    "external_agents.read",
     "improvements.read",
     "audit.read",
     "containment.read",
@@ -1184,4 +1188,382 @@ export const executiveWithoutSavings: ExecutiveView = {
   ...executiveSnapshot,
   costPerCaseUsd: undefined,
   humanHoursSaved: undefined,
+};
+
+// ---------------------------------------------------------------------------
+// External agents
+//
+// Four agents on four host platforms, because the roster's whole job is to show
+// an estate this platform did not build. One is healthy, one is contained after
+// misbehaving, one is over its ceiling and still running, and one is revoked —
+// which is the set of states an operator has to be able to tell apart at a
+// glance.
+// ---------------------------------------------------------------------------
+
+export const externalAgentHealthy: ExternalAgentView = {
+  agentId: "eag_01k4a2m7p3",
+  name: "crm-owner-reply",
+  owner: "priya.raghunathan@example.invalid",
+  department: "Owner Services",
+  hostPlatform: "vendor-crm",
+  purpose:
+    "Drafts replies to owner enquiries inside the CRM and asks this platform before it sends anything or touches a contract.",
+  status: "active",
+  riskCeiling: "sensitive",
+  budgetPeriod: "monthly",
+  periodKey: "2026-08",
+  spentUsd: 41.8829,
+  spendCeilingUsd: 250,
+  overBudget: false,
+  allowedTools: ["crm.read_contract", "crm.draft_reply"],
+  dataScopes: ["owners.enquiries", "contracts.metadata"],
+  credentialKinds: ["hmac"],
+  expiresAt: "2026-12-31T23:59:59.000Z",
+  expired: false,
+  lastSeenAt: "2026-08-06T09:41:12.000Z",
+};
+
+export const externalAgentContained: ExternalAgentView = {
+  agentId: "eag_01k4a3c9r8",
+  name: "titling-deed-checker",
+  owner: "marcus.oyelaran@example.invalid",
+  department: "Title and Closing",
+  hostPlatform: "titling-vendor-cloud",
+  purpose:
+    "Reads deed references out of the titling system and flags contracts whose recorded deed does not match the package.",
+  status: "contained",
+  statusReason:
+    "misbehaviour — the agent is doing something it is not supposed to do: five refused writes to the titling system in four minutes",
+  statusChangedAt: "2026-08-06T08:02:44.000Z",
+  statusChangedBy: "act_7f3a91c2",
+  riskCeiling: "routine",
+  budgetPeriod: "monthly",
+  periodKey: "2026-08",
+  spentUsd: 3.2104,
+  spendCeilingUsd: 100,
+  overBudget: false,
+  allowedTools: ["titling.read_deed"],
+  dataScopes: ["contracts.metadata"],
+  credentialKinds: ["bearer"],
+  expiresAt: "2026-10-15T00:00:00.000Z",
+  expired: false,
+  lastSeenAt: "2026-08-06T08:02:41.000Z",
+};
+
+export const externalAgentOverBudget: ExternalAgentView = {
+  agentId: "eag_01k4a4f1t2",
+  name: "board-pack-assembler",
+  owner: "dana.whitfield@example.invalid",
+  department: "Association Management",
+  hostPlatform: "cloud-agent-service",
+  purpose:
+    "Assembles association board packs from the association's own budget and reserve study, on the association manager's request.",
+  status: "active",
+  riskCeiling: "routine",
+  budgetPeriod: "monthly",
+  periodKey: "2026-08",
+  spentUsd: 512.44,
+  spendCeilingUsd: 400,
+  overBudget: true,
+  allowedTools: ["docs.read_budget", "docs.read_reserve_study", "docs.assemble_pack"],
+  dataScopes: ["associations.financials", "associations.reserve_studies"],
+  credentialKinds: ["jwt", "envelope"],
+  expiresAt: "2026-09-01T00:00:00.000Z",
+  expired: false,
+  lastSeenAt: "2026-08-06T09:58:03.000Z",
+};
+
+export const externalAgentRevoked: ExternalAgentView = {
+  agentId: "eag_01k4a5h6w9",
+  name: "legacy-collections-bot",
+  owner: "helen.braithwaite@example.invalid",
+  department: "Consumer Finance",
+  hostPlatform: "purchased-product",
+  purpose:
+    "Assembled delinquency evidence packs inside a purchased collections product. Replaced by a governed workflow.",
+  status: "revoked",
+  statusReason: "superseded — another enrollment replaces this one",
+  statusChangedAt: "2026-07-30T15:20:00.000Z",
+  statusChangedBy: "act_2c88de40",
+  riskCeiling: "sensitive",
+  budgetPeriod: "lifetime",
+  periodKey: "lifetime",
+  spentUsd: 1284.09,
+  spendCeilingUsd: 2000,
+  overBudget: false,
+  allowedTools: ["loans.read_file"],
+  dataScopes: ["loans.files"],
+  credentialKinds: [],
+  expiresAt: "2026-09-30T00:00:00.000Z",
+  expired: false,
+  lastSeenAt: "2026-07-30T15:11:52.000Z",
+};
+
+export const externalAgents: readonly ExternalAgentView[] = [
+  externalAgentHealthy,
+  externalAgentContained,
+  externalAgentOverBudget,
+  externalAgentRevoked,
+];
+
+export const externalAgentDetail: ExternalAgentDetailView = {
+  agent: externalAgentContained,
+  credentials: [
+    {
+      credentialId: "crd_01k4b1a2c3",
+      kind: "bearer",
+      label: "titling vendor production",
+      strong: false,
+      createdAt: "2026-06-01T09:00:00.000Z",
+      createdBy: "act_7f3a91c2",
+      expiresAt: "2026-08-12T09:00:00.000Z",
+      lastUsedAt: "2026-08-06T08:02:41.000Z",
+    },
+    {
+      credentialId: "crd_01k4b1b7d4",
+      kind: "bearer",
+      label: "titling vendor staging",
+      strong: false,
+      createdAt: "2026-05-04T11:30:00.000Z",
+      createdBy: "act_7f3a91c2",
+      revokedAt: "2026-06-01T09:02:00.000Z",
+      revokedBy: "act_7f3a91c2",
+      revokedReason: "rotated — a replacement has been minted and is in use",
+      lastUsedAt: "2026-05-31T22:14:07.000Z",
+    },
+  ],
+  runs: [
+    {
+      externalRunId: "xrn_01k4c1a4b7",
+      runId: "run_01k4c1a4b6",
+      goal: "Check recorded deed references for contracts closing this week",
+      status: "stopped",
+      startedAt: "2026-08-06T07:58:00.000Z",
+      endedAt: "2026-08-06T08:02:44.000Z",
+      outcome:
+        "stopped: agent contained: misbehaviour — the agent is doing something it is not supposed to do",
+      costUsd: 0.3312,
+    },
+    {
+      externalRunId: "xrn_01k4c0z8c2",
+      runId: "run_01k4c0z8c1",
+      goal: "Check recorded deed references for contracts closing this week",
+      status: "finished",
+      startedAt: "2026-08-05T07:58:00.000Z",
+      endedAt: "2026-08-05T08:11:20.000Z",
+      outcome: "42 contracts checked, 2 mismatches flagged for a person to read",
+      costUsd: 0.9041,
+    },
+    {
+      externalRunId: "xrn_01k4bzy2d5",
+      runId: "run_01k4bzy2d4",
+      goal: "Backfill deed references for the Hawaii portfolio",
+      status: "reclaimed",
+      startedAt: "2026-08-04T22:00:00.000Z",
+      endedAt: "2026-08-04T22:31:00.000Z",
+      outcome: "reclaimed: no heartbeat since 2026-08-04T22:29:00.000Z",
+      costUsd: 1.4408,
+    },
+  ],
+  runsTotal: 118,
+  denials: [
+    {
+      entryId: "aud_01k4d1a4b7",
+      recordedAt: "2026-08-06T08:02:41.000Z",
+      reason: "authorization.action_not_permitted",
+      message: 'titling-deed-checker is not permitted to use "titling.write_deed".',
+      tool: "titling.write_deed",
+      operation: "execute.write",
+      runId: "run_01k4c1a4b6",
+      countedTowardContainment: true,
+    },
+    {
+      entryId: "aud_01k4d1a2b5",
+      recordedAt: "2026-08-06T08:01:12.000Z",
+      reason: "role.ceiling_exceeded",
+      message:
+        '"titling.write_deed" is high_consequence (raised from the declared routine by the operator\'s rating), above titling-deed-checker\'s ceiling of routine.',
+      tool: "titling.write_deed",
+      operation: "screen",
+      countedTowardContainment: true,
+    },
+    {
+      entryId: "aud_01k4d0z9a1",
+      recordedAt: "2026-08-05T14:33:08.000Z",
+      reason: "screen.unavailable",
+      message: "The boundary screen could not be reached, so the request was refused.",
+      tool: "titling.read_deed",
+      operation: "report",
+      countedTowardContainment: false,
+    },
+    {
+      entryId: "aud_01k4czy1x8",
+      recordedAt: "2026-08-03T11:02:55.000Z",
+      reason: "ceiling.rate_exceeded",
+      message: "Rate ceiling reached for screen: 61 requests in the window.",
+      tool: "titling.read_deed",
+      operation: "screen",
+      countedTowardContainment: true,
+    },
+  ],
+  containmentHistory: [
+    {
+      at: "2026-08-06T08:02:44.000Z",
+      change: "contained",
+      by: "act_7f3a91c2",
+      automatic: false,
+      reason:
+        "misbehaviour — the agent is doing something it is not supposed to do: five refused writes to the titling system in four minutes",
+      previousStatus: "active",
+    },
+    {
+      at: "2026-08-03T11:05:00.000Z",
+      change: "released",
+      by: "act_2c88de40",
+      automatic: false,
+      reason: "investigated_and_clear — it was looked into and nothing was wrong",
+      previousStatus: "contained",
+    },
+    {
+      at: "2026-08-03T11:03:00.000Z",
+      change: "contained",
+      by: "system:rate-limiter",
+      automatic: true,
+      reason: "5 refused requests inside the denial window",
+      previousStatus: "active",
+    },
+  ],
+  parkedActions: [
+    {
+      parkedActionId: "pac_01k4e1a4b7",
+      integration: "titling",
+      operation: "correct_deed_reference",
+      status: "pending",
+      createdAt: "2026-08-06T08:00:10.000Z",
+      expiresAt: "2026-08-07T08:00:10.000Z",
+      approvalId: "apr_01k4e1a4b8",
+    },
+    {
+      parkedActionId: "pac_01k4e0z2c9",
+      integration: "titling",
+      operation: "correct_deed_reference",
+      status: "indeterminate",
+      createdAt: "2026-08-04T16:12:00.000Z",
+      expiresAt: "2026-08-05T16:12:00.000Z",
+    },
+  ],
+  spendMeters: [
+    { periodKey: "2026-07", spentUsd: 88.5102, updatedAt: "2026-07-31T23:58:00.000Z" },
+    { periodKey: "2026-08", spentUsd: 3.2104, updatedAt: "2026-08-06T08:02:44.000Z" },
+  ],
+};
+
+export const externalAgentDetailHealthy: ExternalAgentDetailView = {
+  agent: externalAgentHealthy,
+  credentials: [
+    {
+      credentialId: "crd_01k4b2m8k5",
+      kind: "hmac",
+      label: "crm production, signed requests",
+      strong: true,
+      createdAt: "2026-04-18T10:00:00.000Z",
+      createdBy: "act_7f3a91c2",
+      lastUsedAt: "2026-08-06T09:41:12.000Z",
+    },
+  ],
+  runs: [
+    {
+      externalRunId: "xrn_01k4c2m8k5",
+      runId: "run_01k4c2m8k4",
+      goal: "Draft a reply about points reinstatement for member 4471-889-02",
+      status: "finished",
+      startedAt: "2026-08-06T09:40:00.000Z",
+      endedAt: "2026-08-06T09:41:12.000Z",
+      outcome: "A draft was produced and placed in the agent's queue for editing and sending.",
+      costUsd: 0.0912,
+    },
+  ],
+  runsTotal: 1,
+  denials: [],
+  containmentHistory: [],
+  parkedActions: [],
+  spendMeters: [{ periodKey: "2026-08", spentUsd: 41.8829, updatedAt: "2026-08-06T09:41:12.000Z" }],
+};
+
+export const externalPlaneHealthy: ExternalAgentHealthView = {
+  planeEnabled: true,
+  enrolledCount: 4,
+  activeCount: 2,
+  enabledWithNothingEnrolled: false,
+  contained: [],
+  overBudget: [],
+  credentialsNearingExpiry: [],
+  expiryHorizonDays: 14,
+};
+
+export const externalPlaneAlarming: ExternalAgentHealthView = {
+  planeEnabled: true,
+  enrolledCount: 4,
+  activeCount: 2,
+  enabledWithNothingEnrolled: false,
+  contained: [
+    {
+      agentId: "eag_01k4a3c9r8",
+      name: "titling-deed-checker",
+      owner: "marcus.oyelaran@example.invalid",
+      department: "Title and Closing",
+      hostPlatform: "titling-vendor-cloud",
+      reason:
+        "misbehaviour — the agent is doing something it is not supposed to do: five refused writes to the titling system in four minutes",
+      since: "2026-08-06T08:02:44.000Z",
+      by: "act_7f3a91c2",
+    },
+  ],
+  overBudget: [
+    {
+      agentId: "eag_01k4a4f1t2",
+      name: "board-pack-assembler",
+      owner: "dana.whitfield@example.invalid",
+      department: "Association Management",
+      periodKey: "2026-08",
+      budgetPeriod: "monthly",
+      spentUsd: 512.44,
+      ceilingUsd: 400,
+      overByUsd: 112.44,
+    },
+  ],
+  credentialsNearingExpiry: [
+    {
+      credentialId: "crd_01k4b1a2c3",
+      agentId: "eag_01k4a3c9r8",
+      agentName: "titling-deed-checker",
+      kind: "bearer",
+      label: "titling vendor production",
+      expiresAt: "2026-08-12T09:00:00.000Z",
+      expired: false,
+    },
+  ],
+  expiryHorizonDays: 14,
+};
+
+export const externalPlaneEmpty: ExternalAgentHealthView = {
+  planeEnabled: true,
+  enrolledCount: 0,
+  activeCount: 0,
+  enabledWithNothingEnrolled: true,
+  contained: [],
+  overBudget: [],
+  credentialsNearingExpiry: [],
+  expiryHorizonDays: 14,
+};
+
+export const externalPlaneDisabled: ExternalAgentHealthView = {
+  planeEnabled: false,
+  enrolledCount: 0,
+  activeCount: 0,
+  enabledWithNothingEnrolled: false,
+  contained: [],
+  overBudget: [],
+  credentialsNearingExpiry: [],
+  expiryHorizonDays: 14,
 };

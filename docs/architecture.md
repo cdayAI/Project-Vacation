@@ -22,11 +22,12 @@ Modules may import from their own layer or below, and never above. An
 architecture test enforces this; a violation fails the build.
 
 ```
-layer 7   demo
-layer 6   api, cli
+layer 8   cli
+layer 7   api
+layer 6   demo
 layer 5   workflows
 layer 4   improve, discovery
-layer 3   roles, engine, documents
+layer 3   roles, engine, documents, external
 layer 2   knowledge, integrations, contact
 layer 1   guard, models, identity
 layer 0   record, audit, timeline
@@ -40,11 +41,21 @@ decision through workflow state, and the chokepoint would stop being a
 chokepoint. The layering is what makes "every action passes through one place"
 a structural property rather than an aspiration.
 
-**Two deliberate asymmetries.** `timeline` is at layer 0 despite being domain
+**Three deliberate asymmetries.** `timeline` is at layer 0 despite being domain
 logic, because statutory deadlines must be computable without any of the
 machinery above them — that keeps the highest-consequence computation testable
-in isolation. And `discovery` must not import `models`, enforced by its own
-test, because employee observations must never reach a model provider.
+in isolation. `discovery` must not import `models`, enforced by its own test,
+because employee observations must never reach a model provider. And `external`
+— the plane that governs agents running outside this platform — sits at layer 3
+rather than at the entry points, because it is not an entry point: it is a set
+of controls that the API and the CLI both call into, and putting it beside them
+would let a route make a decision the plane is supposed to own.
+
+**`external` is governance, not orchestration.** It has no scheduler and no
+state machine for somebody else's agent, because an agent that runs elsewhere
+cannot be orchestrated here. What it has is an admission chain, a record of
+everything the agent asked for, and a two-phase path for actions it wants this
+platform to perform on its behalf. See ADR 0016.
 
 ---
 

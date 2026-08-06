@@ -32,6 +32,11 @@
  *                           them, all inert until a human approves
  *   ImprovementProposal.tsx before, after, evaluation delta, blast radius
  *   ContainmentControls.tsx the operator stop buttons, all four scopes
+ *   ExternalAgents.tsx      the roster of agents running outside this platform:
+ *                           who, whose, on what, spending what against which
+ *                           ceiling, and which credential kinds they hold
+ *   ExternalAgentDetail.tsx one external agent's runs, costs, outcomes,
+ *                           refusals in plain language, and containment history
  *
  * Assurance and oversight:
  *
@@ -68,6 +73,17 @@ export {
 export { Denial } from "./Denial";
 export { DiscoveryBacklog, DiscoveryBacklogRoute } from "./DiscoveryBacklog";
 export { ExecutiveView, ExecutiveViewRoute } from "./ExecutiveView";
+export {
+  ExternalAgentDetail,
+  ExternalAgentDetailRoute,
+  denialPresentation,
+} from "./ExternalAgentDetail";
+export {
+  ExternalAgents,
+  ExternalAgentsRoute,
+  agentState,
+  credentialKindLabel,
+} from "./ExternalAgents";
 export { Health, HealthRoute } from "./Health";
 export { ImprovementProposal, ImprovementProposalRoute } from "./ImprovementProposal";
 export { ImprovementQueue, ImprovementQueueRoute } from "./ImprovementQueue";

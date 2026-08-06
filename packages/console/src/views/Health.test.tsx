@@ -2,7 +2,15 @@ import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { HealthView } from "../api/contract";
 import { expectNoAccessibilityViolations, renderSurface } from "../test/axe";
-import { alarmingPlatform, containmentGlobalPaused, healthyPlatform } from "../test/fixtures";
+import {
+  alarmingPlatform,
+  containmentGlobalPaused,
+  externalPlaneAlarming,
+  externalPlaneDisabled,
+  externalPlaneEmpty,
+  externalPlaneHealthy,
+  healthyPlatform,
+} from "../test/fixtures";
 import { Health } from "./Health";
 
 const withContainment: HealthView = {
@@ -140,6 +148,107 @@ describe("Health", () => {
 
   it("has no accessibility violations with containment engaged", async () => {
     const { container } = renderSurface(<Health health={withContainment} />);
+    await expectNoAccessibilityViolations(container);
+  });
+});
+
+/**
+ * The four external-agent rows.
+ *
+ * Each is a condition that is invisible until somebody opens the right screen,
+ * and each is quietly getting worse while nobody does. Tested here rather than
+ * on the roster because reaching an operator who did not come looking is the
+ * whole reason they ride on the health payload.
+ */
+describe("Health — external agents", () => {
+  const enabledAndEmpty: HealthView = { ...healthyPlatform, externalAgents: externalPlaneEmpty };
+  const alarming: HealthView = { ...healthyPlatform, externalAgents: externalPlaneAlarming };
+  const disabled: HealthView = { ...healthyPlatform, externalAgents: externalPlaneDisabled };
+  const notReported: HealthView = { ...healthyPlatform };
+
+  it("says the plane is enabled with nothing enrolled, and why that is misleading", () => {
+    renderSurface(<Health health={enabledAndEmpty} />);
+
+    expect(
+      screen.getByText("The plane is enabled and nothing is enrolled"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/a zero it has not earned/)).toBeInTheDocument();
+  });
+
+  it("separates the plane being off from the plane being empty", () => {
+    const { unmount } = renderSurface(<Health health={disabled} />);
+    expect(screen.getByText("Not enabled — the shipped state")).toBeInTheDocument();
+    expect(
+      screen.queryByText("The plane is enabled and nothing is enrolled"),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    renderSurface(<Health health={enabledAndEmpty} />);
+    expect(screen.queryByText("Not enabled — the shipped state")).not.toBeInTheDocument();
+  });
+
+  it("separates a payload that does not report on external agents from one that reports nothing", () => {
+    renderSurface(<Health health={notReported} />);
+
+    expect(
+      screen.getByText("This deployment does not report on external agents"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/this console cannot tell you either way/)).toBeInTheDocument();
+  });
+
+  it("names every contained agent, with who stopped it and why", () => {
+    renderSurface(<Health health={alarming} />);
+
+    const panel = screen.getByRole("region", { name: "External agents" });
+    expect(within(panel).getByText("1 agent is contained")).toBeInTheDocument();
+    // Named twice on this panel — once as contained, once as the holder of an
+    // expiring credential — and every mention links straight to its detail.
+    for (const link of within(panel).getAllByRole("link", { name: "titling-deed-checker" })) {
+      expect(link).toHaveAttribute("href", "/external-agents/eag_01k4a3c9r8");
+    }
+    expect(
+      within(panel).getByText(/five refused writes to the titling system/),
+    ).toBeInTheDocument();
+  });
+
+  it("names every over-budget agent, with the figure and the period it belongs to", () => {
+    renderSurface(<Health health={alarming} />);
+
+    const panel = screen.getByRole("region", { name: "External agents" });
+    expect(within(panel).getByText("1 agent is over budget")).toBeInTheDocument();
+    expect(within(panel).getByText(/\$512\.44 of \$400\.00/)).toBeInTheDocument();
+    expect(within(panel).getByText(/for period 2026-08/)).toBeInTheDocument();
+  });
+
+  it("names credentials nearing expiry, with the horizon they were measured against", () => {
+    renderSurface(<Health health={alarming} />);
+
+    const panel = screen.getByRole("region", { name: "External agents" });
+    expect(within(panel).getByText("1 credential expires within 14 days")).toBeInTheDocument();
+    expect(within(panel).getByText(/titling vendor production/)).toBeInTheDocument();
+    // The label and kind, never a value.
+    expect(panel.textContent ?? "").not.toMatch(/pvx_/);
+    expect(panel.textContent ?? "").not.toMatch(/[0-9a-f]{64}/);
+  });
+
+  it("says plainly when none of the four conditions is present", () => {
+    renderSurface(<Health health={{ ...healthyPlatform, externalAgents: externalPlaneHealthy }} />);
+
+    const panel = screen.getByRole("region", { name: "External agents" });
+    expect(within(panel).getByText("None. No external agent is stopped.")).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/Every enrolled agent is inside its ceiling/),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText("None within 14 days.")).toBeInTheDocument();
+  });
+
+  it("has no accessibility violations with all four rows alarming", async () => {
+    const { container } = renderSurface(<Health health={alarming} />);
+    await expectNoAccessibilityViolations(container);
+  });
+
+  it("has no accessibility violations with the plane enabled and empty", async () => {
+    const { container } = renderSurface(<Health health={enabledAndEmpty} />);
     await expectNoAccessibilityViolations(container);
   });
 });

@@ -7,6 +7,8 @@ import {
   containmentClear,
   discoveryCandidates,
   executiveSnapshot,
+  externalAgentDetail,
+  externalAgents,
   healthyPlatform,
   improvementClusters,
   improvementProposal,
@@ -65,6 +67,9 @@ export function createFakeClient(overrides: Partial<ConsoleClient> = {}): Consol
       }),
 
     discoveryCandidates: () => Promise.resolve(page(discoveryCandidates)),
+
+    externalAgents: () => Promise.resolve(page(externalAgents)),
+    externalAgent: () => Promise.resolve(externalAgentDetail),
 
     executive: () => Promise.resolve(executiveSnapshot),
   };

@@ -55,6 +55,12 @@ solved problems is marketing.
                           │ owner messages, uploaded  │
                           │ documents, 3rd-party data │
                           └───────────────────────────┘
+
+              ┌───────────────────────────┐
+              │ agents MVW runs elsewhere │──8──▶ API + platform process
+              │ (CRM, cloud agent service,│       (inbound, agent-authenticated)
+              │  purchased products)      │
+              └───────────────────────────┘
 ```
 
 1. Browser to console assets
@@ -64,6 +70,7 @@ solved problems is marketing.
 5. Platform to model provider
 6. Platform to MVW systems of record
 7. Untrusted content entering the platform
+8. Agents running outside this platform, calling in
 
 ---
 
@@ -122,6 +129,31 @@ ordinary application's.
 | Corpus poisoning | T | Ingestion is governed: screened, classified, access-scoped, provenance recorded, refusal audited (`knowledge/ingest.ts`) | — |
 | Exfiltration via crafted output | I | Outbound content passes the contact gate; consumer-facing output above a risk threshold requires human approval | — |
 | Oversized input as denial of service | D | Length ceiling; oversized input refused rather than truncated, because truncating would screen only part of what the model sees | — |
+
+### Boundary 8 — Agents running outside this platform
+
+The newest boundary and the least conventional one. The caller is a program
+this platform did not build, running on a host it does not administer, operated
+by a team or a vendor it cannot instrument. It cannot be reached, throttled at
+its source, or killed. Everything below follows from that.
+
+| Threat | STRIDE | Mitigation | Residual |
+| --- | --- | --- | --- |
+| **Unenrolled or unknown caller acts** | S,E | Enrollment is the basis of admission; an unenrolled id is refused with no anonymous path (`external/admission.ts`) | — |
+| Stolen bearer token replayed | S | Tokens stored as a hash and shown once; individually revocable; an agent holding **any** strong credential is refused bearer authentication entirely | A bearer-only agent's stolen token works until revoked — which is why strong credentials exist and why the switch defaults on |
+| Forged identity assertion | S | JWT verified **offline** against a local key file, asymmetric algorithms only, subject claim required to equal the enrolled agent id; envelopes are domain-separated over a pinned key | — |
+| Captured signed request replayed | S,E | Durable per-agent nonce claims plus a freshness window; single-use applies to HMAC as well as envelopes; nonce burned only after the signature verifies | Bounded **per agent**, never globally, so one busy tenant cannot evict another's claims |
+| **Approved request swapped for another at commit** | T,E | The approval binds to the digest of the exact request; any difference voids the action and counts as misbehaviour | — |
+| Approval spent twice | E | One-shot ledger with a floor: an evicted entry is refused rather than forgotten, so ageing out never re-opens an approval | Deliberately over-refuses ids at or below the floor |
+| Replayed commit told "expired, try again" | E | Terminal status is checked **before** expiry, so a replay hears "already done" — never an instruction to duplicate the effect through a second approval | — |
+| Agent keeps acting after an operator stops it | E | Kill switch delivered in the heartbeat reply, with every stop condition read fresh on every beat; the admission chain re-runs at commit, so a granted approval does not survive a revocation | An agent between heartbeats is not yet stopped; the reclaim window bounds this and is configurable |
+| Agent floods the plane | D | Per-agent, per-operation rolling-window limits; a limiter that cannot count refuses rather than waves through | — |
+| Persistent probing for permissions it lacks | E | A run of **misbehaviour** denials auto-contains until a human releases; our own infrastructure failures are excluded from the ledger the threshold reads | An agent under the threshold is refused every time but not contained — by design |
+| Risk understated by the caller | T,E | The operator's rating on the tool grant floors whatever the agent declares; a declaration may raise a tier, never lower one | — |
+| Padded field pushes content past a scan window | T | Every input bounded **before** anything is screened; oversized bodies refused whole rather than truncated | — |
+| Spend hidden by retrying a report | R | Ingestion is exactly-once on the agent's idempotency key; a retry returns the original record instead of counting again | — |
+| **Worker dies mid-commit; effect may have landed** | R | The action is marked `indeterminate` and **never** retried automatically; the operator is told to check the system of record | Resolution is manual by design — an automatic retry could issue a second payment |
+| External activity invisible in the record | R | Everything lands in the one operating record, approval queue and audit chain under a principal marked external | Only covers what the agent asks *us* for; direct vendor-to-vendor calls remain outside any record here |
 
 ### Cross-cutting
 

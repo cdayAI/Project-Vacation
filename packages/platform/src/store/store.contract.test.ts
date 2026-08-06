@@ -1265,7 +1265,14 @@ describe.skipIf(!CONNECTION_STRING)("a store that cannot answer refuses", () => 
     // failures come from the driver rather than from a mock that might be
     // kinder than the real thing.
     pool = new pg.Pool({
-      connectionString: (CONNECTION_STRING ?? "").replace("/pv_test", "/pv_absent_database"),
+      // Replace the database name whatever it is called. Matching a literal
+      // "/pv_test" would be a silent no-op against any other name, and these
+      // tests would then run against the real database and assert that a
+      // working store fails.
+      connectionString: (CONNECTION_STRING ?? "").replace(
+        /\/[^/?]*(?=\?|$)/,
+        "/pv_absent_database",
+      ),
       max: 2,
       connectionTimeoutMillis: 2_000,
     });

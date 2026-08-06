@@ -73,6 +73,17 @@ export type StoreKind = (typeof STORE_KINDS)[number];
 export const DEPLOY_ENVIRONMENTS = ["development", "test", "staging", "production"] as const;
 export type DeployEnvironment = (typeof DEPLOY_ENVIRONMENTS)[number];
 
+/**
+ * Risk tiers, spelled out here rather than imported.
+ *
+ * The guard owns the concept; this module sits below it and may not import
+ * upward. A duplicated four-item tuple is a smaller cost than inverting the
+ * dependency, and `guard/guard.test.ts` asserts the two lists agree so they
+ * cannot drift apart silently — a configured threshold naming a tier the guard
+ * does not have would be a threshold that never fires.
+ */
+export const RISK_TIERS = ["routine", "sensitive", "high_consequence", "prohibited"] as const;
+
 const schema = z.object({
   environment: z.enum(DEPLOY_ENVIRONMENTS).default("development"),
   serviceName: nonEmpty.default("project-vacation"),
@@ -112,6 +123,37 @@ const schema = z.object({
   anthropicApiKey: z.string().optional(),
   anthropicBaseUrl: z.string().url().default("https://api.anthropic.com"),
 
+  // The external-agent plane. It ships switched off, because turning it on
+  // opens an inbound surface, and an inbound surface that nobody decided to
+  // open is the kind of thing found later rather than chosen now. Nothing
+  // about the switch is permissive: with the plane on, an unenrolled caller is
+  // still refused, so enabling it grants no access by itself.
+  externalAgentsEnabled: booleanish.default(false),
+  /** Seats available to external agents. Enforced atomically at enrollment. */
+  externalAgentSeatCap: positiveInt.default(25),
+  externalAgentMaxEnrollmentDays: positiveInt.default(365),
+  /** Tier at or above which a human must approve before an agent proceeds. */
+  externalApprovalThreshold: z.enum(RISK_TIERS).default("high_consequence"),
+  externalRequestsPerMinute: positiveInt.default(60),
+  externalDenialsBeforeContainment: positiveInt.default(5),
+  externalDenialWindowSeconds: positiveInt.default(300),
+  /** Seconds without a heartbeat after which a live run is reclaimed. */
+  externalRunReclaimAfterSeconds: positiveInt.default(120),
+  externalAgentMaxSpendCeilingUsd: z.coerce.number().nonnegative().default(5_000),
+  /**
+   * Refuse plain bearer authentication from any agent holding a strong
+   * credential. Defaults on: an agent that has been issued a signing key has no
+   * reason to present a bearer token, and accepting one anyway would mean the
+   * strong credential raised the ceiling without raising the floor.
+   */
+  externalRefuseBearerWhenStrong: booleanish.default(true),
+  /**
+   * Local JWKS file for verifying platform-native JWT assertions. Read from
+   * disk at verify time — never fetched over the network, so an attacker who
+   * can answer a JWKS URL cannot mint an identity.
+   */
+  externalJwksPath: z.string().optional(),
+
   auditRetentionDays: positiveInt.default(2555), // 7 years
   demoSeed: nonEmpty.default("project-vacation-demo-v1"),
 });
@@ -147,6 +189,17 @@ const ENV_KEYS: Record<keyof z.input<typeof schema>, string> = {
   modelProvider: "PV_MODEL_PROVIDER",
   anthropicApiKey: "PV_ANTHROPIC_API_KEY",
   anthropicBaseUrl: "PV_ANTHROPIC_BASE_URL",
+  externalAgentsEnabled: "PV_EXTERNAL_AGENTS_ENABLED",
+  externalAgentSeatCap: "PV_EXTERNAL_AGENT_SEAT_CAP",
+  externalAgentMaxEnrollmentDays: "PV_EXTERNAL_AGENT_MAX_ENROLLMENT_DAYS",
+  externalApprovalThreshold: "PV_EXTERNAL_APPROVAL_THRESHOLD",
+  externalRequestsPerMinute: "PV_EXTERNAL_REQUESTS_PER_MINUTE",
+  externalDenialsBeforeContainment: "PV_EXTERNAL_DENIALS_BEFORE_CONTAINMENT",
+  externalDenialWindowSeconds: "PV_EXTERNAL_DENIAL_WINDOW_SECONDS",
+  externalRunReclaimAfterSeconds: "PV_EXTERNAL_RUN_RECLAIM_AFTER_SECONDS",
+  externalAgentMaxSpendCeilingUsd: "PV_EXTERNAL_AGENT_MAX_SPEND_CEILING_USD",
+  externalRefuseBearerWhenStrong: "PV_EXTERNAL_REFUSE_BEARER_WHEN_STRONG",
+  externalJwksPath: "PV_EXTERNAL_JWKS_PATH",
   auditRetentionDays: "PV_AUDIT_RETENTION_DAYS",
   demoSeed: "PV_DEMO_SEED",
 };
@@ -232,6 +285,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new ConfigError("PV_MODEL_PROVIDER=anthropic requires PV_ANTHROPIC_API_KEY.", {});
   }
 
+  // The external plane's controls are meaningless if they can be configured
+  // away, so the two that would hollow it out are refused rather than warned
+  // about.
+  if (config.externalAgentsEnabled) {
+    if (config.externalApprovalThreshold === "prohibited") {
+      throw new ConfigError(
+        'PV_EXTERNAL_APPROVAL_THRESHOLD=prohibited would mean no external agent action ever needs a human, because no action is registered above "prohibited". Set it to "high_consequence" or lower.',
+        { threshold: config.externalApprovalThreshold },
+      );
+    }
+    if (config.externalDenialsBeforeContainment < 1) {
+      throw new ConfigError(
+        "PV_EXTERNAL_DENIALS_BEFORE_CONTAINMENT must be at least 1. Zero would contain every agent on its first refusal, which operators would respond to by raising the value until it never fired.",
+        { denialsBeforeContainment: config.externalDenialsBeforeContainment },
+      );
+    }
+    if (config.externalRequestsPerMinute < 1) {
+      throw new ConfigError(
+        "PV_EXTERNAL_REQUESTS_PER_MINUTE must be at least 1. A limit of zero refuses every enrolled agent, which is containment by configuration rather than by decision.",
+        { requestsPerMinute: config.externalRequestsPerMinute },
+      );
+    }
+  }
+
   // Loud warnings for settings that are permitted but not safe.
 
   if (config.sandboxMode === "subprocess") {
@@ -257,6 +334,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (config.egressAllowlist.length === 0) {
     warnings.push(
       "EGRESS: PV_EGRESS_ALLOWLIST is empty, so every outbound integration call will be refused.",
+    );
+  }
+  if (config.externalAgentsEnabled && !config.externalRefuseBearerWhenStrong) {
+    warnings.push(
+      "EXTERNAL AGENTS: PV_EXTERNAL_REFUSE_BEARER_WHEN_STRONG is off, so an agent holding a signing key may still authenticate with a bearer token. A stolen token then works even though the agent was issued something better.",
+    );
+  }
+  if (config.externalAgentsEnabled && !config.externalJwksPath) {
+    warnings.push(
+      "EXTERNAL AGENTS: no PV_EXTERNAL_JWKS_PATH is configured, so platform-native JWT assertions cannot be verified and agents can only hold bearer, HMAC, or pinned-key credentials.",
     );
   }
   if (!isProductionLike && !config.oidcIssuer) {

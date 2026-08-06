@@ -1,0 +1,1148 @@
+openapi: 3.1.0
+
+info:
+  title: Project Vacation — external agent governance plane
+  version: "1.0.0"
+  summary: The inbound surface for agents that run outside this platform.
+  description: |
+    Governance for agents MVW already runs elsewhere — in a CRM, in a cloud
+    agent service, inside a purchased product.
+
+    An agent that runs elsewhere cannot be orchestrated here; it can be fully
+    governed and accounted for here. So this API offers no scheduler and no
+    execution model for somebody else's agent. It offers four things:
+
+      1. `POST /screen`  — ask whether an action is permitted, BEFORE taking it.
+      2. `POST /report`  — record a completed episode on the operating record.
+      3. `POST /runs...` — declare work in flight, and receive the kill switch.
+      4. `POST /execute` — have the platform take the action, so the action
+                           itself is policied and receipted rather than merely
+                           pre-authorised.
+
+    Every route authenticates. There is no anonymous access and no default
+    allow. Every route then runs, or delegates to, the same admission chain:
+    enrolled, not revoked, not contained, not expired, tool granted, risk within
+    ceiling with the operator's rating flooring what the caller declares, data
+    scopes held, budget available, accompanying text screened, and — above the
+    configured threshold — a real approval parked for a human.
+
+    ## Reading a response
+
+    The HTTP status is not the whole answer, but it never contradicts the body.
+
+      * `200` answered; read `outcome`
+      * `201` created (a live run started, or a report ingested for the first time)
+      * `202` accepted AND WAITING ON A HUMAN — do not proceed
+      * `400` did not match this contract
+      * `404` no such resource, or one belonging to another agent
+      * `409` denied on policy grounds
+      * `413` body past the size limit; refused whole, never truncated
+      * `500` our failure
+
+    `202` rather than `200` for "a human must decide" is deliberate: a client
+    that branches on `response.ok` alone would otherwise read it as permission.
+
+    ## Bounds
+
+    Every field is bounded and oversized input is refused rather than truncated,
+    because a truncated field is screened only in part and the part that was cut
+    is the part the sender chose. Unknown fields are rejected rather than
+    ignored.
+
+  contact:
+    name: The MVW operator who enrolled your agent
+  license:
+    name: UNLICENSED
+
+servers:
+  - url: https://{host}
+    description: An MVW deployment of the platform.
+    variables:
+      host:
+        default: platform.example.invalid
+        description: Supplied by the operator who enrolled your agent.
+
+security:
+  # Either a bearer credential, or the full set of signed-request headers.
+  - bearerAuth: []
+  - signedAgent: []
+    signedTimestamp: []
+    signedNonce: []
+    signedSignatureKind: []
+    signedSignature: []
+
+tags:
+  - name: screen
+    description: Ask before acting.
+  - name: approvals
+    description: Poll a parked human decision.
+  - name: report
+    description: Record a completed episode.
+  - name: runs
+    description: Declare work in flight. The heartbeat reply is the kill switch.
+  - name: execute
+    description: Have the platform perform the action, under governance.
+
+paths:
+  /api/external/screen:
+    post:
+      tags: [screen]
+      operationId: screenAction
+      summary: May this agent do this?
+      description: |
+        Runs the full admission chain and answers `allowed`,
+        `approval_required`, or `denied`. Ask before acting, not after.
+
+        Above the configured approval threshold this parks a **real** approval
+        in the same queue a supervisor already watches, labelled so the approver
+        knows a vendor's agent asked rather than a colleague, and returns its
+        id. Poll `GET /api/external/approvals/{approvalId}`.
+
+        The operator's risk rating for a tool floors whatever the caller
+        declares. External tool names are arbitrary strings chosen by whoever
+        built the agent, so a caller declaring `issue_refund` as `routine` — by
+        carelessness or otherwise — does not make it routine. `effectiveRisk` in
+        the reply is the tier that was actually applied.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScreenRequest" }
+            examples:
+              routine:
+                summary: A read the agent holds a grant for
+                value:
+                  tool: crm.read_contact
+                  declaredRisk: routine
+                  estimatedCostUsd: 0.4
+                  requiredScopes: [owner_services]
+                  subject: { contractId: ctr_fl_0001 }
+              withUntrustedText:
+                summary: Carrying text from somewhere we do not control
+                value:
+                  tool: owner.summarise
+                  declaredRisk: routine
+                  untrustedInput: "The owner asks when their cancellation window closes."
+      responses:
+        "200":
+          description: Permitted. Proceed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScreenAllowed" }
+        "202":
+          description: |
+            A human must decide first. **Do not proceed.** Poll the approval.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScreenApprovalRequired" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+        "409": { $ref: "#/components/responses/Denied" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+
+  /api/external/approvals/{approvalId}:
+    get:
+      tags: [approvals]
+      operationId: pollApproval
+      summary: Has a human decided yet?
+      description: |
+        Deliberately thin. The status, the counts, and the digest the decision
+        binds to — not who approved it, not their note, not the subject
+        references. The agent needs to know whether it may proceed; a vendor's
+        agent learning which employee signed off, and when, is a disclosure
+        nobody asked for.
+
+        An approval belonging to another agent returns `404`, the same answer as
+        one that does not exist, so the identifier space cannot be walked.
+      parameters:
+        - name: approvalId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        "200":
+          description: The approval's current state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApprovalState" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Denied" }
+
+  /api/external/report:
+    post:
+      tags: [report]
+      operationId: reportEpisode
+      summary: Record a completed episode of work.
+      description: |
+        Ingests a finished episode onto the operating record as **first-class
+        work**: a run owned by a principal marked external, its full step trail,
+        its outcome, and its cost — in the same table, the same queue, and the
+        same cost report as work this platform ran itself. There is deliberately
+        no separate store and no separate figure.
+
+        ## Exactly once
+
+        Agents retry; that is the point of having a report endpoint at all.
+        `idempotencyKey` is claimed atomically before anything is written, so of
+        two copies of the same episode exactly one writes and the other is
+        handed the original record — `duplicate: true`, HTTP `200` rather than
+        `201`. **Reuse the same key on every retry of the same episode.**
+        Without that, every retry double-counts spend against the ceiling, and a
+        ceiling you can walk past by retrying is a suggestion.
+
+        A retry is a repeat of an episode, not a correction of one. The cost
+        returned is what the operating record holds, not what a later copy of
+        the report claims.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunReport" }
+            examples:
+              completed:
+                summary: One finished episode with its step trail
+                value:
+                  tool: owner.summarise
+                  idempotencyKey: episode-2026-08-06-0001
+                  goal: summarise the owner's outstanding questions
+                  startedAt: "2026-08-06T11:00:00.000Z"
+                  endedAt: "2026-08-06T11:30:00.000Z"
+                  outcome: succeeded
+                  summary: three questions answered from the contract
+                  costUsd: 3.25
+                  subject: { contractId: ctr_fl_0001 }
+                  steps:
+                    - name: retrieve contract terms
+                      tool: crm.read_contact
+                      startedAt: "2026-08-06T11:01:00.000Z"
+                      endedAt: "2026-08-06T11:02:00.000Z"
+                      outcome: succeeded
+                      costUsd: 1.25
+      responses:
+        "201":
+          description: Ingested. This episode is now on the operating record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestedReport" }
+        "200":
+          description: |
+            Already ingested under this idempotency key. The **original** record
+            is returned and nothing was counted twice.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestedReport" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+        "409": { $ref: "#/components/responses/Denied" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+
+  /api/external/runs:
+    post:
+      tags: [runs]
+      operationId: startRun
+      summary: Declare an episode of work as it begins.
+      description: |
+        Opens a run on the operating record the instant the agent says it has
+        begun, rather than waiting for a report that arrives — or does not —
+        some time after it ended. Use this when the work is long enough that
+        somebody would want to see it in flight.
+
+        Nothing here starts, schedules, or steers the agent. What it buys is
+        visibility from the first moment, and one reliable moment at which the
+        platform can stop the agent: the heartbeat.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StartRunRequest" }
+            examples:
+              start:
+                value:
+                  tool: owner.summarise
+                  goal: work through the owner's open questions
+                  subject: { contractId: ctr_fl_0001 }
+      responses:
+        "201":
+          description: The run is open. Begin heartbeating.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StartedRun" }
+        "202":
+          description: |
+            A human must approve this work before it starts. **Do not begin.**
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScreenApprovalRequired" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+        "409": { $ref: "#/components/responses/Denied" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+
+  /api/external/runs/{externalRunId}/heartbeat:
+    post:
+      tags: [runs]
+      operationId: heartbeatRun
+      summary: THE KILL SWITCH. Say you are still working; be told whether to stop.
+      description: |
+        **The reply is a directive, and it must be honoured.**
+
+        An external agent runs inside somebody else's system. This platform
+        holds no handle on its process, no route to its host, and no credential
+        that would let it interrupt one. Containment therefore cannot be *pushed*
+        to an agent — the only instant at which it can reliably be stopped is
+        the instant it next asks something. That instant is this call, which is
+        why the reply is a directive rather than an acknowledgement, and why
+        every stop condition is re-read on every beat rather than cached.
+
+        `directive: "stop"` is returned on containment, revocation, enrolment
+        expiry, an operator stopping the run, or the run having already been
+        reclaimed. On `stop`: stop the work now. Do not finish the run, do not
+        retry, do not complete the current step.
+
+        A stop arrives as **HTTP 200**, not as an error. A stop delivered as an
+        exception lands in the caller's error handling, and an agent's error
+        handling is the last place this platform wants its kill switch to live.
+
+        Beat at least every `reclaimAfterSeconds`. A run that stops beating is
+        **reclaimed** — closed on the record with the honest outcome that nobody
+        heard from it — because a run that has gone quiet is not a run that is
+        fine.
+      parameters:
+        - $ref: "#/components/parameters/ExternalRunId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HeartbeatRequest" }
+      responses:
+        "200":
+          description: |
+            The directive. `continue` or `stop` — check it every time.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HeartbeatReply" }
+              examples:
+                carryOn:
+                  summary: Nothing is wrong
+                  value: { directive: continue, reclaimAfterSeconds: 120 }
+                stop:
+                  summary: An operator contained the agent
+                  value:
+                    directive: stop
+                    reason: "agent contained: spending faster than anyone expected"
+                    reclaimAfterSeconds: 120
+        "400": { $ref: "#/components/responses/InvalidInput" }
+        "409":
+          description: |
+            Refused. The run does not exist, belongs to another agent, or the
+            caller is over its request ceiling.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Denial" }
+
+  /api/external/runs/{externalRunId}/finish:
+    post:
+      tags: [runs]
+      operationId: finishRun
+      summary: Close an episode and record what it cost.
+      description: |
+        Accepted whatever the agent's status is now. The work already happened;
+        refusing to write down how it ended because the agent has since been
+        contained would lose the outcome and the spend, leave the run open until
+        the reclaim sweep guessed at it, and punish the one thing a misbehaving
+        agent did right. The agent's status at the time is recorded in the audit
+        entry.
+
+        A run that was already stopped or reclaimed cannot be finished: its
+        outcome is already history, and re-closing it would rewrite something
+        somebody may have acted on.
+      parameters:
+        - $ref: "#/components/parameters/ExternalRunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FinishRunRequest" }
+            examples:
+              done:
+                value:
+                  outcome: succeeded
+                  summary: three questions answered
+                  costUsd: 2.5
+      responses:
+        "200":
+          description: The episode is closed and its cost is on the record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FinishedRun" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+        "409": { $ref: "#/components/responses/Denied" }
+
+  /api/external/execute:
+    post:
+      tags: [execute]
+      operationId: executeAction
+      summary: Have the platform take the action, under governance.
+      description: |
+        Pre-authorising an agent and letting it act is a promise. Performing the
+        action here is a receipt: the action itself passes the chokepoint, lands
+        in the operating record, produces an audit entry — and the agent cannot
+        decline to say how it went, because it did not do it.
+
+        Only operations somebody deliberately registered as connectors can be
+        reached. There is no pass-through and no "call this URL for me". The
+        registry, not the caller, decides whether an operation is a read or a
+        write: a request declaring `read` for a registered write is refused
+        rather than downgraded, because a read runs immediately and a write
+        waits for a human.
+
+        ## Reads
+
+        Run immediately once admitted. `outcome: "completed"`.
+
+        ## Writes — two-phase and digest-bound
+
+        1. Send the write. You receive `202` with a `parkedActionId`, an
+           `approvalId`, and a `preview`: the human-readable rendering an
+           approver will actually read. Nothing has happened.
+        2. Poll the approval until it is `granted`.
+        3. Re-send the **byte-identical** request plus `parkedActionId`.
+
+        Binding is to canonical content, not to raw bytes, so re-serialising
+        with a different key order still commits — the protocol must not depend
+        on the caller's JSON library. Changing any **value** does not: the
+        parked action is voided, the call is refused with
+        `approval.digest_mismatch`, and it counts as misbehaviour. What a human
+        approved is what gets done, or nothing does.
+
+        The chain is re-run at commit time. A human's approval is necessary, not
+        sufficient: if the agent was revoked or the connector disabled while the
+        approval sat in the queue, the commit is still refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExecuteRequest" }
+            examples:
+              read:
+                summary: A read; runs immediately
+                value:
+                  integration: crm
+                  operation: read_contact
+                  mode: read
+                  request: { contactId: ctr_fl_0001 }
+              parkWrite:
+                summary: Phase one of a write
+                value:
+                  integration: crm
+                  operation: update_contact
+                  mode: write
+                  request:
+                    contactId: ctr_fl_0001
+                    field: mailing_preference
+                    value: post
+              commitWrite:
+                summary: Phase two — byte-identical, plus the parked action
+                value:
+                  integration: crm
+                  operation: update_contact
+                  mode: write
+                  request:
+                    contactId: ctr_fl_0001
+                    field: mailing_preference
+                    value: post
+                  parkedActionId: pac_01j8x...
+      responses:
+        "200":
+          description: |
+            Answered. `outcome` is `completed`, `already_done`, or
+            `indeterminate`. **`indeterminate` is not a success and must not be
+            retried** — it is returned as 200 rather than a 5xx precisely so
+            that no proxy or client library retries it automatically.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ExecuteCompleted"
+                  - $ref: "#/components/schemas/ExecuteAlreadyDone"
+                  - $ref: "#/components/schemas/ExecuteIndeterminate"
+                discriminator:
+                  propertyName: outcome
+                  mapping:
+                    completed: "#/components/schemas/ExecuteCompleted"
+                    already_done: "#/components/schemas/ExecuteAlreadyDone"
+                    indeterminate: "#/components/schemas/ExecuteIndeterminate"
+        "202":
+          description: |
+            Parked for a human. Nothing has happened. Poll the approval, then
+            re-send the byte-identical request with `parkedActionId`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExecuteApprovalRequired" }
+        "400": { $ref: "#/components/responses/InvalidInput" }
+        "409": { $ref: "#/components/responses/Denied" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        `Authorization: Bearer <token>`.
+
+        Carries either a platform bearer token or a signed assertion (JWT). The
+        two are told apart by shape, not by a header the caller sets: a platform
+        token is `pvx_` followed by base64url and contains no dot; a JWT is
+        three dot-separated segments. Letting the caller choose which verifier
+        runs would be letting the caller choose how it is verified.
+
+        A bearer token is shown **once**, at mint, and stored only as a hash.
+        There is no verb anywhere that reads it back.
+
+        Bearer authentication is **refused** for an agent that holds a signed
+        credential. Otherwise adopting the stronger credential would leave the
+        agent impersonable with the weaker one, which would make the stronger
+        one decorative.
+
+    signedAgent:
+      type: apiKey
+      in: header
+      name: X-PV-Agent
+      description: |
+        The enrolled agent id (`eag_...`). Part of the signed-request scheme;
+        all five `X-PV-*` headers are required together.
+
+        The signature covers a domain-separated, newline-delimited message:
+
+        ```
+        project-vacation/external-agent/v1
+        <agentId>
+        <timestamp>
+        <nonce>
+        sha256:<hex digest of the exact request body bytes>
+        ```
+
+        The domain prefix binds the signature to this platform and this purpose,
+        so a signature produced for another system over the same values cannot
+        be replayed here. The newline delimiter means no field can be shifted
+        into its neighbour.
+
+        For a request with no body, the digest is the digest of the empty
+        string.
+
+    signedTimestamp:
+      type: apiKey
+      in: header
+      name: X-PV-Timestamp
+      description: |
+        RFC 3339 timestamp with a timezone designator. Must sit inside the
+        deployment's freshness window.
+
+        Freshness is not replay protection on its own — see `X-PV-Nonce`.
+
+    signedNonce:
+      type: apiKey
+      in: header
+      name: X-PV-Nonce
+      description: |
+        8–128 characters, unique per request, **single use**. Generate a fresh
+        one for every request including every retry.
+
+        A correctly signed request presented twice is a replay whatever its
+        timestamp says, and the nonce claim is what refuses it. Claims are
+        durable and shared between workers, and bounded per agent so that one
+        busy caller cannot evict another's.
+
+    signedSignatureKind:
+      type: apiKey
+      in: header
+      name: X-PV-Signature-Kind
+      description: "`hmac` or `envelope`."
+
+    signedSignature:
+      type: apiKey
+      in: header
+      name: X-PV-Signature
+      description: |
+        Base64. For `hmac`, HMAC-SHA256 over the signed message with the secret
+        the deployment resolves by name — the platform stores the *reference*,
+        never the value. For `envelope`, an RSA/ECDSA SHA-256 signature verified
+        against the public key pinned at enrolment.
+
+  parameters:
+    ExternalRunId:
+      name: externalRunId
+      in: path
+      required: true
+      description: The `xrn_...` id returned when the run was started.
+      schema: { type: string, minLength: 1, maxLength: 128 }
+
+  responses:
+    Denied:
+      description: |
+        **Denied on policy grounds.** The request was understood and refused.
+
+        Not a 403, which implies the caller could never do this; a denial is
+        frequently about state — a containment is engaged, a ceiling is reached,
+        an approval is missing — and the same request may succeed later. Not a
+        500 either: a 500 says "we broke" and invites a retry.
+
+        Branch on `reason`, which is stable. `message` is written for a person
+        and may change.
+
+        A run of denials inside the window **contains the agent**, and a human
+        has to release it. So when a request is denied, fix the cause; do not
+        loop. Denials caused by the platform's own infrastructure are excluded
+        from that count.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Denial" }
+          examples:
+            notEnrolled:
+              summary: No enrolment, therefore no admission
+              value:
+                denied: true
+                reason: authorization.action_not_permitted
+                message: >-
+                  This agent is not enrolled. There is no anonymous access to
+                  this platform.
+                detail: {}
+            contained:
+              summary: An operator stopped this agent
+              value:
+                denied: true
+                reason: containment.role_disabled
+                message: >-
+                  crm-assistant is contained and must be released by an
+                  operator: spending faster than anyone expected
+                detail: { externalAgentId: eag_01j8x }
+            overBudget:
+              value:
+                denied: true
+                reason: ceiling.spend_exceeded
+                message: >-
+                  crm-assistant has spent $500.00 of its $500.00 monthly
+                  ceiling.
+                detail: { externalAgentId: eag_01j8x }
+            badCredential:
+              summary: |
+                One uniform message for every authentication failure. The
+                specific reason goes to the audit record, not to the caller —
+                distinguishing "no such agent" from "wrong signature" would make
+                this endpoint an oracle for enumerating enrolled agents.
+              value:
+                denied: true
+                reason: integration.credential_missing
+                message: The presented credential could not be verified.
+                detail: {}
+            digestMismatch:
+              summary: The committed request is not the approved one
+              value:
+                denied: true
+                reason: approval.digest_mismatch
+                message: >-
+                  The request being committed differs from the request that was
+                  approved. The parked action has been voided; nothing was done.
+                detail: { parkedActionId: pac_01j8x }
+
+    InvalidInput:
+      description: |
+        The request did not match this contract. Structurally invalid, not
+        refused on policy — kept distinct because denials are security-relevant
+        events worth alerting on and validation failures generally are not.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/InvalidInput" }
+
+    NotFound:
+      description: |
+        No such resource — or one that belongs to another agent. The two are
+        deliberately indistinguishable, so the identifier space cannot be
+        walked.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { const: not_found }
+              message: { type: string }
+
+    PayloadTooLarge:
+      description: |
+        The body is past the 256 KiB limit. Refused whole rather than truncated:
+        a truncated payload is screened only in part, and the part that was cut
+        is the part the sender chose.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { const: payload_too_large }
+              message: { type: string }
+
+  schemas:
+    Denial:
+      type: object
+      description: The refusal shape, identical across every route.
+      required: [denied, reason, message]
+      properties:
+        denied: { const: true }
+        reason:
+          type: string
+          description: |
+            Stable and machine-readable. Branch on this.
+          examples:
+            - authorization.action_not_permitted
+            - authorization.data_scope_violation
+            - approval.required
+            - approval.expired
+            - approval.already_used
+            - approval.digest_mismatch
+            - ceiling.spend_exceeded
+            - ceiling.rate_exceeded
+            - containment.role_disabled
+            - containment.integration_revoked
+            - screen.injection_detected
+            - integration.credential_missing
+            - record.unavailable
+            - config.missing
+        message:
+          type: string
+          description: Written for a person. May change; do not parse it.
+        detail:
+          type: object
+          description: |
+            Non-sensitive context, minimised for a third party. On an
+            authentication failure it says nothing about which check failed.
+          additionalProperties:
+            oneOf:
+              - { type: string }
+              - { type: number }
+              - { type: boolean }
+
+    InvalidInput:
+      type: object
+      required: [error, message]
+      properties:
+        error: { const: invalid_input }
+        message: { type: string }
+        field:
+          type: string
+          description: The first field that did not satisfy the contract.
+        issues:
+          type: array
+          maxItems: 10
+          description: |
+            Bounded. A body with a hundred bad fields must not produce a
+            hundred-line response.
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+    RiskTier:
+      type: string
+      enum: [routine, sensitive, high_consequence, prohibited]
+      description: |
+        The tier the caller declares. The operator's rating for the tool
+        **floors** it: the effective tier is the higher of the two.
+
+    ToolName:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+      description: |
+        A tool named in the agent's enrolment. Anything not granted is refused.
+
+    Subject:
+      type: object
+      maxProperties: 16
+      description: |
+        Opaque references saying what the work is about — a contract id, an
+        association id. **References, not contents.** Bounded on both key count
+        and value length.
+      additionalProperties: { type: string, maxLength: 256 }
+
+    CorrelationId:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: |
+        Ties this call to whatever the caller is tracing. Also accepted as the
+        `X-Correlation-Id` header.
+
+    Timestamp:
+      type: string
+      minLength: 1
+      maxLength: 64
+      format: date-time
+      description: |
+        ISO 8601 **with a timezone designator**. One without is read in
+        whichever zone the reading machine sits in, which is a different instant
+        on every host, and is refused.
+
+    MoneyUsd:
+      type: number
+      minimum: 0
+      maximum: 10000
+      description: US dollars. Finite and non-negative.
+
+    ScreenRequest:
+      type: object
+      additionalProperties: false
+      required: [tool]
+      properties:
+        agentId:
+          type: string
+          maxLength: 128
+          description: |
+            Optional, and checked rather than trusted. If present and it
+            disagrees with the authenticated agent the request is refused —
+            silently preferring the credential would hide a client bug that is
+            indistinguishable from an impersonation attempt.
+        tool: { $ref: "#/components/schemas/ToolName" }
+        declaredRisk:
+          allOf: [{ $ref: "#/components/schemas/RiskTier" }]
+          default: routine
+        estimatedCostUsd: { $ref: "#/components/schemas/MoneyUsd" }
+        untrustedInput:
+          type: string
+          maxLength: 20000
+          description: |
+            Text from somewhere the caller does not control. Bounded first, then
+            screened for injection attempts. Oversized text is refused rather
+            than truncated: truncating would screen only part of what would be
+            acted on.
+        subject: { $ref: "#/components/schemas/Subject" }
+        requiredScopes:
+          type: array
+          maxItems: 16
+          items: { type: string, minLength: 1, maxLength: 64 }
+          description: Data scopes this action needs, checked against the grant.
+        correlationId: { $ref: "#/components/schemas/CorrelationId" }
+
+    ScreenAllowed:
+      type: object
+      required: [outcome, effectiveRisk, remainingBudgetUsd]
+      properties:
+        outcome: { const: allowed }
+        effectiveRisk:
+          allOf: [{ $ref: "#/components/schemas/RiskTier" }]
+          description: The tier actually applied, after the operator's floor.
+        remainingBudgetUsd:
+          type: number
+          description: Spend left in the current budget period.
+
+    ScreenApprovalRequired:
+      type: object
+      required: [outcome, effectiveRisk, remainingBudgetUsd]
+      properties:
+        outcome: { const: approval_required }
+        effectiveRisk: { $ref: "#/components/schemas/RiskTier" }
+        approvalId: { type: string }
+        remainingBudgetUsd: { type: number }
+        poll:
+          type: string
+          description: Path to poll for the decision.
+        message: { type: string }
+
+    ApprovalState:
+      type: object
+      required: [approvalId, action, status, decided]
+      properties:
+        approvalId: { type: string }
+        action: { type: string }
+        status:
+          type: string
+          enum: [pending, granted, rejected, expired, consumed]
+        decided:
+          type: boolean
+          description: False while the approval is still pending.
+        approvalsRequired: { type: integer }
+        approvalsGranted: { type: integer }
+        requestedAt: { $ref: "#/components/schemas/Timestamp" }
+        expiresAt: { $ref: "#/components/schemas/Timestamp" }
+        proposalDigest:
+          type: string
+          description: |
+            The digest the decision binds to. Granting approves *that* proposal
+            and no other.
+
+    ReportedStep:
+      type: object
+      additionalProperties: false
+      required: [name, startedAt, outcome]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        tool: { $ref: "#/components/schemas/ToolName" }
+        startedAt: { $ref: "#/components/schemas/Timestamp" }
+        endedAt: { $ref: "#/components/schemas/Timestamp" }
+        outcome:
+          type: string
+          enum: [succeeded, failed, skipped]
+        costUsd: { $ref: "#/components/schemas/MoneyUsd" }
+        detail:
+          type: object
+          maxProperties: 24
+          description: Scalars only. Shown to an operator, so bounded and screened.
+          additionalProperties:
+            oneOf:
+              - { type: string, maxLength: 512 }
+              - { type: number }
+              - { type: boolean }
+
+    RunReport:
+      type: object
+      additionalProperties: false
+      required: [tool, idempotencyKey, goal, startedAt, endedAt, outcome, steps, costUsd]
+      properties:
+        agentId: { type: string, maxLength: 128 }
+        tool:
+          allOf: [{ $ref: "#/components/schemas/ToolName" }]
+          description: |
+            The tool this episode was performed under. Checked against the
+            grant: an agent reporting work it was never granted the tool for is
+            refused, and the refusal counts toward containment.
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: |
+            **Reuse this on every retry of the same episode.** Ingestion is
+            exactly-once against it.
+        goal: { type: string, minLength: 1, maxLength: 2000 }
+        startedAt: { $ref: "#/components/schemas/Timestamp" }
+        endedAt:
+          allOf: [{ $ref: "#/components/schemas/Timestamp" }]
+          description: |
+            Must not precede `startedAt`, and must not sit further in the future
+            than the deployment's skew allowance. Work that has not happened yet
+            cannot be reported as complete.
+        outcome:
+          type: string
+          enum: [succeeded, failed, denied]
+        summary: { type: string, maxLength: 4000 }
+        steps:
+          type: array
+          maxItems: 500
+          items: { $ref: "#/components/schemas/ReportedStep" }
+        costUsd: { $ref: "#/components/schemas/MoneyUsd" }
+        subject: { $ref: "#/components/schemas/Subject" }
+        correlationId: { $ref: "#/components/schemas/CorrelationId" }
+
+    IngestedReport:
+      type: object
+      required: [runId, duplicate, costUsd]
+      properties:
+        runId:
+          type: string
+          description: |
+            The operating-record run. On a duplicate this is the **original**
+            run, not a new one.
+        duplicate:
+          type: boolean
+          description: True when this episode had already been ingested.
+        costUsd:
+          type: number
+          description: |
+            What the operating record holds for this run — not what this copy of
+            the report claims. A retry is a repeat, not a correction.
+        message: { type: string }
+
+    StartRunRequest:
+      type: object
+      additionalProperties: false
+      required: [tool, goal]
+      properties:
+        agentId: { type: string, maxLength: 128 }
+        tool: { $ref: "#/components/schemas/ToolName" }
+        declaredRisk:
+          allOf: [{ $ref: "#/components/schemas/RiskTier" }]
+          default: routine
+        goal:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: |
+            What this episode is for, in the agent's words. Screened, and shown
+            to an operator in the console. The operating record holds its
+            fingerprint rather than a second copy of its text.
+        estimatedCostUsd: { $ref: "#/components/schemas/MoneyUsd" }
+        subject: { $ref: "#/components/schemas/Subject" }
+        correlationId: { $ref: "#/components/schemas/CorrelationId" }
+
+    StartedRun:
+      type: object
+      required: [externalRunId, runId, status, startedAt]
+      properties:
+        externalRunId:
+          type: string
+          description: Use this in the heartbeat and finish paths.
+        runId:
+          type: string
+          description: The operating-record run, visible in the console.
+        status: { type: string }
+        startedAt: { $ref: "#/components/schemas/Timestamp" }
+        heartbeat:
+          type: string
+          description: The path to beat against.
+        message: { type: string }
+
+    HeartbeatRequest:
+      type: object
+      additionalProperties: false
+      description: Carries nothing. An empty body is fine.
+      properties:
+        agentId: { type: string, maxLength: 128 }
+
+    HeartbeatReply:
+      type: object
+      required: [directive, reclaimAfterSeconds]
+      properties:
+        directive:
+          type: string
+          enum: [continue, stop]
+          description: |
+            **`stop` means stop.** Not "finish the current step", not "retry
+            later". This is the only way this platform can reach the agent.
+        reason:
+          type: string
+          description: Present on `stop`. Written for a person.
+        reclaimAfterSeconds:
+          type: integer
+          description: |
+            Beat at least this often. A run that goes quiet is reclaimed and
+            closed with the outcome that nobody heard from it.
+
+    FinishRunRequest:
+      type: object
+      additionalProperties: false
+      required: [outcome, costUsd]
+      properties:
+        agentId: { type: string, maxLength: 128 }
+        outcome:
+          type: string
+          enum: [succeeded, failed]
+        summary: { type: string, maxLength: 4000 }
+        costUsd: { $ref: "#/components/schemas/MoneyUsd" }
+
+    FinishedRun:
+      type: object
+      required: [externalRunId, runId, status]
+      properties:
+        externalRunId: { type: string }
+        runId: { type: string }
+        status:
+          type: string
+          enum: [finished, failed, stopped, reclaimed]
+        endedAt: { $ref: "#/components/schemas/Timestamp" }
+        costUsd: { type: number }
+
+    ExecuteRequest:
+      type: object
+      additionalProperties: false
+      required: [integration, operation, mode, request]
+      properties:
+        agentId: { type: string, maxLength: 128 }
+        integration:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+          description: A connector somebody deliberately registered.
+        operation:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        mode:
+          type: string
+          enum: [read, write]
+          description: |
+            Must match how the operation is registered. A write called as a read
+            is refused rather than downgraded — a read runs immediately and a
+            write waits for a human, so believing the caller about which one it
+            is would be the whole control.
+        request:
+          type: object
+          description: |
+            The payload for the operation. Bounded on **all three** of size
+            (32 KiB), breadth (128 keys in total, 256 items per array), and
+            depth (8 levels). Size alone is not enough: a payload inside the
+            byte limit can still be nested deeply enough to matter to whatever
+            walks it next.
+          additionalProperties: true
+        parkedActionId:
+          type: string
+          maxLength: 128
+          description: |
+            Present on a commit. The request must otherwise be identical in
+            content to the one that was approved.
+        correlationId: { $ref: "#/components/schemas/CorrelationId" }
+
+    ExecuteCompleted:
+      type: object
+      required: [outcome, result, runId]
+      properties:
+        outcome: { const: completed }
+        result:
+          description: Whatever the connector returned.
+        runId:
+          type: string
+          description: The operating-record run this action produced.
+
+    ExecuteApprovalRequired:
+      type: object
+      required: [outcome, parkedActionId, approvalId, preview]
+      properties:
+        outcome: { const: approval_required }
+        parkedActionId:
+          type: string
+          description: Send this back with the byte-identical request to commit.
+        approvalId: { type: string }
+        preview:
+          type: array
+          description: |
+            The human-readable rendering of the request that the approver sees.
+            The approver is authorising a payload they did not write, produced
+            by an agent they may not have met, on a platform they do not
+            administer — a raw JSON blob is not a decision aid.
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: string }
+        poll: { type: string }
+        message: { type: string }
+
+    ExecuteAlreadyDone:
+      type: object
+      required: [outcome, parkedActionId]
+      properties:
+        outcome: { const: already_done }
+        parkedActionId: { type: string }
+        resultSummary: { type: string }
+        message:
+          type: string
+          description: |
+            A replayed commit hears this, never "expired, submit it again" —
+            which would be an instruction to duplicate the effect through a
+            second approval.
+
+    ExecuteIndeterminate:
+      type: object
+      required: [outcome, parkedActionId, message, retryable]
+      properties:
+        outcome: { const: indeterminate }
+        parkedActionId: { type: string }
+        message: { type: string }
+        retryable:
+          const: false
+          description: |
+            The action was started and its outcome was never recorded. It may or
+            may not have taken effect, and only the system of record knows.
+            **It has not been retried and must not be.** Verify in the system of
+            record; an operator has been told to look.
