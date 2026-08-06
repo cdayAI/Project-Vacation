@@ -44,6 +44,7 @@ Project Vacation — operator commands
   actions list                    Show the action registry with risk tiers
   config show                     Show effective configuration and warnings
   health                          Report platform health
+  serve                           Run the HTTP API
 
 Global:
   --json                          Machine-readable output where supported
@@ -380,6 +381,15 @@ async function main(): Promise<number> {
         return commandActions(args, platform);
       case "health":
         return await commandHealth(args, platform);
+      case "serve": {
+        const { startServer } = await import("../api/server.js");
+        await startServer(platform);
+        note(`API listening on port ${config.httpPort}. Press Ctrl-C to stop.`);
+        // Deliberately never resolves: the process stays up serving requests,
+        // and the `finally` below must not close the pool underneath it.
+        await new Promise<never>(() => {});
+        return 0;
+      }
       default:
         console.error(`Unknown command: ${command}\n`);
         console.error(USAGE);

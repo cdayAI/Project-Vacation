@@ -40,6 +40,32 @@ which is the opposite of useful. Denial *rate* is what alerts.
 | `containment_engaged` | gauge | scope, target | Is anything stopped |
 | `corpus_staleness_days` | gauge | corpus | Review cadence |
 
+## Audit volume — a consequence worth planning for
+
+Every authorization decision is recorded, including grants for routine reads.
+That is the stronger compliance position — "who read this owner's record" is a
+question an auditor will ask — but it has an operational consequence that
+should not be a surprise:
+
+**The audit chain grows with read traffic, not only with work.** An operator
+browsing the console writes entries. Verification cost is linear in chain
+length, so a read-heavy deployment reaches the point where full verification is
+a nightly batch job rather than an on-demand one sooner than the volume of
+actual work would suggest.
+
+Three things follow, and they should be decided before go-live rather than
+discovered:
+
+1. Verify a **window** on demand and the full chain on a schedule. The verifier
+   supports an explicit starting anchor for exactly this.
+2. Size the audit table for read volume, not for run volume. Monitor
+   `audit_entries_total` by event type; if `authorization.granted` dominates by
+   an order of magnitude, that is expected rather than a defect.
+3. If the volume becomes genuinely unmanageable, the change to consider is
+   recording grants for routine reads at a lower fidelity — not dropping them,
+   which would remove the access record. That is a decision for MVW compliance,
+   not an engineering optimisation, and it needs an ADR.
+
 ## Traces
 
 Spans across API, engine step execution, authorization, retrieval, and model

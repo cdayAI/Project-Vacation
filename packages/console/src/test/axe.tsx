@@ -85,3 +85,14 @@ export function renderSurface(
     },
   });
 }
+
+/**
+ * Renders the whole shell, which brings its own `<main>` and its own theme
+ * provider. Wrapping it the way `renderSurface` does would nest one main
+ * landmark inside another, which is both a real violation and a fake one.
+ */
+export function renderShell(ui: ReactElement, client: ConsoleClient): RenderResult {
+  return render(ui, {
+    wrapper: ({ children }) => <ClientProvider client={client}>{children}</ClientProvider>,
+  });
+}

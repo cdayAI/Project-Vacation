@@ -240,8 +240,18 @@ export class ModelGateway {
       const promptTokens = approximateTokens(`${prompt.system}\n${prompt.user}`);
 
       // 3. Walk the chain. The primary first, then each declared fallback.
-      const chain: readonly ModelBinding[] = this.deps.inventory.chain(task);
+      //
+      //    Unless the call may have an external effect and the caller has no
+      //    deduplication key for it. A timeout does not mean nothing happened
+      //    — the effect may have landed and the answer been lost on the way
+      //    back — so without a key that a provider can dedup against, there is
+      //    exactly one attempt against exactly one model. Repeating the call
+      //    against a second model is the same hazard as repeating it against
+      //    the first, so the chain is truncated too rather than only the
+      //    retries.
+      const declaredChain: readonly ModelBinding[] = this.deps.inventory.chain(task);
       const retriesAllowed = !context.mayHaveExternalEffect || Boolean(context.idempotencyKey);
+      const chain = retriesAllowed ? declaredChain : declaredChain.slice(0, 1);
       let lastFailure: ProviderError | undefined;
       let totalAttempts = 0;
 

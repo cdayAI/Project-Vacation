@@ -16,6 +16,7 @@ import { SeededIdGenerator } from "../kernel/ids.js";
 import { MemoryRunStore } from "../record/store.memory.js";
 import type { ActorRef } from "../record/types.js";
 import { MemoryDb } from "../store/db.js";
+import { PLATFORM_ACTIONS } from "../actions.js";
 import { KNOWLEDGE_ACTIONS } from "./actions.js";
 import { GroundedAnswerService, type AnswerReferral } from "./answer.js";
 import { FreshnessMonitor, corpusFreshness } from "./freshness.js";
@@ -34,24 +35,44 @@ import type { Corpus } from "./types.js";
 
 const NOW = "2026-08-06T12:00:00.000Z";
 
+/**
+ * Roles are the ones in the shipped action catalogue, not invented for the
+ * test. Testing against a fixture registry would prove only that the services
+ * work with the descriptors the test wrote for itself.
+ */
 const STEWARD: ActorRef = {
   actorId: "act_steward",
   kind: "human",
-  roles: ["knowledge_steward", "scope:legal"],
+  roles: ["compliance_reviewer", "scope:legal"],
 };
 
+/** May retrieve, may not ingest. */
 const READER: ActorRef = {
   actorId: "act_reader",
   kind: "human",
-  roles: ["support_agent", "scope:legal"],
+  roles: ["owner_services_agent", "scope:legal"],
 };
 
-/** Holds no `scope:legal`, so it may not read or write the legal corpus. */
+/** Holds the ingest role but no `scope:legal`, so the legal corpus is closed to it. */
 const OUTSIDER: ActorRef = {
   actorId: "act_outsider",
   kind: "human",
-  roles: ["knowledge_steward"],
+  roles: ["compliance_reviewer"],
 };
+
+/**
+ * The shipped catalogue, plus any descriptor this module still carries locally.
+ *
+ * Filtered by name so that the day `knowledge.record_corpus_review` is merged
+ * into `src/actions.ts` — where it belongs — this harness keeps working instead
+ * of failing on a duplicate registration.
+ */
+const TEST_ACTIONS = [
+  ...PLATFORM_ACTIONS,
+  ...KNOWLEDGE_ACTIONS.filter(
+    (action) => !PLATFORM_ACTIONS.some((existing) => existing.name === action.name),
+  ),
+];
 
 /**
  * An audit store that fails for one event type and behaves normally otherwise.
@@ -109,7 +130,7 @@ function harness(options: HarnessOptions = {}) {
   const audit = new AuditLog(auditStore, clock, ids);
 
   const runs = new MemoryRunStore(db, clock, ids);
-  const registry = new ActionRegistry(KNOWLEDGE_ACTIONS);
+  const registry = new ActionRegistry(TEST_ACTIONS);
   const containment = new ContainmentController(new MemoryContainmentStore(db), clock, audit, 0);
   const ceilings = new CeilingEnforcer(
     {
@@ -439,7 +460,7 @@ Cancellation notices are logged in the case record.`;
     const clock = new FixedClock(NOW);
     const ids = new SeededIdGenerator("knowledge-test-retry");
     const audit = new AuditLog(failing.memoryAudit, clock, ids);
-    const registry = new ActionRegistry(KNOWLEDGE_ACTIONS);
+    const registry = new ActionRegistry(TEST_ACTIONS);
     const containment = new ContainmentController(
       new MemoryContainmentStore(failing.db),
       clock,

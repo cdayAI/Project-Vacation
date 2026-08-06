@@ -51,6 +51,16 @@ import type { Citation, Claim, CorpusFreshness, GroundedAnswer, RetrievedChunk }
  * exact text. This module never writes a sentence of its own; a caller that
  * composes a narrative does so under its own governance and may cite only what
  * is in {@link GroundedAnswer.citations}.
+ *
+ * One thing this file deliberately does not do: call the authorization
+ * chokepoint. Answering is a step, and `knowledge.retrieve` is registered in
+ * the platform action catalogue for the caller to authorize — the workflow
+ * engine does it before the retrieval step, which is also what gives an
+ * operator's containment switch reach over answering. Authorizing here as well
+ * would double-record every answer and would put this module in the business of
+ * deciding what a caller's operating mode is. Entitlement to the corpora
+ * themselves is a different question and is enforced here, in `retrieve.ts`,
+ * because it depends on which corpus a passage came from.
  */
 
 /** Normalised score a passage must reach before it may be cited. */
