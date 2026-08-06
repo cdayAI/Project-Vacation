@@ -84,6 +84,19 @@ export const EXTERNAL_AGENT_ACTIONS: readonly ActionDefinition[] = [
     reversible: true,
     allowedRoles: [ADMIN, SUPERVISOR],
     approvalsRequired: 1,
+    changesPlatformBehaviour: true,
+    approvalGuidance: {
+      ask: "Admit an external agent to the platform",
+      effects: [
+        "The agent takes a seat against the deployment's cap and may present credentials from that moment.",
+        "It may call only the tools in the grant on this proposal, within the risk ceiling, the data scopes, and the spend ceiling named here.",
+        "Everything it does lands on this platform's operating record and audit chain, marked as external work.",
+      ],
+      ifRejected:
+        "The agent stays unenrolled and every request it makes is refused. Its seat is not taken.",
+      reversal:
+        "Contain it to stop it at the next admission check, or revoke the enrolment to end it permanently and return the seat.",
+    },
   },
   {
     name: RE_ENROLL_ACTION,
@@ -116,6 +129,19 @@ export const EXTERNAL_AGENT_ACTIONS: readonly ActionDefinition[] = [
     reversible: false,
     allowedRoles: [ADMIN, SUPERVISOR],
     approvalsRequired: 1,
+    changesPlatformBehaviour: true,
+    approvalGuidance: {
+      ask: "End an external agent's enrolment for good",
+      effects: [
+        "The agent stops working immediately, including any runs in flight, which are reclaimed rather than left open.",
+        "Its credentials stop verifying at the next admission check and cannot be reinstated.",
+        "Its seat returns to the deployment's cap.",
+      ],
+      ifRejected:
+        "The agent keeps its enrolment and continues to act within its grant. Contain it instead if the intent was to stop it while the question is settled.",
+      reversal:
+        "Revocation is terminal. A new enrolment can be created for the same vendor, but it is a new agent with new credentials and a new record.",
+    },
   },
 ];
 

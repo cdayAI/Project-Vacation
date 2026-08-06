@@ -1,5 +1,11 @@
 import { DeniedError, InvalidInputError } from "../kernel/errors.js";
-import type { ActionDescriptor, HumanInvolvement, RiskTier } from "./types.js";
+import {
+  MAX_APPROVAL_EFFECTS,
+  type ActionDescriptor,
+  type ApprovalGuidance,
+  type HumanInvolvement,
+  type RiskTier,
+} from "./types.js";
 
 /**
  * The action registry.
@@ -45,6 +51,8 @@ export interface ActionDefinition {
   readonly requiresStepUp?: boolean;
   readonly approvalsRequired?: number;
   readonly integration?: string;
+  readonly changesPlatformBehaviour?: boolean;
+  readonly approvalGuidance?: ApprovalGuidance;
 }
 
 export function defineAction(definition: ActionDefinition): ActionDescriptor {
@@ -59,6 +67,8 @@ export function defineAction(definition: ActionDefinition): ActionDescriptor {
     requiresStepUp,
     approvalsRequired,
     integration,
+    changesPlatformBehaviour,
+    approvalGuidance,
   } = definition;
 
   if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(name)) {
@@ -105,6 +115,16 @@ export function defineAction(definition: ActionDefinition): ActionDescriptor {
         ? ([] as const)
         : (["assisted", "supervised", "bounded_autonomy"] as const));
 
+  // Guidance is validated when it is present but not demanded here, and the
+  // distinction is deliberate. `defineAction` is called by tests and by
+  // adapters with ad-hoc descriptors that never reach an approval screen, so a
+  // hard requirement at this level would refuse a great deal of code that is
+  // not wrong. The obligation belongs to the *shipped catalogue* instead:
+  // `api/hero-screens.test.ts` asserts that every registered action which
+  // parks for approval declares guidance, which is the population an approver
+  // can actually meet.
+  if (approvalGuidance) assertGuidance(name, approvalGuidance);
+
   return Object.freeze({
     name,
     risk,
@@ -116,6 +136,52 @@ export function defineAction(definition: ActionDefinition): ActionDescriptor {
     requiresStepUp: requiresStepUp ?? risk === "high_consequence",
     approvalsRequired: resolvedApprovals,
     integration,
+    changesPlatformBehaviour: changesPlatformBehaviour ?? false,
+    approvalGuidance: approvalGuidance ? freezeGuidance(approvalGuidance) : undefined,
+  });
+}
+
+function assertGuidance(name: string, guidance: ApprovalGuidance): void {
+  for (const [field, value] of [
+    ["ask", guidance.ask],
+    ["ifRejected", guidance.ifRejected],
+    ["reversal", guidance.reversal],
+  ] as const) {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new InvalidInputError(
+        `Action "${name}" declares approvalGuidance with an empty "${field}". A blank line on an approval screen reads as "nothing happens", which is never true of an action that needed approving.`,
+        `approvalGuidance.${field}`,
+      );
+    }
+  }
+  if (guidance.effects.length === 0) {
+    throw new InvalidInputError(
+      `Action "${name}" declares no effects. An approver seeing an empty "If you approve" callout has been told the action is harmless.`,
+      "approvalGuidance.effects",
+    );
+  }
+  if (guidance.effects.length > MAX_APPROVAL_EFFECTS) {
+    // Not a style rule. Past four bullets the callout is skimmed, and a
+    // consequence nobody reads is the same as a consequence nobody was told.
+    throw new InvalidInputError(
+      `Action "${name}" declares ${guidance.effects.length} effects, past the ${MAX_APPROVAL_EFFECTS} an approver reads. Fold the detail into the artifact preview rather than lengthening the list.`,
+      "approvalGuidance.effects",
+    );
+  }
+  if (guidance.effects.some((effect) => effect.trim().length === 0)) {
+    throw new InvalidInputError(
+      `Action "${name}" declares a blank effect.`,
+      "approvalGuidance.effects",
+    );
+  }
+}
+
+function freezeGuidance(guidance: ApprovalGuidance): ApprovalGuidance {
+  return Object.freeze({
+    ask: guidance.ask,
+    effects: Object.freeze([...guidance.effects]),
+    ifRejected: guidance.ifRejected,
+    reversal: guidance.reversal,
   });
 }
 

@@ -12,6 +12,14 @@ import type { Platform } from "../platform.js";
 import { externalRouteDeps, registerExternalRoutes } from "./external.js";
 import { externalAgentDetail, rosterRow } from "./external-roster.js";
 import type { ExternalAgentId } from "../external/types.js";
+import {
+  approvalDetail,
+  approvalQueueRow,
+  type DecisionContextSources,
+} from "./approval-context.js";
+import { asRunId, describeRun, parseWorkQueueQuery, workQueuePage } from "./work-queue.js";
+import { runTimeline } from "./run-timeline.js";
+import type { Id } from "../kernel/ids.js";
 
 /**
  * The HTTP surface.
@@ -48,6 +56,16 @@ export interface ServerOptions {
    * depends on startup validation having run is one refactor from being gone.
    */
   readonly developmentActor?: ActorRef;
+  /**
+   * Where the approval screen's artifact preview and evidence come from.
+   *
+   * Both are things the operating record deliberately does not hold — it keeps
+   * a digest of a proposal rather than its content, and it does not link an
+   * approval to the passages behind it. A deployment wires its document store
+   * and its corpus here. Unwired, the approval screen says which fields are
+   * missing and why, which is the state this repository ships in.
+   */
+  readonly decisionContext?: DecisionContextSources;
 }
 
 const DEV_ACTOR: ActorRef = {
@@ -74,6 +92,7 @@ function denialBody(error: DeniedError) {
 
 export function createServer(options: ServerOptions): FastifyInstance {
   const { platform } = options;
+  const decisionContext = options.decisionContext ?? {};
   const app = Fastify({
     // The platform's own logger already writes structured, redacted lines to
     // stderr. A second logger here would produce a parallel stream with
@@ -258,60 +277,29 @@ export function createServer(options: ServerOptions): FastifyInstance {
   // Work queue and runs
   // -------------------------------------------------------------------------
 
-  app.get("/api/runs", async (request) => {
-    const query = request.query as Record<string, string | undefined>;
-    return authorized(request, "record.read_run", async () => {
-      const limit = Math.min(Number(query.limit ?? 50) || 50, 200);
-      const offset = Number(query.offset ?? 0) || 0;
-      const filter = {
-        status: query.status ? (query.status.split(",") as never) : undefined,
-        kind: query.kind,
-        limit,
-        offset,
-      };
-      const [runs, total] = await Promise.all([
-        platform.runs.listRuns(filter),
-        platform.runs.countRuns(filter),
-      ]);
-
-      const items = await Promise.all(
-        runs.map(async (run) => {
-          const cost = await platform.runs.costForRun(run.id);
-          return {
-            runId: run.id,
-            kind: run.kind,
-            title: describeRun(run.kind, run.subject),
-            status: run.status,
-            mode: run.mode,
-            createdAt: run.createdAt,
-            slaBreached: false,
-            costUsd: cost.totalUsd,
-            waitingOn:
-              run.status === "awaiting_approval"
-                ? "a human approval"
-                : run.status === "awaiting_human"
-                  ? "a person to complete a task"
-                  : undefined,
-          };
-        }),
+  // Every filter the work queue offers is a query parameter, because §3.1 of
+  // the design specification requires a filtered view to survive being pasted
+  // into a ticket. An unknown value is refused rather than ignored: silently
+  // widening a result set answers a different question from the one the URL
+  // says was asked, and the reader has no way to notice.
+  app.get("/api/runs", async (request) =>
+    authorized(request, "record.read_run", async () => {
+      const filter = parseWorkQueueQuery(
+        request.query as Record<string, string | string[] | undefined>,
       );
-
-      return { items, total, limit, offset };
-    });
-  });
+      return workQueuePage(platform, filter, actorFor(request));
+    }),
+  );
 
   app.get("/api/runs/:runId", async (request, reply) => {
     const { runId } = request.params as { runId: string };
     return authorized(request, "record.read_run", async () => {
-      const run = await platform.runs.getRun(runId as never);
+      const run = await platform.runs.getRun(asRunId(runId));
       if (!run) {
         void reply.status(404);
         return { error: "not_found", message: `No run ${runId}.` };
       }
-      const [steps, cost] = await Promise.all([
-        platform.runs.listSteps(run.id),
-        platform.runs.costForRun(run.id),
-      ]);
+      const timeline = await runTimeline(platform, run);
 
       return {
         runId: run.id,
@@ -327,36 +315,85 @@ export function createServer(options: ServerOptions): FastifyInstance {
         createdAt: run.createdAt,
         startedAt: run.startedAt,
         endedAt: run.endedAt,
+        elapsedMs: timeline.elapsedMs,
         outcome: run.outcome,
         denialReason: run.denialReason,
-        steps: steps.map((step) => ({
-          stepId: step.id,
-          seq: step.seq,
-          name: step.name,
-          kind: step.kind,
-          status: step.status,
-          startedAt: step.startedAt,
-          endedAt: step.endedAt,
-          durationMs:
-            step.endedAt === undefined
-              ? undefined
-              : Date.parse(step.endedAt) - Date.parse(step.startedAt),
-          costUsd: 0,
-          attempt: step.attempt,
-          inputDigest: step.inputDigest,
-          outputDigest: step.outputDigest,
-          error: step.error,
-          denialReason: step.denialReason,
-          detail: step.detail,
-        })),
-        totalCostUsd: cost.totalUsd,
-        costByCategory: cost.byCategory,
+        steps: timeline.steps,
+        totalCostUsd: timeline.totalCostUsd,
+        costByCategory: timeline.costByCategory,
         workflowInstanceId: run.workflowInstanceId,
         roleId: run.roleId,
         roleVersion: run.roleVersion,
-        citations: [],
+        citations: timeline.citations,
       };
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // "Correct this" — a step's output, disagreed with by a person
+  // -------------------------------------------------------------------------
+  //
+  // The console's correction control lands here, and this route deliberately
+  // reaches exactly one stage of the improvement loop: harvest. A correction
+  // becomes an observation tied to the run that produced it, and stops there.
+  //
+  // Nothing on this path can change the platform's behaviour. Clustering,
+  // proposing, evaluating, approving, and applying are separate stages behind
+  // a human approval that no configuration removes (ADR 0011), and none of
+  // them is reachable from a browser. That separation is why a correction can
+  // be a one-click control at all: if this button could alter behaviour, it
+  // would need an approval of its own, and nobody would press it.
+
+  app.post("/api/runs/:runId/steps/:stepId/corrections", async (request) => {
+    const { runId, stepId } = request.params as { runId: string; stepId: string };
+    const body = request.body as
+      | {
+          signature?: string;
+          note?: string;
+          correctionMinutes?: number;
+          before?: string;
+          after?: string;
+        }
+      | undefined;
+
+    if (!body?.signature) {
+      throw new InvalidInputError(
+        "A correction needs a failure signature — the machine-readable name of what went wrong, e.g. \"deadline.wrong_jurisdiction\". Clustering groups on it, so free text produces one cluster per typist and nothing ever recurs.",
+        "signature",
+      );
+    }
+    if (!body.note) {
+      throw new InvalidInputError(
+        "A correction needs a one-line note. It is what the person triaging the cluster reads.",
+        "note",
+      );
+    }
+
+    const actor = actorFor(request);
+    const header = request.headers["idempotency-key"];
+    const result = await platform.observations.correction({
+      runId: asRunId(runId),
+      stepId: stepId as Id<"step">,
+      signature: body.signature,
+      note: body.note,
+      observedBy: actor,
+      mode: "supervised",
+      correctionMinutes: body.correctionMinutes,
+      before: body.before,
+      after: body.after,
+      ...(typeof header === "string" && header.length > 0 ? { idempotencyKey: header } : {}),
+      correlationId: (request as FastifyRequest & { correlationId?: string }).correlationId,
+    });
+
+    return {
+      observationId: result.observation.id,
+      recorded: result.recorded,
+      signature: result.observation.signature,
+      recordedAt: result.observation.recordedAt,
+      effect: result.recorded
+        ? "Recorded against this run as improvement signal. It changes nothing on its own: a change to how the platform behaves needs a proposal, a measured evaluation, and a human approval."
+        : "An identical correction was already recorded, so this one was not counted twice. Frequency decides which failure gets attention, and a retry must not inflate it.",
+    };
   });
 
   // -------------------------------------------------------------------------
@@ -372,8 +409,12 @@ export function createServer(options: ServerOptions): FastifyInstance {
         limit: 100,
       });
 
+      // Queue rows, not full decision context. The evidence, the artifact
+      // preview, and the prior-decision lookback are per-approval reads, and
+      // running them for a hundred rows nobody has opened would make the queue
+      // slow in exact proportion to how carefully the detail screen was built.
       return {
-        items: approvals.map((approval) => toApprovalView(approval, actor, platform)),
+        items: approvals.map((approval) => approvalQueueRow(approval, actor, platform)),
         total: approvals.length,
         limit: 100,
         offset: 0,
@@ -381,17 +422,17 @@ export function createServer(options: ServerOptions): FastifyInstance {
     });
   });
 
-  app.get("/api/approvals/:approvalId", async (request, reply) => {
-    const { approvalId } = request.params as { approvalId: string };
-    return authorized(request, "record.read_run", async () => {
-      const approval = await platform.approvals.get(approvalId as never);
+  app.get("/api/approvals/:approvalId", async (request, reply) =>
+    authorized(request, "record.read_run", async () => {
+      const { approvalId } = request.params as { approvalId: string };
+      const approval = await platform.approvals.get(approvalId as Id<"approval">);
       if (!approval) {
         void reply.status(404);
-        return { error: "not_found" };
+        return { error: "not_found", message: `No approval ${approvalId}.` };
       }
-      return toApprovalView(approval, actorFor(request), platform);
-    });
-  });
+      return approvalDetail(approval, actorFor(request), platform, decisionContext);
+    }),
+  );
 
   app.post("/api/approvals/:approvalId/decisions", async (request) => {
     const { approvalId } = request.params as { approvalId: string };
@@ -402,12 +443,12 @@ export function createServer(options: ServerOptions): FastifyInstance {
     }
 
     const actor = actorFor(request);
-    const approval = await platform.approvals.get(approvalId as never);
+    const approval = await platform.approvals.get(approvalId as Id<"approval">);
     if (!approval) throw new InvalidInputError(`No approval ${approvalId}`, "approvalId");
     const descriptor = platform.registry.get(approval.action);
 
     const updated = await platform.approvals.decide({
-      approvalId: approvalId as never,
+      approvalId: approvalId as Id<"approval">,
       actor,
       decision,
       note: body?.note,
@@ -416,7 +457,30 @@ export function createServer(options: ServerOptions): FastifyInstance {
       stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
     });
 
-    return toApprovalView(updated, actor, platform);
+    // A rejection is a disagreement with what the platform proposed, and the
+    // improvement loop learns from exactly those. It is recorded on a best
+    // effort: the decision has already landed and been audited, and failing
+    // the operator's request because a signal could not be filed would undo a
+    // decision that was correctly made.
+    if (decision === "rejected" && approval.runId) {
+      try {
+        await platform.observations.rejectedProposal({
+          runId: approval.runId,
+          signature: signatureForAction(approval.action),
+          note: body?.note ?? `Approval for ${approval.action} was rejected without a note.`,
+          observedBy: actor,
+          mode: "supervised",
+          subject: { approvalId: approval.id, action: approval.action },
+        });
+      } catch (error) {
+        platform.logger.warn("could not record a rejection as improvement signal", {
+          approvalId: approval.id,
+          error,
+        });
+      }
+    }
+
+    return approvalDetail(updated, actor, platform, decisionContext);
   });
 
   // -------------------------------------------------------------------------
@@ -601,75 +665,17 @@ export function createServer(options: ServerOptions): FastifyInstance {
   return app;
 }
 
-/** A readable title for a run, from its kind and opaque subject references. */
-function describeRun(kind: string, subject: Readonly<Record<string, string>>): string {
-  const reference =
-    subject.contractId ?? subject.associationId ?? subject.membershipId ?? subject.id;
-  const readable = kind.replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  return reference ? `${readable} — ${reference}` : readable;
-}
-
-function toApprovalView(
-  approval: Awaited<ReturnType<Platform["approvals"]["get"]>> extends infer T
-    ? T extends null
-      ? never
-      : NonNullable<T>
-    : never,
-  actor: ActorRef,
-  platform: Platform,
-) {
-  const descriptor = platform.registry.get(approval.action);
-  const granted = approval.decisions.filter((entry) => entry.decision === "granted").length;
-
-  // Segregation of duties is enforced server-side at decision time. Reporting
-  // it here as well lets the console disable the control and say why, which is
-  // considerably kinder than letting someone click and be refused.
-  const isRequester = actor.actorId === approval.requestedBy.actorId;
-  const alreadyDecided = approval.decisions.some(
-    (entry) => entry.actor.actorId === actor.actorId,
-  );
-  const eligible = actor.roles.some((role) => approval.eligibleRoles.includes(role));
-
-  let viewerMayNotDecideReason: string | undefined;
-  if (approval.status !== "pending") viewerMayNotDecideReason = `This request is ${approval.status}.`;
-  else if (isRequester) viewerMayNotDecideReason = "You requested this action, so you cannot approve it.";
-  else if (alreadyDecided) viewerMayNotDecideReason = "You have already decided on this request.";
-  else if (!eligible)
-    viewerMayNotDecideReason = `Approving this needs one of: ${approval.eligibleRoles.join(", ")}.`;
-
-  return {
-    approvalId: approval.id,
-    action: approval.action,
-    actionDescription: descriptor?.description ?? approval.action,
-    risk: descriptor?.risk ?? "high_consequence",
-    reversible: descriptor?.reversible ?? false,
-    summary: approval.summary,
-    proposalDigest: approval.proposalDigest,
-    proposal: Object.entries(approval.subject).map(([label, value]) => ({ label, value })),
-    requestedBy: {
-      actorId: approval.requestedBy.actorId,
-      displayName: approval.requestedBy.actorId,
-      roles: approval.requestedBy.roles,
-    },
-    requestedAt: approval.requestedAt,
-    expiresAt: approval.expiresAt,
-    approvalsRequired: approval.approvalsRequired,
-    approvalsGranted: granted,
-    eligibleRoles: approval.eligibleRoles,
-    decisions: approval.decisions.map((entry) => ({
-      actor: {
-        actorId: entry.actor.actorId,
-        displayName: entry.actor.actorId,
-        roles: entry.actor.roles,
-      },
-      decision: entry.decision,
-      decidedAt: entry.decidedAt,
-      note: entry.note,
-    })),
-    viewerMayDecide: viewerMayNotDecideReason === undefined,
-    viewerMayNotDecideReason,
-    requiresStepUp: descriptor?.requiresStepUp ?? true,
-  };
+/**
+ * The failure signature a rejection is filed under.
+ *
+ * Derived from the action name so it stays inside the controlled vocabulary
+ * the harvester enforces — dotted lower_snake_case — and so every rejection of
+ * the same action clusters together. A free-text signature would produce one
+ * cluster per approver and nothing would ever recur.
+ */
+function signatureForAction(action: string): string {
+  const normalised = action.replace(/[^a-z0-9_.]/gi, "_").toLowerCase();
+  return `approval.rejected.${normalised}`.slice(0, 96);
 }
 
 export async function startServer(platform: Platform): Promise<FastifyInstance> {

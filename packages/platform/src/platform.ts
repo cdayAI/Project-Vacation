@@ -23,6 +23,9 @@ import { createSandbox, type Sandbox } from "./guard/sandbox.js";
 import { buildExternalPlane, type ExternalPlane } from "./external/plane.js";
 import type { Connector } from "./external/connectors.js";
 import type { SecretResolver } from "./external/credentials.js";
+import { MemoryObservationStore } from "./improve/store.memory.js";
+import { PgObservationStore } from "./improve/store.pg.js";
+import { ObservationHarvester } from "./improve/harvest.js";
 import { PLATFORM_ACTIONS } from "./actions.js";
 
 /**
@@ -69,6 +72,18 @@ export interface Platform {
    * exercise happened in production on the day somebody switched it on.
    */
   readonly external: ExternalPlane;
+  /**
+   * Stage one of the improvement loop: where a human disagreement is recorded.
+   *
+   * Only the harvester is composed here, and that is the whole intent rather
+   * than an unfinished job. The console's "correct this" control needs a place
+   * to put a correction, and a correction is inert evidence tied to a run. The
+   * stages that turn evidence into a behaviour change — propose, evaluate,
+   * approve, apply — are deliberately *not* reachable from the request path,
+   * so nothing an operator clicks in a browser is one call away from changing
+   * what the platform does. ADR 0011.
+   */
+  readonly observations: ObservationHarvester;
   /** Present only when the Postgres store is in use. */
   readonly db?: Db;
   /** Release connections. Safe to call more than once. */
@@ -120,6 +135,7 @@ export async function buildPlatform(
   let auditLog: AuditLog;
   let approvals: ApprovalService;
   let containment: ContainmentController;
+  let observationStore: MemoryObservationStore | PgObservationStore;
   let db: Db | undefined;
   let memoryDb: MemoryDb | undefined;
   let pool: pg.Pool | undefined;
@@ -138,6 +154,7 @@ export async function buildPlatform(
     auditLog = new AuditLog(auditStore, clock, ids);
     approvals = new ApprovalService(new PgApprovalStore(db), clock, ids, auditLog);
     containment = new ContainmentController(new PgContainmentStore(db), clock, auditLog);
+    observationStore = new PgObservationStore(db);
   } else {
     const memory = options.memoryDb ?? new MemoryDb();
     memoryDb = memory;
@@ -145,6 +162,7 @@ export async function buildPlatform(
     auditLog = new AuditLog(new MemoryAuditStore(memory), clock, ids);
     approvals = new ApprovalService(new MemoryApprovalStore(memory), clock, ids, auditLog);
     containment = new ContainmentController(new MemoryContainmentStore(memory), clock, auditLog);
+    observationStore = new MemoryObservationStore(memory);
   }
 
   const ceilings = new CeilingEnforcer(
@@ -173,6 +191,18 @@ export async function buildPlatform(
   const sandbox = createSandbox(config.sandboxMode, {
     timeoutMs: config.sandboxTimeoutMs,
     clock,
+  });
+
+  // Constructed after the authorizer, because recording a correction passes
+  // the same chokepoint as any other action: `improvement.observe` is a
+  // registered action and an actor without it is refused.
+  const observations = new ObservationHarvester({
+    observations: observationStore,
+    runs,
+    authorizer,
+    audit: auditLog,
+    clock,
+    ids,
   });
 
   const external = buildExternalPlane({
@@ -217,6 +247,7 @@ export async function buildPlatform(
     authorizer,
     sandbox,
     external,
+    observations,
     db,
     async close() {
       if (pool) await pool.end();
