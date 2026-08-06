@@ -116,13 +116,16 @@ export class ExecutionService {
   // -------------------------------------------------------------------------
 
   private async executeRead(request: ExecuteRequest): Promise<ExecuteOutcome> {
-    const decision = await this.admission.admit({
-      agentId: request.agentId,
-      operation: "execute.read",
-      tool: `${request.integration}.${request.operation}`,
-      declaredRisk: "routine",
-      correlationId: request.correlationId,
-    });
+    const decision = await this.admission.admit(
+      {
+        agentId: request.agentId,
+        operation: "execute.read",
+        tool: `${request.integration}.${request.operation}`,
+        declaredRisk: "routine",
+        correlationId: request.correlationId,
+      },
+      { deferApproval: true },
+    );
 
     if (decision.outcome === "denied") {
       throw new DeniedError(
@@ -132,9 +135,9 @@ export class ExecutionService {
       );
     }
     if (decision.outcome === "approval_required") {
-      // A read rated high enough to need approval is not a read we perform on
-      // the spot; fall through to the same two-phase path a write takes.
-      return this.park(request, decision.approvalId);
+      // A read the operator rated high enough to need approval is not a read we
+      // perform on the spot; it takes the same two-phase path a write does.
+      return this.park(request, { alreadyAdmitted: true });
     }
 
     const run = await this.openRun(request, "read");
@@ -168,11 +171,13 @@ export class ExecutionService {
    */
   private async park(
     request: ExecuteRequest,
-    existingApprovalId?: Id<"approval">,
+    options: { readonly alreadyAdmitted?: boolean } = {},
   ): Promise<ExecuteOutcome> {
-    const decision = existingApprovalId
-      ? null
-      : await this.admission.admit({
+    const requestDigest = this.digestOf(request);
+
+    if (!options.alreadyAdmitted) {
+      const decision = await this.admission.admit(
+        {
           agentId: request.agentId,
           operation: "execute.write",
           tool: `${request.integration}.${request.operation}`,
@@ -181,18 +186,22 @@ export class ExecutionService {
           // the system of record.
           declaredRisk: "high_consequence",
           correlationId: request.correlationId,
-        });
-
-    if (decision && decision.outcome === "denied") {
-      throw new DeniedError(
-        (decision.reason ?? "authorization.action_not_permitted") as never,
-        decision.message ?? "Refused.",
-        { externalAgentId: request.agentId },
+        },
+        // The approval is raised below, after the slot exists, so that a
+        // failure to raise it can hand the slot back.
+        { deferApproval: true, proposalDigest: requestDigest },
       );
+
+      if (decision.outcome === "denied") {
+        throw new DeniedError(
+          (decision.reason ?? "authorization.action_not_permitted") as never,
+          decision.message ?? "Refused.",
+          { externalAgentId: request.agentId },
+        );
+      }
     }
 
     const now = this.clock.now();
-    const requestDigest = this.digestOf(request);
 
     const action: ParkedAction = {
       id: this.ids.next("parkedAction"),
@@ -211,9 +220,7 @@ export class ExecutionService {
 
     let approvalId: Id<"approval">;
     try {
-      if (existingApprovalId) {
-        approvalId = existingApprovalId;
-      } else {
+      {
         const agent = await this.enrollment.getAgent(request.agentId);
         const approval = await this.approvals.request({
           action: "external.execute_write",

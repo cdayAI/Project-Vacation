@@ -1,6 +1,7 @@
 import type { AuditLog } from "../audit/log.js";
 import { decision as auditDecision } from "../audit/log.js";
 import type { Authorizer } from "../guard/authorize.js";
+import { canonicalJson } from "../kernel/canonical.js";
 import type { Clock } from "../kernel/clock.js";
 import { DeniedError, InvalidInputError } from "../kernel/errors.js";
 import { digestValue, type Digest } from "../kernel/hash.js";
@@ -12,6 +13,7 @@ import type { EvaluationStore, RoleStore } from "../roles/port.js";
 import type { GoldenCase, GoldenSet } from "../roles/types.js";
 import { PROPOSE_ACTION } from "./actions.js";
 import {
+  artifactDigest,
   artifactState,
   assertArtifactContent,
   assertMutableArtifact,
@@ -125,7 +127,10 @@ export class ProposalDrafter {
 
     const { before, after } = await this.resolveStates(input);
 
-    if (before.digest === after.digest) {
+    // Compared on content rather than on the digests: the digests always differ
+    // because the version number is part of them, so comparing those would let
+    // a version bump with an identical body through as a "change".
+    if (canonicalJson(before.content) === canonicalJson(after.content)) {
       throw new InvalidInputError(
         `This proposal leaves artifact "${input.target.id}" exactly as it is. A change that changes nothing still costs a reviewer their attention.`,
         "content",
@@ -430,6 +435,23 @@ export function proposalChangeDigest(proposal: Proposal): Digest {
  * @throws {DeniedError} `approval.digest_mismatch`
  */
 export function assertProposalIntact(proposal: Proposal): void {
+  // The embedded states first. The change fingerprint covers the two artifact
+  // *digests*, so a row whose stored content was edited while its digest was
+  // left alone would pass the outer check — and the edited content is what
+  // would be installed.
+  for (const [label, state] of [
+    ["before", proposal.before],
+    ["after", proposal.after],
+  ] as const) {
+    if (artifactDigest(state) !== state.digest) {
+      throw new DeniedError(
+        "approval.digest_mismatch",
+        `Proposal ${proposal.id}'s ${label} state does not match its own fingerprint. The stored record has been altered since it was created, so what it describes is not what anybody reviewed.`,
+        { proposalId: proposal.id, state: label },
+      );
+    }
+  }
+
   const recomputed = proposalChangeDigest(proposal);
   if (recomputed !== proposal.digest) {
     throw new DeniedError(

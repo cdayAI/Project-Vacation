@@ -283,13 +283,18 @@ export class ImprovementWatch {
     }
 
     // The filters are strictly-after and strictly-before in both adapters, so
-    // the bounds are nudged by a millisecond to make the windows inclusive of
-    // the instants they are meant to cover. Without this, an observation
-    // recorded at exactly the moment of the change falls into neither window —
-    // which, under a fixed clock, is most of them.
+    // the bounds are nudged by a millisecond to make each window inclusive of
+    // the instants it is meant to cover. Without this, work recorded at exactly
+    // the moment of the change would fall into neither window — which, under a
+    // fixed clock, is most of it.
+    //
+    // The instant of the change itself belongs to the *before* window: work
+    // recorded at the same millisecond as the change cannot have been
+    // influenced by it, and counting it as "after" would attribute the old
+    // behaviour's corrections to the new behaviour.
     const windowStart = new Date(appliedMs - elapsedMs - 1).toISOString();
     const changeInstant = new Date(appliedMs).toISOString();
-    const justBefore = new Date(appliedMs - 1).toISOString();
+    const justAfterChange = new Date(appliedMs + 1).toISOString();
     const now = new Date(this.deps.clock.now() + 1).toISOString();
 
     const roleId = proposal.roleId;
@@ -297,21 +302,21 @@ export class ImprovementWatch {
     const beforeCorrections = await this.deps.observations.countObservations({
       roleId,
       recordedAfter: windowStart,
-      recordedBefore: changeInstant,
+      recordedBefore: justAfterChange,
     });
     const beforeRuns = await this.deps.runs.countRuns({
       roleId,
       createdAfter: windowStart,
-      createdBefore: changeInstant,
+      createdBefore: justAfterChange,
     });
     const afterCorrections = await this.deps.observations.countObservations({
       roleId,
-      recordedAfter: justBefore,
+      recordedAfter: changeInstant,
       recordedBefore: now,
     });
     const afterRuns = await this.deps.runs.countRuns({
       roleId,
-      createdAfter: justBefore,
+      createdAfter: changeInstant,
       createdBefore: now,
     });
 

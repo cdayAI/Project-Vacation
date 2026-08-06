@@ -94,6 +94,16 @@ export interface AdmissionContext {
   readonly isCommit?: boolean;
   /** Digest binding an approval to exactly what was proposed. */
   readonly proposalDigest?: string;
+  /**
+   * Report that approval is needed without raising it here.
+   *
+   * The governed-execution path has to create its parked record *before* the
+   * approval, so that a failure to raise the approval can hand the slot back
+   * rather than stranding a pending record with nothing to consume. If this
+   * chain raised the approval first, that ordering would invert and a failure
+   * would strand a granted approval nothing could spend instead.
+   */
+  readonly deferApproval?: boolean;
 }
 
 export class AdmissionService {
@@ -304,6 +314,14 @@ export class AdmissionService {
 
     // The approval floor.
     if (riskAtLeast(effectiveRisk, this.approvalThreshold) && !context.isCommit) {
+      if (context.deferApproval) {
+        return {
+          outcome: "approval_required",
+          effectiveRisk,
+          remainingBudgetUsd: remaining,
+          message: "This action needs a human decision.",
+        };
+      }
       const approvalId = await this.parkApproval(agent, request, effectiveRisk, context);
       return {
         outcome: "approval_required",
