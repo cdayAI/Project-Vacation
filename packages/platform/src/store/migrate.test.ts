@@ -64,13 +64,19 @@ describe("migration ordering and identity", () => {
 });
 
 describe("the platform's migration registry", () => {
-  it("is ordered, uniquely identified, and covers the spine", () => {
-    expect(ALL_MIGRATIONS.map((migration) => migration.id)).toEqual([
-      "0001_record",
-      "0002_audit",
-      "0003_guard",
-    ]);
-    expect(new Set(ALL_MIGRATIONS.map((m) => m.id)).size).toBe(ALL_MIGRATIONS.length);
+  it("is ordered and uniquely identified", () => {
+    const ids = ALL_MIGRATIONS.map((migration) => migration.id);
+    expect(ids).toEqual([...ids].sort());
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("covers the spine", () => {
+    // Named explicitly because these three are load-bearing: without them there
+    // is no operating record, no audit chain, and no approvals. Everything
+    // beyond the spine is asserted structurally in registry.test.ts, which
+    // fails if any module ships migrations the registry does not import.
+    const ids = ALL_MIGRATIONS.map((migration) => migration.id);
+    expect(ids).toEqual(expect.arrayContaining(["0001_record", "0002_audit", "0003_guard"]));
   });
 });
 
@@ -190,7 +196,11 @@ describe.skipIf(!CONNECTION_STRING)("applying migrations to Postgres", () => {
 
   it("applies the platform's own registry cleanly into an empty schema", async () => {
     const result = await runMigrations(db, ALL_MIGRATIONS);
-    expect(result.applied).toEqual(["0001_record", "0002_audit", "0003_guard"]);
+    // Assert against the registry rather than a hard-coded list: a literal here
+    // would have to be edited every time a module is added, and the edit that
+    // makes it green again is indistinguishable from the edit that hides a
+    // module having been dropped.
+    expect([...result.applied]).toEqual(ALL_MIGRATIONS.map((m) => m.id));
     for (const table of [
       "run",
       "run_step",
