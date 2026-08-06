@@ -36,6 +36,8 @@ import type { CeilingLimits, CeilingUsage } from "./types.js";
  */
 export class CeilingEnforcer {
   private readonly reservations = new Map<string, number>();
+  /** Sum of every outstanding reservation, for the daily ceiling. */
+  private dailyReserved = 0;
   private readonly runStartedAt = new Map<string, number>();
   /** Timestamps of recent model calls, for the sliding rate window. */
   private modelCallTimes: number[] = [];
@@ -53,18 +55,27 @@ export class CeilingEnforcer {
 
   markRunEnded(runId: Id<"run">): void {
     this.runStartedAt.delete(runId);
+    const held = this.reservations.get(runId) ?? 0;
+    this.dailyReserved = Math.max(0, this.dailyReserved - held);
     this.reservations.delete(runId);
   }
 
-  async usage(runId: Id<"run">): Promise<CeilingUsage> {
+  /** Spend already recorded in the operating record. Excludes reservations. */
+  private async committed(runId: Id<"run">): Promise<{ run: number; daily: number }> {
     const summary = await this.runs.costForRun(runId);
     const dayStart = new Date(this.clock.now() - 24 * 60 * 60 * 1000).toISOString();
     const daily = await this.runs.costSince(dayStart);
+    return { run: summary.totalUsd, daily };
+  }
+
+  /** Current usage including outstanding reservations. For reporting. */
+  async usage(runId: Id<"run">): Promise<CeilingUsage> {
+    const committed = await this.committed(runId);
     const startedAt = this.runStartedAt.get(runId);
     this.pruneRateWindow();
     return {
-      runSpendUsd: summary.totalUsd + (this.reservations.get(runId) ?? 0),
-      dailySpendUsd: daily,
+      runSpendUsd: committed.run + (this.reservations.get(runId) ?? 0),
+      dailySpendUsd: committed.daily + this.dailyReserved,
       runElapsedMs: startedAt === undefined ? 0 : this.clock.now() - startedAt,
       modelCallsInWindow: this.modelCallTimes.length,
     };
@@ -94,44 +105,79 @@ export class CeilingEnforcer {
       });
     }
 
-    const usage = await this.usage(runId);
+    // The one await. Everything after it runs synchronously, which is what
+    // makes the compare-and-reserve below atomic.
+    const committed = await this.committed(runId);
 
-    if (usage.runElapsedMs > this.limits.runWallClockMs) {
+    // ---- No `await` past this point until the reservation is taken. ----
+    //
+    // This is the whole trick, and it is worth spelling out because getting it
+    // wrong is invisible. If the reservation were taken before the read, two
+    // concurrent callers would each add their estimate and then both see the
+    // combined total, so both would be refused — safe, but wrong, because one
+    // of them should have been allowed to proceed. If the reservation were
+    // taken after an `await`, both would read the same headroom and both would
+    // be allowed — unsafe. Reading first and then comparing-and-reserving with
+    // no suspension point in between gives the correct outcome: the first
+    // caller to resume claims the headroom, and the second sees it gone.
+    const runReserved = this.reservations.get(runId) ?? 0;
+    const startedAt = this.runStartedAt.get(runId);
+    const elapsedMs = startedAt === undefined ? 0 : this.clock.now() - startedAt;
+
+    if (elapsedMs > this.limits.runWallClockMs) {
       throw new DeniedError(
         "ceiling.time_exceeded",
-        `Run has been going for ${Math.round(usage.runElapsedMs / 1000)}s, past its ${Math.round(this.limits.runWallClockMs / 1000)}s ceiling.`,
-        { runId, elapsedMs: usage.runElapsedMs, ceilingMs: this.limits.runWallClockMs },
+        `Run has been going for ${Math.round(elapsedMs / 1000)}s, past its ${Math.round(this.limits.runWallClockMs / 1000)}s ceiling.`,
+        { runId, elapsedMs, ceilingMs: this.limits.runWallClockMs },
       );
     }
 
-    if (usage.runSpendUsd + estimate > this.limits.runSpendUsd) {
+    const projectedRun = committed.run + runReserved + estimate;
+    if (projectedRun > this.limits.runSpendUsd) {
       throw new DeniedError(
         "ceiling.spend_exceeded",
-        `Run spend would reach $${(usage.runSpendUsd + estimate).toFixed(4)}, past its $${this.limits.runSpendUsd.toFixed(2)} ceiling.`,
-        { runId, spentUsd: usage.runSpendUsd, estimateUsd: estimate, ceilingUsd: this.limits.runSpendUsd },
+        `Run spend would reach $${projectedRun.toFixed(4)}, past its $${this.limits.runSpendUsd.toFixed(2)} ceiling.`,
+        {
+          runId,
+          spentUsd: committed.run + runReserved,
+          estimateUsd: estimate,
+          ceilingUsd: this.limits.runSpendUsd,
+        },
       );
     }
 
-    if (usage.dailySpendUsd + estimate > this.limits.dailySpendUsd) {
+    const projectedDaily = committed.daily + this.dailyReserved + estimate;
+    if (projectedDaily > this.limits.dailySpendUsd) {
       throw new DeniedError(
         "ceiling.spend_exceeded",
-        `Daily spend would reach $${(usage.dailySpendUsd + estimate).toFixed(2)}, past the $${this.limits.dailySpendUsd.toFixed(2)} ceiling.`,
-        { runId, dailyUsd: usage.dailySpendUsd, ceilingUsd: this.limits.dailySpendUsd },
+        `Daily spend would reach $${projectedDaily.toFixed(2)}, past the $${this.limits.dailySpendUsd.toFixed(2)} ceiling.`,
+        {
+          runId,
+          dailyUsd: committed.daily + this.dailyReserved,
+          ceilingUsd: this.limits.dailySpendUsd,
+        },
       );
     }
 
-    if (options.isModelCall && usage.modelCallsInWindow >= this.limits.modelCallsPerMinute) {
-      throw new DeniedError(
-        "ceiling.rate_exceeded",
-        `Model call rate ceiling reached: ${usage.modelCallsInWindow} calls in the last minute, limit ${this.limits.modelCallsPerMinute}.`,
-        { runId, callsInWindow: usage.modelCallsInWindow, ceiling: this.limits.modelCallsPerMinute },
-      );
+    if (options.isModelCall) {
+      this.pruneRateWindow();
+      if (this.modelCallTimes.length >= this.limits.modelCallsPerMinute) {
+        throw new DeniedError(
+          "ceiling.rate_exceeded",
+          `Model call rate ceiling reached: ${this.modelCallTimes.length} calls in the last minute, limit ${this.limits.modelCallsPerMinute}.`,
+          {
+            runId,
+            callsInWindow: this.modelCallTimes.length,
+            ceiling: this.limits.modelCallsPerMinute,
+          },
+        );
+      }
     }
 
-    // Reserve after every check has passed, so a denial does not leave a
-    // phantom reservation behind that would shrink the run's budget.
+    // Every check passed. Claim the headroom.
     if (estimate > 0) {
-      this.reservations.set(runId, (this.reservations.get(runId) ?? 0) + estimate);
+      this.reservations.set(runId, runReserved + estimate);
+      this.dailyReserved += estimate;
     }
     if (options.isModelCall) {
       this.modelCallTimes.push(this.clock.now());
@@ -146,9 +192,13 @@ export class CeilingEnforcer {
   release(runId: Id<"run">, estimatedCostUsd: number): void {
     if (estimatedCostUsd <= 0) return;
     const held = this.reservations.get(runId) ?? 0;
-    const next = held - estimatedCostUsd;
+    // Never release more than is actually held: a double release would create
+    // negative headroom and quietly raise the ceiling.
+    const releasing = Math.min(held, estimatedCostUsd);
+    const next = held - releasing;
     if (next > 0) this.reservations.set(runId, next);
     else this.reservations.delete(runId);
+    this.dailyReserved = Math.max(0, this.dailyReserved - releasing);
   }
 
   /**

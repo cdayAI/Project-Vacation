@@ -298,9 +298,14 @@ export class PgRunStore implements RunStore {
         );
         const seq = next[0]?.next ?? 1;
 
+        // ON CONFLICT targets the primary key only, so a duplicate step id
+        // comes back as an empty result and is reported as bad input. A
+        // collision on (run_id, seq) is deliberately *not* absorbed here: that
+        // would mean the locking above failed, and it must be loud.
         const inserted = await tx.query<StepRow>(
           `INSERT INTO run_step (${STEP_COLUMNS})
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           ON CONFLICT (id) DO NOTHING
            RETURNING ${STEP_COLUMNS}`,
           [
             id,
@@ -322,9 +327,12 @@ export class PgRunStore implements RunStore {
         );
         const row = inserted[0];
         if (!row) {
-          throw new DeniedError("record.unavailable", `Step ${id} could not be appended.`, {
-            runId: step.runId,
-          });
+          // The rollback that follows releases the sequence number this
+          // transaction reserved, so a refused append leaves no hole.
+          throw new InvalidInputError(
+            `Step ${id} already exists. Step identifiers are assigned once.`,
+            "id",
+          );
         }
         return toStep(row);
       }),

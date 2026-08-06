@@ -1,0 +1,1035 @@
+/* =============================================================================
+   Base stylesheet — reset, typography, focus, layout, and the shared controls.
+   =============================================================================
+
+   Every value here comes from tokens.css. If a raw colour or a raw pixel size
+   appears in this file it is a mistake: it will be right in one theme and
+   wrong in the other, and no test will catch it.
+
+   There is no CSS framework and no utility layer. Class names are flat and
+   prefixed pv- so they cannot collide with anything a host page brings.
+   ========================================================================== */
+
+/* -----------------------------------------------------------------------------
+   1. Reset
+   -------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* Never below the user's chosen base size, and never a fixed px root: a
+     user who has set a larger default text size must get one. */
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd,
+ol,
+ul {
+  margin: 0;
+}
+
+ol,
+ul {
+  padding: 0;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+button,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   2. Base typography and page
+   -------------------------------------------------------------------------- */
+
+body {
+  background-color: var(--pv-surface);
+  color: var(--pv-text);
+  font-family: var(--pv-font-sans);
+  font-size: var(--pv-font-size-md);
+  line-height: var(--pv-line-height-normal);
+  /* Off by default. The console shows contract identifiers, state codes, and
+     hex digests, and a ligature or an optional alternate in one of those is a
+     transcription error waiting to happen. */
+  font-variant-ligatures: none;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: var(--pv-line-height-tight);
+  font-weight: var(--pv-font-weight-bold);
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: var(--pv-font-size-2xl);
+}
+h2 {
+  font-size: var(--pv-font-size-xl);
+}
+h3 {
+  font-size: var(--pv-font-size-lg);
+}
+h4 {
+  font-size: var(--pv-font-size-md);
+}
+
+p {
+  max-width: var(--pv-reading-max-width);
+}
+
+a {
+  color: var(--pv-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  color: var(--pv-accent-hover);
+}
+
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--pv-font-mono);
+  font-size: 0.9375em;
+}
+
+/* Digests, run ids, and contract ids are long and must be readable in full.
+   Truncating a digest defeats the reason it is on screen: an approver has to
+   be able to compare what they read against what their decision binds to. */
+.pv-mono {
+  font-family: var(--pv-font-mono);
+  font-size: 0.9375em;
+  overflow-wrap: anywhere;
+}
+
+.pv-digest {
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-font-size-sm);
+  overflow-wrap: anywhere;
+  background-color: var(--pv-surface-sunken);
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-sm);
+  padding: var(--pv-space-1) var(--pv-space-2);
+  display: inline-block;
+}
+
+.pv-numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+/* -----------------------------------------------------------------------------
+   3. Focus
+   -------------------------------------------------------------------------- */
+
+/* WCAG 2.2 2.4.13 focus appearance: a contiguous perimeter at least 2 CSS px
+   thick around the whole control, with at least 3:1 contrast against adjacent
+   colours. 3px plus a 2px offset clears both, and the offset keeps the ring
+   off a control's own border so it stays distinguishable on bordered controls
+   and on the raised surface alike. --pv-focus-ring is verified against every
+   surface token in both themes. */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+}
+
+/* The main landmark is focused programmatically after a route change so that
+   assistive technology is told the page changed. It is not reachable with Tab,
+   so 2.4.7 does not apply to it, and ringing the entire page would read as a
+   fault rather than as a signal. */
+.pv-main:focus,
+.pv-main:focus-visible {
+  outline: none;
+}
+
+.pv-skip-link {
+  position: absolute;
+  left: var(--pv-space-2);
+  top: var(--pv-space-2);
+  z-index: 10;
+  /* Moved off-screen rather than hidden: display:none would take it out of
+     the tab order, which is the one thing it exists to be in. */
+  transform: translateY(-200%);
+  background-color: var(--pv-surface-raised);
+  color: var(--pv-text);
+  border: 2px solid var(--pv-border-strong);
+  border-radius: var(--pv-radius-md);
+  padding: var(--pv-space-2) var(--pv-space-4);
+  font-weight: var(--pv-font-weight-medium);
+  text-decoration: none;
+}
+
+.pv-skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+/* -----------------------------------------------------------------------------
+   4. Motion
+   -------------------------------------------------------------------------- */
+
+/* Transitions in this console are colour changes on hover and nothing else:
+   no motion carries meaning anywhere, and no state is communicated by an
+   animation. This block is here so that a future addition which forgets that
+   rule is still neutralised for anyone who has asked for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   5. Utility
+   -------------------------------------------------------------------------- */
+
+/* Available to screen readers, invisible on screen. Used where a visual cue
+   needs a text equivalent that would be redundant if shown. */
+.pv-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   6. Shell layout
+   -------------------------------------------------------------------------- */
+
+.pv-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.pv-header {
+  background-color: var(--pv-surface-raised);
+  border-bottom: 1px solid var(--pv-border);
+}
+
+.pv-header-bar {
+  max-width: var(--pv-layout-max-width);
+  margin: 0 auto;
+  padding: var(--pv-space-3) var(--pv-space-5);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-4);
+}
+
+.pv-wordmark {
+  font-size: var(--pv-font-size-md);
+  font-weight: var(--pv-font-weight-bold);
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+.pv-wordmark-secondary {
+  display: block;
+  font-size: var(--pv-font-size-xs);
+  font-weight: var(--pv-font-weight-regular);
+  color: var(--pv-text-muted);
+  letter-spacing: 0;
+}
+
+.pv-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  flex-wrap: wrap;
+}
+
+.pv-actor {
+  font-size: var(--pv-font-size-sm);
+  text-align: right;
+  line-height: var(--pv-line-height-tight);
+}
+
+.pv-actor-name {
+  font-weight: var(--pv-font-weight-medium);
+  display: block;
+}
+
+.pv-actor-roles {
+  color: var(--pv-text-muted);
+  display: block;
+  font-size: var(--pv-font-size-xs);
+}
+
+.pv-nav {
+  border-bottom: 1px solid var(--pv-border);
+  background-color: var(--pv-surface);
+}
+
+.pv-nav-list {
+  max-width: var(--pv-layout-max-width);
+  margin: 0 auto;
+  padding: 0 var(--pv-space-5);
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-1);
+}
+
+.pv-nav-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--pv-control-height);
+  padding: var(--pv-space-2) var(--pv-space-3);
+  color: var(--pv-text);
+  text-decoration: none;
+  font-size: var(--pv-font-size-sm);
+  font-weight: var(--pv-font-weight-medium);
+  border-bottom: 3px solid transparent;
+}
+
+.pv-nav-link:hover {
+  color: var(--pv-accent-hover);
+  background-color: var(--pv-surface-raised);
+}
+
+/* The current page is marked with aria-current in the markup; the underline
+   is the visual echo of that, never the only signal. */
+.pv-nav-link[aria-current="page"] {
+  border-bottom-color: var(--pv-accent);
+  color: var(--pv-accent);
+}
+
+.pv-main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--pv-layout-max-width);
+  margin: 0 auto;
+  padding: var(--pv-space-5) var(--pv-space-5) var(--pv-space-7);
+}
+
+.pv-footer {
+  border-top: 1px solid var(--pv-divider);
+  color: var(--pv-text-muted);
+  font-size: var(--pv-font-size-xs);
+}
+
+.pv-footer-inner {
+  max-width: var(--pv-layout-max-width);
+  margin: 0 auto;
+  padding: var(--pv-space-4) var(--pv-space-5);
+}
+
+/* -----------------------------------------------------------------------------
+   7. Layout primitives
+   -------------------------------------------------------------------------- */
+
+.pv-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-5);
+}
+
+.pv-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-2);
+}
+
+.pv-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-3);
+}
+
+.pv-row-end {
+  margin-left: auto;
+}
+
+.pv-columns {
+  display: grid;
+  gap: var(--pv-space-5);
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+}
+
+.pv-panel {
+  background-color: var(--pv-surface-raised);
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-lg);
+  padding: var(--pv-space-5);
+  box-shadow: var(--pv-shadow-raised);
+}
+
+.pv-panel-heading {
+  margin-bottom: var(--pv-space-4);
+}
+
+.pv-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-2);
+  margin-bottom: var(--pv-space-5);
+}
+
+.pv-page-lede {
+  color: var(--pv-text-muted);
+  font-size: var(--pv-font-size-sm);
+}
+
+.pv-meta {
+  color: var(--pv-text-muted);
+  font-size: var(--pv-font-size-sm);
+}
+
+/* -----------------------------------------------------------------------------
+   8. Buttons
+   -------------------------------------------------------------------------- */
+
+.pv-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pv-space-2);
+  min-height: var(--pv-control-height);
+  min-width: var(--pv-target-min);
+  padding: var(--pv-space-2) var(--pv-space-4);
+  border-radius: var(--pv-radius-md);
+  border: 1px solid var(--pv-border);
+  background-color: var(--pv-surface);
+  color: var(--pv-text);
+  font-size: var(--pv-font-size-sm);
+  font-weight: var(--pv-font-weight-medium);
+  cursor: pointer;
+  transition: background-color 120ms linear, border-color 120ms linear;
+}
+
+.pv-button:hover {
+  background-color: var(--pv-surface-sunken);
+}
+
+.pv-button-primary {
+  background-color: var(--pv-accent);
+  border-color: var(--pv-accent);
+  color: var(--pv-accent-text);
+}
+
+.pv-button-primary:hover {
+  background-color: var(--pv-accent-hover);
+  border-color: var(--pv-accent-hover);
+}
+
+.pv-button-danger {
+  background-color: var(--pv-surface);
+  border-color: var(--pv-danger-border);
+  color: var(--pv-danger-text);
+}
+
+.pv-button-danger:hover {
+  background-color: var(--pv-danger-bg);
+}
+
+.pv-button-quiet {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+.pv-button-quiet:hover {
+  background-color: var(--pv-surface-sunken);
+}
+
+.pv-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* aria-disabled rather than disabled: the control stays focusable so that a
+   keyboard or screen-reader user can reach it, read why it is unavailable
+   through its description, and not simply find it missing from the tab order.
+   The click handler refuses. See components/Button.tsx. */
+.pv-button[aria-disabled="true"] {
+  cursor: not-allowed;
+  background-color: var(--pv-surface-sunken);
+  border-color: var(--pv-border);
+  color: var(--pv-text-muted);
+}
+
+.pv-button[aria-disabled="true"]:hover {
+  background-color: var(--pv-surface-sunken);
+}
+
+/* -----------------------------------------------------------------------------
+   9. Badges and status
+   -------------------------------------------------------------------------- */
+
+.pv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-1);
+  padding: 0.125rem var(--pv-space-2);
+  min-height: var(--pv-target-min);
+  border-radius: var(--pv-radius-pill);
+  border: 1px solid var(--pv-border);
+  background-color: var(--pv-surface-sunken);
+  color: var(--pv-text);
+  font-size: var(--pv-font-size-xs);
+  font-weight: var(--pv-font-weight-medium);
+  white-space: nowrap;
+}
+
+/* Every badge carries its own text label. The glyph is a second, non-colour
+   visual channel for the same fact — it is aria-hidden because the label
+   already says it, and hearing "check mark Succeeded" helps nobody. */
+.pv-badge-glyph {
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.pv-badge-success {
+  background-color: var(--pv-success-bg);
+  border-color: var(--pv-success-border);
+  color: var(--pv-success-text);
+}
+
+.pv-badge-warning {
+  background-color: var(--pv-warning-bg);
+  border-color: var(--pv-warning-border);
+  color: var(--pv-warning-text);
+}
+
+.pv-badge-danger {
+  background-color: var(--pv-danger-bg);
+  border-color: var(--pv-danger-border);
+  color: var(--pv-danger-text);
+}
+
+.pv-badge-info {
+  background-color: var(--pv-info-bg);
+  border-color: var(--pv-info-border);
+  color: var(--pv-info-text);
+}
+
+.pv-badge-denied {
+  background-color: var(--pv-denied-bg);
+  border-color: var(--pv-denied-border);
+  color: var(--pv-denied-text);
+}
+
+.pv-badge-neutral {
+  background-color: var(--pv-surface-sunken);
+  border-color: var(--pv-border);
+  color: var(--pv-text);
+}
+
+/* -----------------------------------------------------------------------------
+   10. Callouts and banners
+   -------------------------------------------------------------------------- */
+
+.pv-callout {
+  border: 1px solid var(--pv-border);
+  border-left-width: 4px;
+  border-radius: var(--pv-radius-md);
+  padding: var(--pv-space-3) var(--pv-space-4);
+  background-color: var(--pv-surface-raised);
+  color: var(--pv-text);
+}
+
+.pv-callout p {
+  max-width: var(--pv-reading-max-width);
+}
+
+.pv-callout-title {
+  font-weight: var(--pv-font-weight-bold);
+  margin-bottom: var(--pv-space-1);
+}
+
+.pv-callout-success {
+  background-color: var(--pv-success-bg);
+  border-color: var(--pv-success-border);
+}
+.pv-callout-success .pv-callout-title {
+  color: var(--pv-success-text);
+}
+
+.pv-callout-warning {
+  background-color: var(--pv-warning-bg);
+  border-color: var(--pv-warning-border);
+}
+.pv-callout-warning .pv-callout-title {
+  color: var(--pv-warning-text);
+}
+
+.pv-callout-danger {
+  background-color: var(--pv-danger-bg);
+  border-color: var(--pv-danger-border);
+}
+.pv-callout-danger .pv-callout-title {
+  color: var(--pv-danger-text);
+}
+
+.pv-callout-info {
+  background-color: var(--pv-info-bg);
+  border-color: var(--pv-info-border);
+}
+.pv-callout-info .pv-callout-title {
+  color: var(--pv-info-text);
+}
+
+.pv-callout-denied {
+  background-color: var(--pv-denied-bg);
+  border-color: var(--pv-denied-border);
+}
+.pv-callout-denied .pv-callout-title {
+  color: var(--pv-denied-text);
+}
+
+/* The platform-state banner. Never dismissible, never collapsed: an operator
+   must not have to go looking for an uncontained sandbox. */
+.pv-banner {
+  background-color: var(--pv-danger-bg);
+  border-bottom: 3px solid var(--pv-danger-border);
+}
+
+.pv-banner-inner {
+  max-width: var(--pv-layout-max-width);
+  margin: 0 auto;
+  padding: var(--pv-space-3) var(--pv-space-5);
+}
+
+.pv-banner-heading {
+  font-size: var(--pv-font-size-md);
+  color: var(--pv-danger-text);
+  margin-bottom: var(--pv-space-2);
+}
+
+.pv-banner-list {
+  list-style: disc;
+  padding-left: var(--pv-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-1);
+  font-size: var(--pv-font-size-sm);
+}
+
+/* -----------------------------------------------------------------------------
+   11. Tables
+   -------------------------------------------------------------------------- */
+
+/* The scroll container is focusable on purpose: a region that scrolls but
+   cannot be reached with the keyboard is unusable without a mouse (WCAG
+   2.1.1), and axe's scrollable-region-focusable rule checks for exactly this. */
+.pv-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-lg);
+  background-color: var(--pv-surface);
+}
+
+.pv-table {
+  width: 100%;
+  font-size: var(--pv-font-size-sm);
+}
+
+.pv-table caption {
+  text-align: left;
+  padding: var(--pv-space-3) var(--pv-space-4);
+  color: var(--pv-text-muted);
+  font-size: var(--pv-font-size-sm);
+  border-bottom: 1px solid var(--pv-divider);
+}
+
+.pv-table th,
+.pv-table td {
+  text-align: left;
+  padding: var(--pv-space-2) var(--pv-space-4);
+  vertical-align: top;
+  border-bottom: 1px solid var(--pv-divider);
+}
+
+.pv-table thead th {
+  background-color: var(--pv-surface-raised);
+  border-bottom: 1px solid var(--pv-border);
+  font-size: var(--pv-font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pv-text-muted);
+  white-space: nowrap;
+  padding: 0;
+}
+
+.pv-table thead th.pv-table-plain-header {
+  padding: var(--pv-space-2) var(--pv-space-4);
+}
+
+.pv-table tbody tr:last-child td,
+.pv-table tbody tr:last-child th {
+  border-bottom: none;
+}
+
+.pv-table tbody tr:hover {
+  background-color: var(--pv-surface-raised);
+}
+
+.pv-table-numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pv-table th.pv-table-numeric {
+  text-align: right;
+}
+
+/* A whole-header sort control. It fills the cell so the hit target is the
+   header, not a small glyph inside it. */
+.pv-table-sort {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-1);
+  min-height: var(--pv-control-height);
+  padding: var(--pv-space-2) var(--pv-space-4);
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.pv-table-sort:hover {
+  color: var(--pv-text);
+  background-color: var(--pv-surface-sunken);
+}
+
+.pv-table-sort-indicator {
+  color: var(--pv-text);
+}
+
+/* A row that has breached its SLA. The bar and the tint are redundant with
+   the "Past due" text in the row — colour is never the only carrier. */
+.pv-table tbody tr.pv-row-breached td,
+.pv-table tbody tr.pv-row-breached th {
+  background-color: var(--pv-danger-bg);
+}
+
+.pv-table tbody tr.pv-row-breached th:first-child,
+.pv-table tbody tr.pv-row-breached td:first-child {
+  box-shadow: inset 4px 0 0 0 var(--pv-danger-border);
+}
+
+.pv-table tbody tr.pv-row-denied td,
+.pv-table tbody tr.pv-row-denied th {
+  background-color: var(--pv-denied-bg);
+}
+
+.pv-table tbody tr.pv-row-denied th:first-child,
+.pv-table tbody tr.pv-row-denied td:first-child {
+  box-shadow: inset 4px 0 0 0 var(--pv-denied-border);
+}
+
+/* -----------------------------------------------------------------------------
+   12. Definition lists
+   -------------------------------------------------------------------------- */
+
+.pv-dl {
+  display: grid;
+  grid-template-columns: minmax(9rem, 16rem) 1fr;
+  gap: 0;
+  font-size: var(--pv-font-size-sm);
+}
+
+.pv-dl > div {
+  display: contents;
+}
+
+.pv-dl dt {
+  color: var(--pv-text-muted);
+  font-weight: var(--pv-font-weight-medium);
+  padding: var(--pv-space-2) var(--pv-space-4) var(--pv-space-2) 0;
+  border-bottom: 1px solid var(--pv-divider);
+}
+
+.pv-dl dd {
+  margin: 0;
+  padding: var(--pv-space-2) 0;
+  border-bottom: 1px solid var(--pv-divider);
+  overflow-wrap: anywhere;
+}
+
+.pv-dl-stacked {
+  grid-template-columns: 1fr;
+}
+
+.pv-dl-stacked dt {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+@media (max-width: 40rem) {
+  .pv-dl {
+    grid-template-columns: 1fr;
+  }
+  .pv-dl dt {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   13. Fields
+   -------------------------------------------------------------------------- */
+
+.pv-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-1);
+  min-width: 11rem;
+}
+
+.pv-field-label {
+  font-size: var(--pv-font-size-sm);
+  font-weight: var(--pv-font-weight-medium);
+}
+
+.pv-field-hint {
+  font-size: var(--pv-font-size-xs);
+  color: var(--pv-text-muted);
+}
+
+.pv-field-error {
+  font-size: var(--pv-font-size-xs);
+  color: var(--pv-danger-text);
+  font-weight: var(--pv-font-weight-medium);
+}
+
+.pv-input,
+.pv-select,
+.pv-textarea {
+  min-height: var(--pv-control-height);
+  padding: var(--pv-space-2) var(--pv-space-3);
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-md);
+  background-color: var(--pv-surface);
+  color: var(--pv-text);
+  font-size: var(--pv-font-size-sm);
+  width: 100%;
+}
+
+.pv-textarea {
+  min-height: 5rem;
+  resize: vertical;
+  line-height: var(--pv-line-height-normal);
+}
+
+.pv-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-2);
+  min-height: var(--pv-control-height);
+  font-size: var(--pv-font-size-sm);
+  font-weight: var(--pv-font-weight-medium);
+}
+
+.pv-checkbox {
+  width: var(--pv-target-min);
+  height: var(--pv-target-min);
+  accent-color: var(--pv-accent);
+  margin: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   14. Empty state
+   -------------------------------------------------------------------------- */
+
+.pv-empty {
+  border: 1px dashed var(--pv-border);
+  border-radius: var(--pv-radius-lg);
+  padding: var(--pv-space-6);
+  text-align: left;
+  background-color: var(--pv-surface-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-2);
+}
+
+.pv-empty-body {
+  color: var(--pv-text-muted);
+  font-size: var(--pv-font-size-sm);
+}
+
+/* -----------------------------------------------------------------------------
+   15. Dialog
+   -------------------------------------------------------------------------- */
+
+.pv-dialog {
+  max-width: 34rem;
+  width: calc(100% - var(--pv-space-6));
+  border: 1px solid var(--pv-border-strong);
+  border-radius: var(--pv-radius-lg);
+  background-color: var(--pv-surface);
+  color: var(--pv-text);
+  padding: 0;
+  box-shadow: var(--pv-shadow-overlay);
+}
+
+.pv-dialog::backdrop {
+  background-color: var(--pv-overlay-scrim);
+}
+
+.pv-dialog-body {
+  padding: var(--pv-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+}
+
+.pv-dialog-title:focus,
+.pv-dialog-title:focus-visible {
+  outline: none;
+}
+
+.pv-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-3);
+  justify-content: flex-end;
+}
+
+/* -----------------------------------------------------------------------------
+   16. Denial surface
+   -------------------------------------------------------------------------- */
+
+/* A refusal is an outcome, not a fault. It gets a page, in its own tone, with
+   the reason in plain language and the next step spelled out — never a red
+   toast that disappears. */
+.pv-denial {
+  border: 1px solid var(--pv-denied-border);
+  border-left-width: 6px;
+  border-radius: var(--pv-radius-lg);
+  background-color: var(--pv-denied-bg);
+  padding: var(--pv-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  max-width: var(--pv-reading-max-width);
+}
+
+.pv-denial-heading {
+  color: var(--pv-denied-text);
+}
+
+/* -----------------------------------------------------------------------------
+   17. Filters and toolbars
+   -------------------------------------------------------------------------- */
+
+.pv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-4);
+  align-items: flex-end;
+  padding: var(--pv-space-4);
+  background-color: var(--pv-surface-raised);
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-lg);
+  margin-bottom: var(--pv-space-4);
+}
+
+/* -----------------------------------------------------------------------------
+   18. Step trail
+   -------------------------------------------------------------------------- */
+
+.pv-steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+}
+
+.pv-step {
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-lg);
+  background-color: var(--pv-surface-raised);
+  padding: var(--pv-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-3);
+}
+
+.pv-step-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--pv-space-3);
+}
+
+.pv-step-seq {
+  font-variant-numeric: tabular-nums;
+  color: var(--pv-text-muted);
+  font-size: var(--pv-font-size-sm);
+}
+
+.pv-citation {
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-md);
+  padding: var(--pv-space-4);
+  background-color: var(--pv-surface-raised);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-2);
+}
+
+.pv-citation-stale {
+  border-color: var(--pv-warning-border);
+  background-color: var(--pv-warning-bg);
+}
+
+.pv-excerpt {
+  border-left: 3px solid var(--pv-border);
+  padding-left: var(--pv-space-3);
+  color: var(--pv-text);
+  font-size: var(--pv-font-size-sm);
+  margin: 0;
+}
