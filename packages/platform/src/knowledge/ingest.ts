@@ -192,6 +192,11 @@ export class IngestionService {
       // event a reviewer most wants to find later — "did anything try to poison
       // this corpus, and when" — and it is the one event that leaves no trace
       // anywhere else, because nothing was stored.
+      //
+      // If this write itself fails, its `record.unavailable` denial replaces
+      // the screen's. That is deliberate: both refuse the ingestion, nothing
+      // entered the corpus either way, and an audit log that cannot be written
+      // is the more urgent of the two problems to surface.
       await this.audit.record(
         auditDecision({
           eventType: "corpus.ingest_rejected",

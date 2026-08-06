@@ -76,31 +76,40 @@ export interface LoggerOptions {
 
 export function createLogger(options: LoggerOptions = {}): Logger {
   return new PinoAdapter(
-    pino({
-      level: options.level ?? "info",
-      base: {
-        service: options.serviceName ?? "project-vacation",
-        environment: options.environment ?? "development",
+    pino(
+      {
+        level: options.level ?? "info",
+        base: {
+          service: options.serviceName ?? "project-vacation",
+          environment: options.environment ?? "development",
+        },
+        timestamp: pino.stdTimeFunctions.isoTime,
+        // Belt and braces: redactValue already handles these, but pino's own
+        // redaction runs even on paths that bypass the adapter.
+        redact: {
+          paths: [
+            "password",
+            "*.password",
+            "token",
+            "*.token",
+            "authorization",
+            "*.authorization",
+            "apiKey",
+            "*.apiKey",
+            "secret",
+            "*.secret",
+          ],
+          censor: "[redacted]",
+        },
       },
-      timestamp: pino.stdTimeFunctions.isoTime,
-      // Belt and braces: redactValue already handles these, but pino's own
-      // redaction runs even on paths that bypass the adapter.
-      redact: {
-        paths: [
-          "password",
-          "*.password",
-          "token",
-          "*.token",
-          "authorization",
-          "*.authorization",
-          "apiKey",
-          "*.apiKey",
-          "secret",
-          "*.secret",
-        ],
-        censor: "[redacted]",
-      },
-    }),
+      // Diagnostics go to stderr; stdout carries the answer.
+      //
+      // This matters more than it looks. `pv audit verify > evidence.txt` has
+      // to produce a file an auditor can read, and `pnpm demo` has to produce
+      // output that is byte-identical across runs so CI can diff it. A log line
+      // with a timestamp in it, interleaved on stdout, would break both.
+      pino.destination(2),
+    ),
   );
 }
 

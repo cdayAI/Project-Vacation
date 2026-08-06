@@ -15,11 +15,14 @@ import type { Chunk, Corpus, DocumentStatus, SourceDocument } from "./types.js";
  *     and retrieval would answer from the half that made it — silently, with a
  *     citation that looks complete.
  *
- *   - `putDocument` is also the idempotency point. Re-ingesting identical
- *     content into the same corpus returns the existing document rather than
- *     creating a second copy, so a retried ingestion after a crash does not
- *     double the weight of that authority in every later search. The
- *     `created` flag tells the caller which happened.
+ *   - `putDocument` is also the idempotency point. Re-running the same
+ *     ingestion — same corpus, same content, same version, same effective start
+ *     — returns the existing document rather than creating a second copy, so a
+ *     retry after a crash does not double the weight of that authority in every
+ *     later search. The `created` flag tells the caller which happened.
+ *     Unchanged text under a *different* version or effective date is a
+ *     different document, because it is: the same words can be republished with
+ *     a new window, and a citation has to name the right one.
  *
  * Documents are written once and then only ever flipped from `pending` to
  * `active`. There is no update path for text, effective dates, or provenance,

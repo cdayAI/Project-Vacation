@@ -223,11 +223,16 @@ export class PgKnowledgeStore implements KnowledgeStore {
           );
         }
 
+        // The identity of an ingestion: corpus, content, version, and the date
+        // that version took effect. Content alone would collide when unchanged
+        // text is republished under a new version or a corrected effective
+        // date, and the replay would hand back a document with the wrong window.
         const existing = (
           await tx.query<DocumentRow>(
             `SELECT ${DOCUMENT_COLUMNS} FROM knowledge_document
-             WHERE corpus_id = $1 AND content_digest = $2`,
-            [document.corpusId, document.contentDigest],
+             WHERE corpus_id = $1 AND content_digest = $2 AND version = $3
+               AND effective_from = $4`,
+            [document.corpusId, document.contentDigest, document.version, document.effectiveFrom],
           )
         )[0];
         if (existing) return { document: toDocument(existing), created: false };

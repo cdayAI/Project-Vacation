@@ -20,12 +20,14 @@ import type { IsoDate } from "../timeline/types.js";
  * that recorded its ingestion exists. This is the schema-level half of the
  * two-phase ingestion in `ingest.ts`: no receipt, no authority.
  *
- * *Identical content cannot be ingested twice into one corpus.* A unique index
- * over `(corpus_id, content_digest)` makes the idempotency in `putDocument`
- * unconditional rather than a matter of the adapter checking first. A retried
- * ingestion after a crash must not double the weight of that document in every
- * later lexical search — which is what a duplicate would do, silently, in a way
- * that looks like corroboration.
+ * *One ingestion cannot land twice.* A unique index over `(corpus_id,
+ * content_digest, version, effective_from)` makes the idempotency in
+ * `putDocument` unconditional rather than a matter of the adapter checking
+ * first. A retried ingestion after a crash must not double the weight of that
+ * document in every later lexical search — which is what a duplicate would do,
+ * silently, in a way that looks like corroboration. Version and effective start
+ * are part of the key because unchanged text is genuinely republished under new
+ * versions, and keying on content alone would make that republication invisible.
  *
  * Effective dates are civil dates (`YYYY-MM-DD`) stored as text, for the same
  * reason instants are stored as text elsewhere in this schema: the fixed-width
@@ -168,8 +170,8 @@ CREATE TABLE IF NOT EXISTS knowledge_document (
   )
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS knowledge_document_content_key
-  ON knowledge_document (corpus_id, content_digest);
+CREATE UNIQUE INDEX IF NOT EXISTS knowledge_document_ingestion_key
+  ON knowledge_document (corpus_id, content_digest, version, effective_from);
 -- The point-in-time window query, which is every retrieval.
 CREATE INDEX IF NOT EXISTS knowledge_document_window_idx
   ON knowledge_document (corpus_id, status, effective_from, effective_to);

@@ -126,14 +126,17 @@ export class MemoryKnowledgeStore implements KnowledgeStore {
 
       const documents = this.db.table<SourceDocument>(DOCUMENTS);
 
-      // Idempotency, inside the lock. Identical content in the same corpus is a
-      // replay of an ingestion that already happened — most often a retry after
-      // a crash — and must not become a second copy.
+      // Idempotency, inside the lock. Same corpus, same content, same version,
+      // same effective start is the same ingestion — most often a retry after a
+      // crash — and must not become a second copy.
+      //
+      // Version and effective start are part of the key rather than content
+      // alone, because unchanged text genuinely can be republished under a new
+      // version or a corrected effective date. Keying on content alone would
+      // silently hand back the older document, and every later answer would
+      // cite the wrong effective window for text that is word-for-word right.
       for (const existing of documents.values()) {
-        if (
-          existing.corpusId === document.corpusId &&
-          existing.contentDigest === document.contentDigest
-        ) {
+        if (isSameIngestion(existing, document)) {
           return { document: structuredClone(existing), created: false };
         }
       }
@@ -256,6 +259,23 @@ export function compareChunks(left: Chunk, right: Chunk): number {
   if (left.documentId !== right.documentId) return left.documentId < right.documentId ? -1 : 1;
   if (left.ordinal !== right.ordinal) return left.ordinal - right.ordinal;
   return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+/**
+ * Are these two the same ingestion?
+ *
+ * The identity of an ingestion is its corpus, its content, its version, and the
+ * date that version took effect. Shared by both adapters, and restated as a
+ * unique index in the schema so the guarantee does not depend on either
+ * adapter's check running.
+ */
+export function isSameIngestion(left: SourceDocument, right: SourceDocument): boolean {
+  return (
+    left.corpusId === right.corpusId &&
+    left.contentDigest === right.contentDigest &&
+    left.version === right.version &&
+    left.effectiveFrom === right.effectiveFrom
+  );
 }
 
 /**

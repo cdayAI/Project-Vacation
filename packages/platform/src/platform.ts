@@ -1,0 +1,219 @@
+import pg from "pg";
+import { FixedClock, SystemClock, type Clock } from "./kernel/clock.js";
+import { RandomIdGenerator, SeededIdGenerator, type IdGenerator } from "./kernel/ids.js";
+import { createLogger, type Logger } from "./kernel/logger.js";
+import { describeConfig, type Config } from "./kernel/config.js";
+import { createPool, MemoryDb, PgDb, type Db } from "./store/db.js";
+import { ALL_MIGRATIONS } from "./store/registry.js";
+import { runMigrations } from "./store/migrate.js";
+import { MemoryRunStore } from "./record/store.memory.js";
+import { PgRunStore } from "./record/store.pg.js";
+import type { RunStore } from "./record/port.js";
+import { MemoryAuditStore } from "./audit/store.memory.js";
+import { PgAuditStore } from "./audit/store.pg.js";
+import { AuditLog } from "./audit/log.js";
+import { MemoryApprovalStore, MemoryContainmentStore } from "./guard/store.memory.js";
+import { PgApprovalStore, PgContainmentStore } from "./guard/store.pg.js";
+import { ApprovalService } from "./guard/approvals.js";
+import { CeilingEnforcer } from "./guard/ceilings.js";
+import { ContainmentController } from "./guard/containment.js";
+import { ActionRegistry } from "./guard/registry.js";
+import { Authorizer } from "./guard/authorize.js";
+import { createSandbox, type Sandbox } from "./guard/sandbox.js";
+import { PLATFORM_ACTIONS } from "./actions.js";
+
+/**
+ * The composition root.
+ *
+ * Every dependency in this platform is injected, which is what makes the
+ * controls testable and the demo reproducible — but injection is only half the
+ * story. Something has to decide, once, which concrete implementation each
+ * port gets. That decision lives here and nowhere else.
+ *
+ * Two consequences worth stating, because both are load-bearing:
+ *
+ * Modules never construct their own adapters. A module that reached for a
+ * Postgres client directly would be untestable and would quietly bypass the
+ * configuration that decides whether this deployment is even allowed to use
+ * one. Everything arrives through a constructor.
+ *
+ * The choice between the real and the fake implementation is made from
+ * configuration that has already been validated. `loadConfig` refuses the
+ * in-memory store and the fake model provider in staging and production before
+ * this function runs, so there is no code path here that can accidentally
+ * assemble a production platform out of test doubles.
+ */
+
+export interface Platform {
+  readonly config: Config;
+  readonly clock: Clock;
+  readonly ids: IdGenerator;
+  readonly logger: Logger;
+  readonly runs: RunStore;
+  readonly audit: AuditLog;
+  readonly approvals: ApprovalService;
+  readonly containment: ContainmentController;
+  readonly ceilings: CeilingEnforcer;
+  readonly registry: ActionRegistry;
+  readonly authorizer: Authorizer;
+  readonly sandbox: Sandbox;
+  /** Present only when the Postgres store is in use. */
+  readonly db?: Db;
+  /** Release connections. Safe to call more than once. */
+  close(): Promise<void>;
+}
+
+export interface BuildOptions {
+  /**
+   * Override the clock. The demo passes a `FixedClock` so its output is
+   * byte-identical on every run.
+   */
+  readonly clock?: Clock;
+  /** Override id generation. The demo passes a `SeededIdGenerator`. */
+  readonly ids?: IdGenerator;
+  readonly logger?: Logger;
+  /** Reuse an existing in-memory database, for tests that inspect it. */
+  readonly memoryDb?: MemoryDb;
+}
+
+export async function buildPlatform(
+  config: Config,
+  options: BuildOptions = {},
+): Promise<Platform> {
+  const clock = options.clock ?? new SystemClock();
+  const ids =
+    options.ids ??
+    (config.environment === "development" && config.store === "memory"
+      ? new RandomIdGenerator()
+      : new RandomIdGenerator());
+  const logger =
+    options.logger ??
+    createLogger({
+      level: config.logLevel,
+      serviceName: config.serviceName,
+      environment: config.environment,
+    });
+
+  let runs: RunStore;
+  let auditLog: AuditLog;
+  let approvals: ApprovalService;
+  let containment: ContainmentController;
+  let db: Db | undefined;
+  let pool: pg.Pool | undefined;
+
+  if (config.store === "postgres") {
+    if (!config.databaseUrl) {
+      // Unreachable: loadConfig refuses this combination. Kept as a guard
+      // because "unreachable" and "unchecked" are different things.
+      throw new Error("PV_STORE=postgres requires PV_DATABASE_URL");
+    }
+    pool = createPool(config.databaseUrl, config.databasePoolSize);
+    db = new PgDb(pool);
+
+    runs = new PgRunStore(db, clock, ids);
+    const auditStore = new PgAuditStore(db);
+    auditLog = new AuditLog(auditStore, clock, ids);
+    approvals = new ApprovalService(new PgApprovalStore(db), clock, ids, auditLog);
+    containment = new ContainmentController(new PgContainmentStore(db), clock, auditLog);
+  } else {
+    const memory = options.memoryDb ?? new MemoryDb();
+    runs = new MemoryRunStore(memory, clock, ids);
+    auditLog = new AuditLog(new MemoryAuditStore(memory), clock, ids);
+    approvals = new ApprovalService(new MemoryApprovalStore(memory), clock, ids, auditLog);
+    containment = new ContainmentController(new MemoryContainmentStore(memory), clock, auditLog);
+  }
+
+  const ceilings = new CeilingEnforcer(
+    {
+      runSpendUsd: config.runSpendCeilingUsd,
+      dailySpendUsd: config.dailySpendCeilingUsd,
+      runWallClockMs: config.runWallClockCeilingMs,
+      modelCallsPerMinute: config.modelCallsPerMinute,
+    },
+    clock,
+    runs,
+  );
+
+  const registry = new ActionRegistry(PLATFORM_ACTIONS);
+
+  const authorizer = new Authorizer(
+    registry,
+    containment,
+    ceilings,
+    approvals,
+    auditLog,
+    clock,
+    config.stepUpMaxAgeSeconds,
+  );
+
+  const sandbox = createSandbox(config.sandboxMode, {
+    timeoutMs: config.sandboxTimeoutMs,
+    clock,
+  });
+
+  // The startup banner is not decoration. An operator must be able to see, at a
+  // glance, whether the sandbox is contained and whether employee observation
+  // is switched on — without reading the environment.
+  logger.info("platform starting", {
+    store: config.store,
+    sandboxMode: config.sandboxMode,
+    sandboxContained: sandbox.isContained,
+    discoveryEnabled: config.discoveryEnabled,
+    modelProvider: config.modelProvider,
+  });
+  for (const warning of config.warnings) logger.warn(warning);
+
+  return {
+    config,
+    clock,
+    ids,
+    logger,
+    runs,
+    audit: auditLog,
+    approvals,
+    containment,
+    ceilings,
+    registry,
+    authorizer,
+    sandbox,
+    db,
+    async close() {
+      if (pool) await pool.end();
+    },
+  };
+}
+
+/**
+ * Build a platform wired for reproducible output.
+ *
+ * Used by the seeded demonstration and by tests that assert on exact values.
+ * The fixed clock and seeded id generator are the whole reason `pnpm demo`
+ * produces identical bytes on two cold starts, which CI checks by running it
+ * twice and diffing.
+ */
+export function buildDeterministicPlatform(
+  config: Config,
+  startInstant: string,
+  seed: string,
+): Promise<{ platform: Platform; clock: FixedClock }> {
+  const clock = new FixedClock(startInstant);
+  return buildPlatform(config, { clock, ids: new SeededIdGenerator(seed) }).then((platform) => ({
+    platform,
+    clock,
+  }));
+}
+
+/** Apply pending migrations. Returns what was applied. */
+export async function migrate(platform: Platform): Promise<{ applied: readonly string[] }> {
+  if (!platform.db) {
+    // The in-memory store has no schema; saying so is better than silently
+    // succeeding and letting someone believe a migration ran.
+    throw new Error(
+      "Migrations apply to the Postgres store only. Set PV_STORE=postgres and PV_DATABASE_URL.",
+    );
+  }
+  const result = await runMigrations(platform.db, ALL_MIGRATIONS);
+  return { applied: result.applied };
+}
+
+export { describeConfig };
