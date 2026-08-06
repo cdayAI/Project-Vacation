@@ -453,10 +453,23 @@ export interface OutboundMessage {
   readonly idempotencyKey: string;
   readonly approvalId?: Id<"approval"> | undefined;
   readonly denialReason?: string | undefined;
+  /**
+   * The audit entry recording the gate decision.
+   *
+   * A cleared message without one is **inert**: its receipt never landed, so
+   * nothing may be delivered against it. This is the two-phase shape the
+   * knowledge corpus uses for the same reason — an artifact the audit log does
+   * not know about must not be able to have an effect.
+   */
   readonly receiptId?: Id<"auditEntry"> | undefined;
 }
 
-/** A cleared send, and the token a channel adapter must present to deliver it. */
+/**
+ * A cleared send, and the token a channel adapter must present to deliver it.
+ *
+ * A channel adapter delivers against a clearance whose message carries a
+ * `receiptId`, and against nothing else.
+ */
 export interface ContactClearance {
   readonly message: OutboundMessage;
   readonly evidence: ContactEvidence;

@@ -3,7 +3,17 @@ import type { RouteDefinition } from "./routing";
 import {
   ApprovalDetailRoute,
   ApprovalsQueueRoute,
+  AuditEvidenceRoute,
+  ContainmentControlsRoute,
+  DiscoveryBacklogRoute,
+  ExecutiveViewRoute,
+  HealthRoute,
+  ImprovementProposalRoute,
+  ImprovementQueueRoute,
+  RoleDetailRoute,
+  RoleRegistryRoute,
   RunDetailRoute,
+  WorkflowInstanceRoute,
   WorkQueueRoute,
 } from "./views";
 
@@ -27,11 +37,30 @@ export interface NavigationItem {
   readonly capability?: string;
 }
 
+/**
+ * The primary navigation, in the order an operator's day runs.
+ *
+ * Daily work first, then the things that govern it, then the things somebody
+ * checks rather than uses. Workflow instances, approval details, run records,
+ * role details, and improvement proposals are all reached from one of these and
+ * are deliberately not links of their own: a navigation item that needs an
+ * identifier to be useful is a navigation item nobody can click.
+ */
 export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
   { id: "work", path: "/work", label: "Work queue", capability: "work.read" },
   { id: "approvals", path: "/approvals", label: "Approvals", capability: "approvals.read" },
-  // Second agent: append workflows, roles, improvements, discovery, audit,
-  // executive, and health here.
+  { id: "roles", path: "/roles", label: "Agent roles", capability: "roles.read" },
+  {
+    id: "improvements",
+    path: "/improvements",
+    label: "Improvements",
+    capability: "improvements.read",
+  },
+  { id: "audit", path: "/audit", label: "Audit and evidence", capability: "audit.read" },
+  { id: "containment", path: "/containment", label: "Containment", capability: "containment.read" },
+  { id: "discovery", path: "/discovery", label: "Work discovery", capability: "discovery.read" },
+  { id: "executive", path: "/executive", label: "Executive view", capability: "executive.read" },
+  { id: "health", path: "/health", label: "Platform health", capability: "health.read" },
 ];
 
 /**
@@ -89,9 +118,66 @@ export const ROUTES: readonly RouteDefinition[] = [
     title: "Run record",
     render: (params) => <RunDetailRoute runId={params["runId"] ?? ""} />,
   },
-  // Second agent: append the remaining routes here. Patterns are matched in
-  // order, and a pattern with a different number of segments cannot collide
-  // with an existing one.
+  {
+    id: "workflow-instance",
+    path: "/workflows/:instanceId",
+    title: "Piece of work",
+    render: (params) => <WorkflowInstanceRoute instanceId={params["instanceId"] ?? ""} />,
+  },
+  {
+    id: "roles",
+    path: "/roles",
+    title: "Agent roles",
+    render: () => <RoleRegistryRoute />,
+  },
+  {
+    id: "role-detail",
+    path: "/roles/:roleId",
+    title: "Agent role",
+    render: (params) => <RoleDetailRoute roleId={params["roleId"] ?? ""} />,
+  },
+  {
+    id: "improvements",
+    path: "/improvements",
+    title: "Improvements",
+    render: () => <ImprovementQueueRoute />,
+  },
+  {
+    id: "improvement-proposal",
+    path: "/improvements/:proposalId",
+    title: "Improvement proposal",
+    render: (params) => <ImprovementProposalRoute proposalId={params["proposalId"] ?? ""} />,
+  },
+  {
+    id: "audit",
+    path: "/audit",
+    title: "Audit and evidence",
+    render: () => <AuditEvidenceRoute />,
+  },
+  {
+    id: "containment",
+    path: "/containment",
+    title: "Containment controls",
+    render: () => <ContainmentControlsRoute />,
+  },
+  {
+    id: "discovery",
+    path: "/discovery",
+    title: "Work discovery",
+    render: () => <DiscoveryBacklogRoute />,
+  },
+  {
+    id: "executive",
+    path: "/executive",
+    title: "Executive view",
+    render: () => <ExecutiveViewRoute />,
+  },
+  {
+    id: "health",
+    path: "/health",
+    title: "Platform health",
+    render: () => <HealthRoute />,
+  },
 ];
 
 export const DEFAULT_PATH = "/work";

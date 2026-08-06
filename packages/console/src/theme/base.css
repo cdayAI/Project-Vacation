@@ -1053,3 +1053,244 @@ pre {
   font-size: var(--pv-font-size-sm);
   margin: 0;
 }
+
+/* -----------------------------------------------------------------------------
+   19. Emphasis blocks
+
+   A panel that has to be noticed changes its border weight and its leading
+   edge, not only its tint. Anyone who cannot distinguish the tint still sees a
+   different shape, and every one of these panels also states its meaning in its
+   own heading (WCAG 1.4.1).
+   -------------------------------------------------------------------------- */
+
+.pv-panel-alarm {
+  border-color: var(--pv-danger-border);
+  border-width: 2px;
+  border-left-width: 6px;
+  background-color: var(--pv-danger-bg);
+}
+
+.pv-panel-verified {
+  border-color: var(--pv-success-border);
+  border-width: 2px;
+  border-left-width: 6px;
+  background-color: var(--pv-success-bg);
+}
+
+/* The global stop control. Distinct from every other panel on the page even
+   when nothing is engaged, because the operator has to be able to find it in
+   an incident without reading. */
+.pv-panel-global {
+  border-color: var(--pv-border-strong);
+  border-width: 2px;
+  border-left-width: 6px;
+  background-color: var(--pv-surface-sunken);
+}
+
+/* One sentence, set larger, that the page exists to deliver. */
+.pv-lede-text {
+  font-size: var(--pv-font-size-lg);
+  line-height: var(--pv-line-height-normal);
+  max-width: var(--pv-reading-max-width);
+}
+
+/* -----------------------------------------------------------------------------
+   20. Token lists
+
+   Permitted actions, data scopes, application names, evidence links. A real
+   list so a screen reader announces the count, laid out inline so a dozen of
+   them do not take a dozen lines.
+   -------------------------------------------------------------------------- */
+
+.pv-token-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-2);
+  margin: 0;
+}
+
+.pv-token {
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-sm);
+  background-color: var(--pv-surface-sunken);
+  padding: var(--pv-space-1) var(--pv-space-2);
+  /* WCAG 2.2 2.5.8: a token can carry a link, so it has to stay big enough to
+     hit. */
+  min-height: var(--pv-target-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+/* A list of sentences rather than of identifiers: keeps the marker, drops the
+   browser's indent, and holds a readable measure. */
+.pv-prose-list {
+  padding-left: var(--pv-space-5);
+  max-width: var(--pv-reading-max-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-2);
+}
+
+/* -----------------------------------------------------------------------------
+   21. Before and after
+
+   Two panes, side by side where there is room and stacked where there is not.
+   The "after" pane carries a heavier leading edge so the two are distinguishable
+   when stacked, where "side by side" stops doing that job.
+   -------------------------------------------------------------------------- */
+
+.pv-compare {
+  display: grid;
+  gap: var(--pv-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+}
+
+.pv-compare-pane {
+  border: 1px solid var(--pv-border);
+  border-left-width: 4px;
+  border-radius: var(--pv-radius-md);
+  background-color: var(--pv-surface);
+  padding: var(--pv-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-3);
+}
+
+.pv-compare-pane-after {
+  border-left-color: var(--pv-accent);
+}
+
+/* The artifact itself — a prompt, a rule, a routing table. Preserves the
+   author's line breaks without the horizontal scrolling of a <pre>. */
+.pv-artifact {
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background-color: var(--pv-surface-sunken);
+  border: 1px solid var(--pv-border);
+  border-radius: var(--pv-radius-sm);
+  padding: var(--pv-space-3);
+  margin: 0;
+  max-width: none;
+}
+
+/* -----------------------------------------------------------------------------
+   22. Metric tiles
+   -------------------------------------------------------------------------- */
+
+.pv-metrics {
+  list-style: none;
+  display: grid;
+  gap: var(--pv-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  margin: 0;
+}
+
+.pv-metric {
+  border: 1px solid var(--pv-border);
+  border-top-width: 4px;
+  border-radius: var(--pv-radius-md);
+  background-color: var(--pv-surface);
+  padding: var(--pv-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-2);
+}
+
+/* Colour is the third channel here, after the written comparison and the
+   arrow glyph. A tile whose direction has no stated "good" direction stays
+   neutral rather than guessing. */
+.pv-metric-good {
+  border-top-color: var(--pv-success-border);
+}
+
+.pv-metric-bad {
+  border-top-color: var(--pv-danger-border);
+}
+
+.pv-metric-neutral {
+  border-top-color: var(--pv-border-strong);
+}
+
+.pv-metric-label {
+  font-size: var(--pv-font-size-sm);
+  font-weight: var(--pv-font-weight-medium);
+  color: var(--pv-text-muted);
+  margin: 0;
+}
+
+.pv-metric-value {
+  font-size: var(--pv-font-size-2xl);
+  font-weight: var(--pv-font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--pv-line-height-tight);
+  margin: 0;
+}
+
+.pv-metric-change {
+  font-size: var(--pv-font-size-sm);
+  margin: 0;
+}
+
+.pv-metric-change-good {
+  color: var(--pv-success-text);
+}
+
+.pv-metric-change-bad {
+  color: var(--pv-danger-text);
+}
+
+.pv-metric-change-neutral {
+  color: var(--pv-text-muted);
+}
+
+.pv-metric-glyph {
+  margin-right: var(--pv-space-1);
+}
+
+.pv-metric-judgement {
+  font-size: var(--pv-font-size-sm);
+  color: var(--pv-text-muted);
+  margin: 0;
+}
+
+/* Never optional and never small enough to skip: every tile says where its
+   number came from. */
+.pv-metric-source {
+  font-size: var(--pv-font-size-xs);
+  color: var(--pv-text-muted);
+  border-top: 1px solid var(--pv-divider);
+  padding-top: var(--pv-space-2);
+  margin: auto 0 0;
+}
+
+.pv-metric-source-label {
+  font-weight: var(--pv-font-weight-medium);
+}
+
+/* -----------------------------------------------------------------------------
+   23. Filter forms
+
+   A real <form> so that Enter submits, laid out as a toolbar with its controls
+   and its submit buttons in one flow.
+   -------------------------------------------------------------------------- */
+
+.pv-filter-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+}
+
+/* -----------------------------------------------------------------------------
+   24. A step that has run past its time
+
+   The written "Past due" badge inside the step carries the meaning; this is the
+   second channel, for someone scanning a long sequence from across a room.
+   -------------------------------------------------------------------------- */
+
+.pv-step-breached {
+  border-color: var(--pv-danger-border);
+  border-left-width: 4px;
+}

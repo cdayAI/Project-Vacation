@@ -112,7 +112,7 @@ describe("console API client", () => {
     await client.workQueue({ status: ["awaiting_approval", "failed"], mode: ["supervised"], limit: 25 });
 
     const [url] = fetchImpl.mock.calls[0] as unknown as [string];
-    expect(url).toBe("/api/work?status=awaiting_approval&status=failed&mode=supervised&limit=25");
+    expect(url).toBe("/api/runs?status=awaiting_approval&status=failed&mode=supervised&limit=25");
   });
 
   it("throws when a 2xx body cannot be read as JSON", async () => {

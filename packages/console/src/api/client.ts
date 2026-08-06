@@ -318,7 +318,9 @@ export function createConsoleClient(options: ClientOptions = {}): ConsoleClient 
 
     workQueue: (query = {}, requestOptions) =>
       get<Page<WorkQueueItem>>(
-        `/work${buildQuery({
+        // The work queue is a filtered view of runs, not a separate
+        // resource; the server route is /api/runs.
+        `/runs${buildQuery({
           status: query.status,
           mode: query.mode,
           limit: query.limit,
@@ -382,13 +384,16 @@ export function createConsoleClient(options: ClientOptions = {}): ConsoleClient 
 
     auditEntries: (query = {}, requestOptions) =>
       get<Page<AuditEntryView>>(
-        `/audit/entries${buildQuery({
+        // `after` and `before` rather than `from` and `to`: the console names
+        // its filters for the person reading the screen, the wire keeps the
+        // names the audit endpoint already uses.
+        `/audit${buildQuery({
           eventType: query.eventType,
           actorId: query.actorId,
           runId: query.runId,
           subject: query.subject,
-          from: query.from,
-          to: query.to,
+          after: query.from,
+          before: query.to,
           limit: query.limit,
           offset: query.offset,
         })}`,

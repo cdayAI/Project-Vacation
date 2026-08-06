@@ -5,6 +5,8 @@ import { MIGRATIONS as KNOWLEDGE_MIGRATIONS } from "../knowledge/migrations.js";
 import { MIGRATIONS as MODELS_MIGRATIONS } from "../models/migrations.js";
 import { MIGRATIONS as IDENTITY_MIGRATIONS } from "../identity/migrations.js";
 import { MIGRATIONS as CONTACT_MIGRATIONS } from "../contact/migrations.js";
+import { MIGRATIONS as INTEGRATIONS_MIGRATIONS } from "../integrations/migrations.js";
+import { MIGRATIONS as DOCUMENT_MIGRATIONS } from "../documents/migrations.js";
 import { orderMigrations, type Migration } from "./migrate.js";
 
 /**
@@ -39,6 +41,8 @@ const SOURCES: readonly (readonly Migration[])[] = [
   MODELS_MIGRATIONS,
   IDENTITY_MIGRATIONS,
   CONTACT_MIGRATIONS,
+  INTEGRATIONS_MIGRATIONS,
+  DOCUMENT_MIGRATIONS,
 ];
 
 /**

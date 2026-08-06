@@ -56,6 +56,20 @@ const SCOPE_HINT: Readonly<Record<ContainmentView["scope"], string>> = {
   integration: "Every call to one external system. Steps that need it are refused.",
 };
 
+/**
+ * The noun each scope takes inside a sentence.
+ *
+ * Used to give every row's control a distinct accessible name — "Stop the
+ * process Rescission package assurance" rather than four buttons all announced
+ * as "Stop".
+ */
+const SCOPE_NOUN: Readonly<Record<ContainmentView["scope"], string>> = {
+  global: "the whole platform",
+  workflow: "the process",
+  role: "the agent role",
+  integration: "the integration",
+};
+
 /** Scopes an operator can engage by naming a target. Global is its own control. */
 const TARGETED_SCOPES: readonly ContainmentView["scope"][] = ["workflow", "role", "integration"];
 
@@ -207,8 +221,7 @@ export function ContainmentControls({
         >
           {entry.engaged ? "Release" : "Stop"}
           <span className="pv-sr-only">
-            {" "}
-            {entry.scope === "global" ? "everything" : `${SCOPE_LABEL[entry.scope]} ${entry.target}`}
+            {` ${SCOPE_NOUN[entry.scope]}${entry.target === "" ? "" : ` ${entry.target}`}`}
           </span>
         </Button>
       ),
@@ -315,7 +328,7 @@ export function ContainmentControls({
                 describedBy={controlsDescribedBy}
                 onClick={() => open({ scope: "global", target: "", engaged: true })}
               >
-                Stop everything now
+                Stop everything
               </Button>
             </div>
             <p className="pv-meta">

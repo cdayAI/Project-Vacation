@@ -467,7 +467,8 @@ export class ContactGate {
    * that was never sendable would cost them a second signature and teach them
    * that approvals are noise.
    *
-   * @returns a clearance a channel adapter may deliver against, exactly once.
+   * @returns a clearance a channel adapter may deliver against, exactly once,
+   *   and only once its `receiptId` is set — see `OutboundMessage.receiptId`.
    * @throws {DeniedError} on any refusal — including `contact.evidence_unavailable`
    *   when a check could not be answered at all. The message did not go out.
    */
@@ -478,9 +479,16 @@ export class ContactGate {
     // owner must receive one message rather than one per attempt. This is the
     // fast path; the store's unique key is the unconditional backstop for two
     // callers arriving at once.
+    //
+    // A clearance found without a receipt is one whose audit entry never
+    // landed. It is inert — nothing may be delivered against it — so the retry
+    // finishes it rather than starting again. Re-running authorization would
+    // try to spend an approval this very message already consumed, and the
+    // failure would leave the clearance permanently unusable.
     const existing = await this.readExisting(request.idempotencyKey);
     if (existing) {
-      return { message: existing, evidence: existing.evidence, replayed: true };
+      const finished = existing.receiptId ? existing : await this.finalise(request, existing);
+      return { message: finished, evidence: finished.evidence, replayed: true };
     }
 
     const evidence = await this.evaluate(request);
@@ -554,11 +562,59 @@ export class ContactGate {
       throw denied;
     }
 
-    // The receipt is written before the clearance is stored, which is the
-    // opposite order to the blocked path and deliberate. A cleared message is
-    // deliverable; one that exists without an audit entry would be deliverable
-    // without a record of why it was allowed. If the receipt cannot be written
-    // there is no clearance at all, and nothing to deliver.
+    // Two phases, in this order, for the same reason knowledge ingestion lands
+    // a document before activating it.
+    //
+    // The clearance is stored first, without a receipt. In that state it is
+    // inert: a channel adapter delivers against a clearance carrying a
+    // `receiptId` and against nothing else, so a message whose audit entry
+    // never landed cannot go out. Then the receipt is written and attached.
+    //
+    // Writing the audit entry first would be worse in a way that is easy to
+    // miss: two callers racing one idempotency key would both write a
+    // `contact.gate_passed` entry, and the loser's entry would name a message
+    // id that was never stored — a dangling reference in the one record that is
+    // supposed to be checkable. Here the loser writes nothing, because the
+    // store tells it that it lost before any receipt exists.
+    const stored = await this.store.recordOutboundMessage(
+      this.buildMessage(request, evidence, evidenceDigest, band, messageId, { status: "cleared" }),
+    );
+
+    // Another caller reached the same idempotency key first and finished the
+    // job. Theirs is the clearance. One owner, one message.
+    if (!stored.created && stored.message.receiptId) {
+      return { message: stored.message, evidence: stored.message.evidence, replayed: true };
+    }
+
+    const receipted = await this.finalise(request, stored.message, {
+      action,
+      proposalDigest,
+      band,
+    });
+    return {
+      message: receipted,
+      evidence: receipted.evidence,
+      replayed: !stored.created,
+    };
+  }
+
+  /**
+   * Write the receipt for a stored clearance and attach it.
+   *
+   * Reached on the ordinary path and again on a retry that found a clearance
+   * whose receipt never landed. The evidence comes off the stored message
+   * rather than being recomputed, so the entry describes the checks that
+   * actually permitted the send rather than the checks that would pass now.
+   */
+  private async finalise(
+    request: OutboundRequest,
+    message: OutboundMessage,
+    context?: {
+      readonly action: string;
+      readonly proposalDigest: Digest;
+      readonly band: ContactRiskBand;
+    },
+  ): Promise<OutboundMessage> {
     const receipt = await this.audit.record(
       auditDecision({
         eventType: "contact.gate_passed",
@@ -568,44 +624,31 @@ export class ContactGate {
         runId: request.runId,
         correlationId: request.correlationId,
         subject: {
-          subjectRef: request.subjectRef,
-          messageId,
-          channel: request.channel,
-          purpose: request.purpose,
-          jurisdiction: request.jurisdiction,
+          subjectRef: message.subjectRef,
+          messageId: message.id,
+          channel: message.channel,
+          purpose: message.purpose,
+          jurisdiction: message.jurisdiction,
         },
         inputDigests: {
-          evidence: evidenceDigest,
-          content: request.contentDigest,
-          destination: request.destinationDigest as Digest,
-          proposal: proposalDigest,
+          evidence: message.evidenceDigest,
+          content: message.contentDigest,
+          destination: message.destinationDigest as Digest,
+          ...(context ? { proposal: context.proposalDigest } : {}),
         },
         decision: {
-          riskBand: band,
-          action,
-          policyVersion: this.policy.version,
-          recipientTimeZone: request.recipientTimeZone,
-          recipientLocalTime: evidence.recipientLocalTime,
-          checksPassed: evidence.checks.length,
-          ...(request.modelId ? { modelId: request.modelId } : {}),
-          ...(request.templateId ? { templateId: request.templateId } : {}),
+          riskBand: context?.band ?? message.riskBand,
+          ...(context ? { action: context.action } : {}),
+          policyVersion: message.evidence.policyVersion,
+          recipientTimeZone: message.recipientTimeZone,
+          recipientLocalTime: message.evidence.recipientLocalTime,
+          checksPassed: message.evidence.checks.length,
+          ...(message.modelId ? { modelId: message.modelId } : {}),
+          ...(message.templateId ? { templateId: message.templateId } : {}),
         },
       }),
     );
-
-    const message = this.buildMessage(request, evidence, evidenceDigest, band, messageId, {
-      status: "cleared",
-      receiptId: receipt.id,
-    });
-    const stored = await this.store.recordOutboundMessage(message);
-
-    // Another caller reached the same idempotency key first. Theirs is the
-    // clearance; ours is discarded. One owner, one message.
-    return {
-      message: stored.message,
-      evidence: stored.message.evidence,
-      replayed: !stored.created,
-    };
+    return this.store.attachMessageReceipt(message.id, receipt.id);
   }
 
   /** Every send attempt against a subject, cleared and blocked alike. */

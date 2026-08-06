@@ -13,39 +13,66 @@
  * The helper is `expectNoAccessibilityViolations` in src/test/axe.ts.
  *
  * -----------------------------------------------------------------------------
- * DIVISION OF WORK
+ * THE SURFACES
  *
- * Present here (foundation and the three highest-traffic surfaces):
+ * Daily work:
  *
- *   WorkQueue.tsx        the work queue, filterable and sortable
- *   ApprovalsQueue.tsx   approvals awaiting a decision
- *   ApprovalDetail.tsx   the single most consequential screen in the product
- *   RunDetail.tsx        the per-run step trail, cost, and citations
- *   Denial.tsx           a refusal, rendered as a first-class outcome
+ *   WorkQueue.tsx           the work queue, filterable and sortable
+ *   ApprovalsQueue.tsx      approvals awaiting a decision
+ *   ApprovalDetail.tsx      the single most consequential screen in the product
+ *   RunDetail.tsx           the per-run step trail, cost, and citations
+ *   WorkflowInstance.tsx    one piece of work in plain language: where it is,
+ *                           why it is stuck, what it is waiting for
  *
- * Still to be added, and reserved so that navigation can be extended without a
- * merge conflict — see PRIMARY_NAVIGATION and ROUTES in src/routes.tsx, which
- * are the only two lists that need an entry:
+ * Governance:
  *
- *   WorkflowInstance.tsx  a workflow instance in plain language: where it is,
- *                         why it is stuck, what it is waiting for
- *   Roles.tsx             agent roles, their version, status, risk ceiling,
- *                         and latest golden-set evaluation
- *   Improvements.tsx      improvement proposals and observation clusters,
- *                         with blast radius and before/after evaluation
- *   Discovery.tsx         the discovery backlog, shown only when the feature
- *                         is enabled, and inert by construction
- *   AuditLog.tsx          the hash-chained audit trail and its verification
- *   Executive.tsx         the executive tiles, each carrying its source note
- *   Health.tsx            platform state, containment, and startup warnings
+ *   RoleRegistry.tsx        every agent role, its status, ceiling, and score
+ *   RoleDetail.tsx          one role in full, with its promotion history
+ *   ImprovementQueue.tsx    observation clusters and the proposals raised from
+ *                           them, all inert until a human approves
+ *   ImprovementProposal.tsx before, after, evaluation delta, blast radius
+ *   ContainmentControls.tsx the operator stop buttons, all four scopes
  *
- * Each of those needs a route in src/routes.tsx, a nav entry if it is a
- * top-level surface, a client method in src/api/client.ts, and a test with an
- * axe assertion. Nothing else in the shell should need to change.
+ * Assurance and oversight:
+ *
+ *   AuditEvidence.tsx       the hash-chained record and its verification,
+ *                           written for a compliance officer to use unaided
+ *   DiscoveryBacklog.tsx    the discovery backlog, inert by construction, and
+ *                           an explanation of why it ships off when it is off
+ *   ExecutiveView.tsx       the executive tiles, each carrying its source note
+ *   Health.tsx              configuration, containment, and startup warnings
+ *
+ * And one outcome that is not a surface of its own:
+ *
+ *   Denial.tsx              a refusal, rendered as a first-class outcome
+ *
+ * Every surface has a route in src/routes.tsx, a navigation entry there if it
+ * is top-level, a client method in src/api/client.ts, and a test carrying an
+ * axe assertion. Nothing else in the shell needs to change to add another.
  */
 
 export { ApprovalDetail, ApprovalDetailRoute } from "./ApprovalDetail";
 export { ApprovalsQueue, ApprovalsQueueRoute } from "./ApprovalsQueue";
+export {
+  AuditEvidence,
+  AuditEvidenceRoute,
+  NO_AUDIT_FILTERS,
+  eventLabel,
+  type AuditFilters,
+} from "./AuditEvidence";
+export {
+  ContainmentControls,
+  ContainmentControlsRoute,
+  type ContainmentChangeRequest,
+} from "./ContainmentControls";
 export { Denial } from "./Denial";
+export { DiscoveryBacklog, DiscoveryBacklogRoute } from "./DiscoveryBacklog";
+export { ExecutiveView, ExecutiveViewRoute } from "./ExecutiveView";
+export { Health, HealthRoute } from "./Health";
+export { ImprovementProposal, ImprovementProposalRoute } from "./ImprovementProposal";
+export { ImprovementQueue, ImprovementQueueRoute } from "./ImprovementQueue";
+export { RoleDetail, RoleDetailRoute } from "./RoleDetail";
+export { RoleRegistry, RoleRegistryRoute } from "./RoleRegistry";
 export { RunDetail, RunDetailRoute } from "./RunDetail";
+export { WorkflowInstance, WorkflowInstanceRoute } from "./WorkflowInstance";
 export { WorkQueue, WorkQueueRoute } from "./WorkQueue";

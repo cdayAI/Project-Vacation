@@ -254,7 +254,7 @@ describe("api", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: `/api/approvals/${approval.id}/decision`,
+      url: `/api/approvals/${approval.id}/decisions`,
       payload: { decision: "granted" },
     });
 
@@ -274,7 +274,7 @@ describe("api", () => {
 
     const response = await app.inject({
       method: "POST",
-      url: `/api/approvals/${approval.id}/decision`,
+      url: `/api/approvals/${approval.id}/decisions`,
       payload: { decision: "maybe" },
     });
     expect(response.statusCode).toBe(400);

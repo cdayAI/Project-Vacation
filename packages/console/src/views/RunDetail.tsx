@@ -89,7 +89,11 @@ export function RunDetail({ run }: RunDetailProps) {
         run.workflowInstanceId === undefined ? (
           <span className="pv-meta">Not part of a workflow</span>
         ) : (
-          <span className="pv-mono">{run.workflowInstanceId}</span>
+          // Linked so a reviewer can go from one run to the piece of work it
+          // belongs to, which is where the plain-language status lives.
+          <Link to={`/workflows/${run.workflowInstanceId}`}>
+            <span className="pv-mono">{run.workflowInstanceId}</span>
+          </Link>
         ),
     },
   ];

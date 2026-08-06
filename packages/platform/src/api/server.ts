@@ -77,6 +77,20 @@ export function createServer(options: ServerOptions): FastifyInstance {
 
   void app.register(cookie);
 
+  // Record every route as it is registered.
+  //
+  // Fastify's printRoutes renders a tree, which has to be reassembled to get
+  // full paths and is easy to reassemble slightly wrong. The contract test
+  // between this API and the console needs an exact answer, and a route list
+  // that is subtly incomplete would let the drift it exists to catch through.
+  // The hook is registered before any route, so it sees all of them.
+  const routes = new Set<string>();
+  app.addHook("onRoute", (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    for (const method of methods) routes.add(`${method} ${route.url}`);
+  });
+  app.decorate("registeredRoutes", routes);
+
   // -------------------------------------------------------------------------
   // Correlation and error translation
   // -------------------------------------------------------------------------
@@ -163,7 +177,11 @@ export function createServer(options: ServerOptions): FastifyInstance {
   // Health — deliberately unauthenticated, and deliberately loud
   // -------------------------------------------------------------------------
 
-  app.get("/health", async () => {
+  // Served at two paths deliberately. `/health` is where an infrastructure
+  // probe looks and must stay stable and unprefixed; `/api/health` is where the
+  // console's client looks, because everything it calls is under one base URL.
+  // One handler, so the two can never disagree.
+  const healthHandler = async () => {
     const head = await platform.audit.head();
     const switches = await platform.containment.list();
     return {
@@ -187,7 +205,10 @@ export function createServer(options: ServerOptions): FastifyInstance {
       })),
       warnings: platform.config.warnings,
     };
-  });
+  };
+
+  app.get("/health", healthHandler);
+  app.get("/api/health", healthHandler);
 
   // -------------------------------------------------------------------------
   // Session
@@ -353,7 +374,7 @@ export function createServer(options: ServerOptions): FastifyInstance {
     });
   });
 
-  app.post("/api/approvals/:approvalId/decision", async (request) => {
+  app.post("/api/approvals/:approvalId/decisions", async (request) => {
     const { approvalId } = request.params as { approvalId: string };
     const body = request.body as { decision?: string; note?: string } | undefined;
     const decision = body?.decision;
@@ -387,12 +408,25 @@ export function createServer(options: ServerOptions): FastifyInstance {
     const query = request.query as Record<string, string | undefined>;
     return authorized(request, "audit.read", async () => {
       const limit = Math.min(Number(query.limit ?? 100) || 100, 500);
+      // `subject=key:value,key:value` — an evidence view is nearly always
+      // scoped to one contract or association, and without this the reviewer
+      // has to page through everything and filter by eye.
+      const subject: Record<string, string> = {};
+      for (const pair of (query.subject ?? "").split(",")) {
+        const separator = pair.indexOf(":");
+        if (separator <= 0) continue;
+        const key = pair.slice(0, separator).trim();
+        const value = pair.slice(separator + 1).trim();
+        if (key && value) subject[key] = value;
+      }
+
       const entries = await platform.audit.list({
         eventType: query.eventType ? (query.eventType.split(",") as never) : undefined,
         runId: query.runId as never,
         actorId: query.actorId,
         recordedAfter: query.after,
         recordedBefore: query.before,
+        subject: Object.keys(subject).length > 0 ? subject : undefined,
         limit,
       });
       return {

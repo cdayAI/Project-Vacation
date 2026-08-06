@@ -1125,8 +1125,10 @@ export const executiveSnapshot: ExecutiveView = {
       sourceNote: MVW_SOURCE,
     },
     {
-      key: "interval_members",
-      label: "Interval International members",
+      key: "exchange_members",
+      // Named by segment rather than by the brand it trades under: the console
+      // ships with no mark of any kind in it, fixtures included.
+      label: "Exchange network members",
       value: "1,475K",
       comparison: "Down 2% from 1,507K",
       direction: "down",
