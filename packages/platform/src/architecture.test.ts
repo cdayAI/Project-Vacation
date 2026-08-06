@@ -54,6 +54,12 @@ const LAYERS: Readonly<Record<string, number>> = {
   documents: 3,
   roles: 3,
   engine: 3,
+  // The external-agent plane governs actors running outside this platform. It
+  // needs the record, the audit log and the guard, and it performs outbound
+  // work through governed integrations — so it sits above all of those and
+  // below the workflows, which may enlist an external agent but are never
+  // enlisted by one.
+  external: 3,
   improve: 4,
   discovery: 4,
   workflows: 5,
@@ -382,8 +388,14 @@ describe("fail-closed discipline", () => {
         // swallow would push authors toward a marker comment on code that is
         // already propagating the failure correctly.
         const propagates = /\bthrow\b/.test(body) || /\breject\s*\(/.test(body);
+        // A catch that returns a denial has converted the refusal, not
+        // swallowed it: the caller is still refused and the reason still
+        // travels. The outer condition has already established that the block
+        // inspects the DeniedError, so this cannot match a block that discards
+        // the error and happens to return something unrelated.
+        const converts = /\breturn\b[\s\S]*?\bdeny\s*\(/.test(body);
         const deliberate = /allow-swallow:/.test(body);
-        if (!propagates && !deliberate) {
+        if (!propagates && !converts && !deliberate) {
           offenders.push(file.relative);
         }
       }

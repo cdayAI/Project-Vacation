@@ -10,6 +10,8 @@ import { MIGRATIONS as DOCUMENT_MIGRATIONS } from "../documents/migrations.js";
 import { MIGRATIONS as DISCOVERY_MIGRATIONS } from "../discovery/migrations.js";
 import { MIGRATIONS as ROLE_MIGRATIONS } from "../roles/migrations.js";
 import { MIGRATIONS as ENGINE_MIGRATIONS } from "../engine/migrations.js";
+import { MIGRATIONS as IMPROVE_MIGRATIONS } from "../improve/migrations.js";
+import { MIGRATIONS as EXTERNAL_MIGRATIONS } from "../external/migrations.js";
 import { orderMigrations, type Migration } from "./migrate.js";
 
 /**
@@ -49,6 +51,8 @@ const SOURCES: readonly (readonly Migration[])[] = [
   DISCOVERY_MIGRATIONS,
   ROLE_MIGRATIONS,
   ENGINE_MIGRATIONS,
+  IMPROVE_MIGRATIONS,
+  EXTERNAL_MIGRATIONS,
 ];
 
 /**

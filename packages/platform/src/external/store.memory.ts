@@ -667,6 +667,32 @@ export class MemoryParkedActionStore implements ParkedActionStore {
     return limited.map((action) => structuredClone(action));
   }
 
+  /**
+   * Attach the approval this action waits on.
+   *
+   * Deliberately conditional on the action still being `pending` and on it not
+   * already carrying an approval. Rebinding a different approval to a parked
+   * request would let a decision taken about one request be spent on another —
+   * the exact substitution the digest binding exists to prevent.
+   */
+  async bindApproval(
+    id: Id<"parkedAction">,
+    approvalId: Id<"approval">,
+    at: string,
+  ): Promise<ParkedAction | null> {
+    assertIsoUtc("at", at);
+
+    return this.db.withLock(PARKED_LOCK, async () => {
+      const table = this.db.table<ParkedAction>(PARKED);
+      const current = table.get(id);
+      if (!current || current.status !== "pending" || current.approvalId !== undefined) return null;
+
+      const next: ParkedAction = { ...current, approvalId };
+      table.set(id, structuredClone(next));
+      return structuredClone(next);
+    });
+  }
+
   async transitionParkedAction(input: {
     readonly id: Id<"parkedAction">;
     readonly expectedStatus: ParkedActionStatus;
@@ -991,6 +1017,24 @@ function reportKey(agentId: string, idempotencyKey: string): string {
   return compositeKey(agentId, idempotencyKey);
 }
 
+/**
+ * A unique key for a row that has no identity of its own.
+ *
+ * The counter is held in the database so `MemoryDb.reset()` clears it with
+ * everything else. Deriving the key from the table's current size — the
+ * obvious approach — is wrong: the rate tables delete rows as their window
+ * slides, so the size falls back onto a key that is still in use and the next
+ * insert silently overwrites an existing row, undercounting the very thing the
+ * counter measures. The scope is folded into the key as well, so two callers
+ * holding different locks cannot collide even if they read the same counter.
+ */
+function counterKey(db: MemoryDb, table: string, scope: string): string {
+  const counters = db.table<number>("external_ordinal");
+  const next = (counters.get(table) ?? 0) + 1;
+  counters.set(table, next);
+  return `${scope}|${next}`;
+}
+
 /** The start of a sliding window, exclusive. Never a wall-clock reading. */
 function windowStart(at: string, windowMs: number): string {
   return new Date(Date.parse(at) - windowMs).toISOString();
@@ -1095,6 +1139,11 @@ function assertCredential(credential: AgentCredential): void {
     throw new InvalidInputError("A credential needs an operator label.", "label");
   }
 
+  // Widened before the switch so the unreachable default can still name what
+  // it was handed. A caller reaching this store from untyped JSON is exactly
+  // who that branch is for.
+  const kind: string = credential.kind;
+
   // The same per-kind shape the Postgres CHECK enforces. Each kind carries its
   // own material and nothing else: a bearer row that also held a secret
   // reference would give a verifier a second, unexamined way in.
@@ -1139,10 +1188,7 @@ function assertCredential(credential: AgentCredential): void {
       refuseExtras(credential, ["tokenHash", "secretRef", "jwksPath"]);
       break;
     default:
-      throw new InvalidInputError(
-        `Unknown credential kind: ${String(credential.kind)}`,
-        "kind",
-      );
+      throw new InvalidInputError(`Unknown credential kind: ${kind}`, "kind");
   }
 }
 
