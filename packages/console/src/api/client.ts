@@ -1,12 +1,21 @@
 import type {
   ApprovalView,
+  AuditEntryView,
+  AuditVerificationView,
+  ContainmentView,
   DenialView,
+  DiscoveryCandidateView,
+  ExecutiveView,
   HealthView,
+  ImprovementClusterView,
+  ImprovementProposalView,
   OperatingMode,
   Page,
+  RoleView,
   RunDetailView,
   RunStatus,
   SessionView,
+  WorkflowInstanceView,
   WorkQueueItem,
 } from "./contract";
 
@@ -88,6 +97,42 @@ export interface ApprovalDecision {
   readonly idempotencyKey: string;
 }
 
+/**
+ * The audit filter set, as a compliance officer would ask for it.
+ *
+ * Filtering happens on the server rather than in the browser. The record runs
+ * to tens of thousands of entries, and a filter applied to whichever page
+ * happened to load would quietly answer a different question from the one that
+ * was asked — "no entries of that type" when the truth is "none on this page".
+ */
+export interface AuditQuery extends ListQuery {
+  readonly eventType?: string;
+  readonly actorId?: string;
+  readonly runId?: string;
+  /** Matched against the entry's subject references, e.g. a contract id. */
+  readonly subject?: string;
+  /** ISO-8601 date, inclusive. */
+  readonly from?: string;
+  /** ISO-8601 date, inclusive. */
+  readonly to?: string;
+}
+
+/**
+ * A request to engage or release a containment switch.
+ *
+ * `reason` is required in the type, not merely validated in a form, because
+ * the reason is what the audit entry carries and what the next operator reads
+ * when they find the platform stopped.
+ */
+export interface ContainmentChange {
+  readonly scope: ContainmentView["scope"];
+  /** The workflow name, role id, or integration name. Empty for `global`. */
+  readonly target: string;
+  readonly engaged: boolean;
+  readonly reason: string;
+  readonly idempotencyKey: string;
+}
+
 export interface RequestOptions {
   readonly signal?: AbortSignal;
 }
@@ -104,6 +149,56 @@ export interface ConsoleClient {
     options?: RequestOptions,
   ): Promise<Outcome<ApprovalView>>;
   run(runId: string, options?: RequestOptions): Promise<Outcome<RunDetailView>>;
+
+  workflowInstance(
+    instanceId: string,
+    options?: RequestOptions,
+  ): Promise<Outcome<WorkflowInstanceView>>;
+
+  roles(query?: ListQuery, options?: RequestOptions): Promise<Outcome<Page<RoleView>>>;
+  /**
+   * Every version of one role, newest first.
+   *
+   * A role's history is a list of the same view model rather than a separate
+   * "history" type: each promotion, revert, and disable produced a version
+   * record, and the current role is simply the highest-numbered one. Keeping it
+   * that way means the detail view and the registry read the same fields, and
+   * there is no second shape to keep in step with the first.
+   */
+  roleVersions(roleId: string, options?: RequestOptions): Promise<Outcome<Page<RoleView>>>;
+
+  improvementClusters(
+    query?: ListQuery,
+    options?: RequestOptions,
+  ): Promise<Outcome<Page<ImprovementClusterView>>>;
+  improvementProposals(
+    query?: ListQuery,
+    options?: RequestOptions,
+  ): Promise<Outcome<Page<ImprovementProposalView>>>;
+  improvementProposal(
+    proposalId: string,
+    options?: RequestOptions,
+  ): Promise<Outcome<ImprovementProposalView>>;
+
+  auditEntries(
+    query?: AuditQuery,
+    options?: RequestOptions,
+  ): Promise<Outcome<Page<AuditEntryView>>>;
+  auditVerification(options?: RequestOptions): Promise<Outcome<AuditVerificationView>>;
+
+  containment(options?: RequestOptions): Promise<Outcome<Page<ContainmentView>>>;
+  /** Engages or releases one switch. A write, and therefore never retried here. */
+  setContainment(
+    change: ContainmentChange,
+    options?: RequestOptions,
+  ): Promise<Outcome<ContainmentView>>;
+
+  discoveryCandidates(
+    query?: ListQuery,
+    options?: RequestOptions,
+  ): Promise<Outcome<Page<DiscoveryCandidateView>>>;
+
+  executive(options?: RequestOptions): Promise<Outcome<ExecutiveView>>;
 }
 
 export interface ClientOptions {
@@ -251,12 +346,79 @@ export function createConsoleClient(options: ClientOptions = {}): ConsoleClient 
 
     run: (runId, requestOptions) =>
       get<RunDetailView>(`/runs/${encodeURIComponent(runId)}`, requestOptions),
+
+    workflowInstance: (instanceId, requestOptions) =>
+      get<WorkflowInstanceView>(
+        `/workflows/${encodeURIComponent(instanceId)}`,
+        requestOptions,
+      ),
+
+    roles: (query = {}, requestOptions) =>
+      get<Page<RoleView>>(
+        `/roles${buildQuery({ limit: query.limit, offset: query.offset })}`,
+        requestOptions,
+      ),
+
+    roleVersions: (roleId, requestOptions) =>
+      get<Page<RoleView>>(`/roles/${encodeURIComponent(roleId)}/versions`, requestOptions),
+
+    improvementClusters: (query = {}, requestOptions) =>
+      get<Page<ImprovementClusterView>>(
+        `/improvements/clusters${buildQuery({ limit: query.limit, offset: query.offset })}`,
+        requestOptions,
+      ),
+
+    improvementProposals: (query = {}, requestOptions) =>
+      get<Page<ImprovementProposalView>>(
+        `/improvements/proposals${buildQuery({ limit: query.limit, offset: query.offset })}`,
+        requestOptions,
+      ),
+
+    improvementProposal: (proposalId, requestOptions) =>
+      get<ImprovementProposalView>(
+        `/improvements/proposals/${encodeURIComponent(proposalId)}`,
+        requestOptions,
+      ),
+
+    auditEntries: (query = {}, requestOptions) =>
+      get<Page<AuditEntryView>>(
+        `/audit/entries${buildQuery({
+          eventType: query.eventType,
+          actorId: query.actorId,
+          runId: query.runId,
+          subject: query.subject,
+          from: query.from,
+          to: query.to,
+          limit: query.limit,
+          offset: query.offset,
+        })}`,
+        requestOptions,
+      ),
+
+    auditVerification: (requestOptions) =>
+      get<AuditVerificationView>("/audit/verification", requestOptions),
+
+    containment: (requestOptions) => get<Page<ContainmentView>>("/containment", requestOptions),
+
+    setContainment: (change, requestOptions) =>
+      post<ContainmentView>(
+        "/containment",
+        {
+          scope: change.scope,
+          target: change.target,
+          engaged: change.engaged,
+          reason: change.reason,
+        },
+        change.idempotencyKey,
+        requestOptions,
+      ),
+
+    discoveryCandidates: (query = {}, requestOptions) =>
+      get<Page<DiscoveryCandidateView>>(
+        `/discovery/candidates${buildQuery({ limit: query.limit, offset: query.offset })}`,
+        requestOptions,
+      ),
+
+    executive: (requestOptions) => get<ExecutiveView>("/executive", requestOptions),
   };
 }
-
-/**
- * Extension point for the second agent: the remaining surfaces (workflows,
- * roles, improvements, discovery, audit, executive) add their methods to
- * ConsoleClient and to the object returned above. Nothing else in this file
- * needs to change.
- */

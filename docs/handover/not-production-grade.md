@@ -175,12 +175,38 @@ The harness exists and works. Real fairness testing requires MVW compliance
 engagement and realistic data before any consumer-affecting workflow goes live.
 Do not represent the current state as fairness-tested.
 
-### L3. Retrieval is lexical only
+### L3. Retrieval is lexical only, and phrasing matters at the margin
 
 No embeddings (ADR 0015). Recall is weaker where a question and the authority
 use different vocabulary. A miss produces a refusal and a routing to a human,
-not a wrong answer — the right failure direction, but it costs operator time and
-should be measured.
+not a wrong answer — the right failure direction, but it costs operator time.
+
+**Observed while building the demonstration**, and worth knowing before an
+operator meets it: a loosely-phrased question about the Florida rule scored
+0.130 against a 0.15 relevance floor and was refused, while a tighter phrasing
+of the same question scored 0.689 and returned the correct effective-dated
+document. Both behaviours are correct — the floor is doing its job — but it
+means an operator can be refused for phrasing rather than for absence of
+authority, and will not be able to tell the two apart from the message.
+
+Three things follow:
+- Retrieval quality belongs in the evaluation harness so the floor is set from
+  measured recall on real questions rather than from intuition.
+- The refusal message should eventually distinguish "nothing relevant exists"
+  from "nothing cleared the floor", because the operator's next action differs.
+- This is the strongest single argument for adding hybrid retrieval, and the
+  evidence for that decision should be measured rather than assumed.
+
+### L11. The audit chain grows with read traffic
+
+Every authorization decision is recorded, including grants for routine reads.
+That is the stronger compliance position — "who read this owner's record" is a
+question an auditor asks — but it means chain length tracks console usage, not
+just work done, and verification cost is linear in chain length.
+
+Plan for it: verify a window on demand and the full chain on a schedule. The
+consequence and the options are set out in
+`docs/ops/observability-and-cost.md`.
 
 ### L4. Integration ports are designed against assumptions
 

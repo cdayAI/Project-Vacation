@@ -1,9 +1,18 @@
 import type {
   ApprovalView,
+  AuditEntryView,
+  AuditVerificationView,
+  ContainmentView,
   DenialView,
+  DiscoveryCandidateView,
+  ExecutiveView,
   HealthView,
+  ImprovementClusterView,
+  ImprovementProposalView,
+  RoleView,
   RunDetailView,
   SessionView,
+  WorkflowInstanceView,
   WorkQueueItem,
 } from "../api/contract";
 
@@ -48,7 +57,20 @@ export const auditor = {
 export const session: SessionView = {
   actor: supervisor,
   secondsSinceAuthentication: 412,
-  capabilities: ["work.read", "approvals.read", "approvals.decide", "runs.read"],
+  capabilities: [
+    "work.read",
+    "approvals.read",
+    "approvals.decide",
+    "runs.read",
+    "roles.read",
+    "improvements.read",
+    "audit.read",
+    "containment.read",
+    "containment.engage",
+    "discovery.read",
+    "executive.read",
+    "health.read",
+  ],
   readOnly: false,
 };
 

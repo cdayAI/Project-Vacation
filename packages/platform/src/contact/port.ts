@@ -97,6 +97,21 @@ export interface ContactStore {
 
   getConsentEvent(id: Id<"consent">): Promise<ConsentEvent | null>;
 
+  /**
+   * Attach the audit receipt to a ledger entry, once.
+   *
+   * The only field of a consent event that is ever written after the insert,
+   * and it is written exactly once — the Postgres trigger permits this single
+   * transition and refuses every other update. An event that already carries a
+   * receipt is returned unchanged rather than re-pointed, so two callers racing
+   * the same append cannot end up with the entry naming an audit entry that
+   * describes a different attempt.
+   */
+  attachConsentReceipt(
+    id: Id<"consent">,
+    receiptId: Id<"auditEntry">,
+  ): Promise<ConsentEvent>;
+
   /** Add or replace a suppression entry. Keyed by list, subject, destination. */
   putDoNotCallEntry(entry: DoNotCallEntry): Promise<DoNotCallEntry>;
 
