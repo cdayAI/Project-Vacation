@@ -57,9 +57,12 @@ const LAYERS: Readonly<Record<string, number>> = {
   improve: 4,
   discovery: 4,
   workflows: 5,
-  api: 6,
-  cli: 6,
-  demo: 7,
+  // The demonstration composes everything below it into a scenario. The
+  // entrypoints sit above it, because the CLI runs the demo and not the other
+  // way round — and the CLI runs the API too, so it is the outermost thing.
+  demo: 6,
+  api: 7,
+  cli: 8,
 };
 
 /**
