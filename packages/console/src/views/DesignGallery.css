@@ -1,0 +1,322 @@
+/* =============================================================================
+   The component gallery.
+
+   The page has one job that shapes every rule below: it must never be more
+   interesting than what it is showing. Everything here is a frame — a hairline,
+   a caption, a stage a component sits on — and nothing in it introduces a
+   colour, a size, or a rhythm the component library does not already have.
+
+   Every value is a token. A raw hex or a raw pixel here would be a value the
+   design system does not know about, on the one page whose whole purpose is
+   proving the design system is the only thing in use.
+   ========================================================================== */
+
+.pv-gallery {
+  /* The floor for a state cell. A track minimum, not spacing: the grid needs a
+     width below which a demo is too cramped to judge, and there is no spacing
+     token for that because it is not spacing. */
+  --pv-gallery-cell-min: 20rem;
+
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-40);
+  padding-block-end: var(--pv-space-96);
+}
+
+/* -----------------------------------------------------------------------------
+   Head
+   -------------------------------------------------------------------------- */
+
+.pv-gallery-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+}
+
+.pv-gallery-lede {
+  font-size: var(--pv-type-body-lg-size);
+  line-height: var(--pv-type-body-lg-line);
+  color: var(--pv-content-secondary);
+}
+
+.pv-gallery-count {
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  color: var(--pv-content-tertiary);
+}
+
+/* -----------------------------------------------------------------------------
+   The three preferences
+
+   Sticky, because the question a reviewer asks is "does *this* component hold
+   up in dark" and the answer is forty entries down the page. A solid surface
+   rather than glass: this is the page's own furniture, and blurring it would
+   spend one of the three budgeted blurred surfaces on something that is not
+   under review.
+   -------------------------------------------------------------------------- */
+
+.pv-gallery-display {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface-raised);
+  box-shadow: var(--pv-elevation-2);
+}
+
+.pv-gallery-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--pv-space-24);
+}
+
+.pv-gallery-resolved {
+  flex-basis: 100%;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  color: var(--pv-content-secondary);
+}
+
+/* -----------------------------------------------------------------------------
+   Contents
+   -------------------------------------------------------------------------- */
+
+.pv-gallery-contents {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--pv-gallery-cell-min), 1fr));
+  gap: var(--pv-space-24);
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-gallery-contents-label {
+  margin-block-end: var(--pv-space-8);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+  color: var(--pv-content-tertiary);
+}
+
+.pv-gallery-contents-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  list-style: none;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+}
+
+/* -----------------------------------------------------------------------------
+   Families and entries
+   -------------------------------------------------------------------------- */
+
+.pv-gallery-family {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-24);
+}
+
+.pv-gallery-family-blurb {
+  margin-block-start: calc(var(--pv-space-16) * -1);
+  color: var(--pv-content-secondary);
+}
+
+.pv-gallery-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+  padding-block-start: var(--pv-space-24);
+  border-block-start: 1px solid var(--pv-border-subtle);
+  /* An anchor jump must not put the heading under the sticky preferences bar.
+     The offset is the bar's own height plus the gap it sits in. */
+  scroll-margin-block-start: var(--pv-space-96);
+}
+
+.pv-gallery-entry-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--pv-space-12);
+}
+
+.pv-gallery-entry-name {
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+}
+
+/* The file, so a reviewer's next step is opening the right one. */
+.pv-gallery-entry-file {
+  font-size: var(--pv-type-caption-size);
+  color: var(--pv-content-tertiary);
+}
+
+.pv-gallery-entry-when {
+  color: var(--pv-content-secondary);
+}
+
+/* -----------------------------------------------------------------------------
+   States
+
+   Side by side, each named underneath. The name is text and never a colour or a
+   position, because this page is also read on a monochrome printout in a design
+   review.
+   -------------------------------------------------------------------------- */
+
+.pv-gallery-states {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--pv-gallery-cell-min), 1fr));
+  gap: var(--pv-space-16);
+  list-style: none;
+  align-items: start;
+}
+
+.pv-gallery-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+}
+
+/* Anything whose width is part of what is being judged — a table, an approval,
+   a chart — takes the whole row rather than being shown at a width it will
+   never be used at. */
+.pv-gallery-state[data-wide="true"] {
+  grid-column: 1 / -1;
+}
+
+/* The stage sits on bg-subtle so a surface-coloured component has an edge to
+   be seen against, in both themes, without the gallery drawing a border that
+   the component would then appear to own. */
+.pv-gallery-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--pv-space-12);
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-bg-subtle);
+  /* Overlays open into the top layer, so a stage never needs to grow for one.
+     What it does need is to not clip a popover's shadow. */
+  overflow: visible;
+}
+
+.pv-gallery-stage > * {
+  min-inline-size: 0;
+}
+
+/* A full-row stage lays its demo out in normal flow rather than as a flex item,
+   so a table, a chart, or an approval fills the width it is being judged at. In
+   a flex row the same element would shrink to its content and be reviewed at a
+   width it is never used at. */
+.pv-gallery-state[data-wide="true"] .pv-gallery-stage {
+  display: block;
+}
+
+.pv-gallery-state-name {
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  color: var(--pv-content-primary);
+}
+
+.pv-gallery-state-note {
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  color: var(--pv-content-secondary);
+}
+
+/* -----------------------------------------------------------------------------
+   Small helpers used by the demos themselves
+   -------------------------------------------------------------------------- */
+
+.pv-gallery-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+}
+
+.pv-gallery-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  inline-size: 100%;
+}
+
+.pv-gallery-caption {
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  color: var(--pv-content-secondary);
+}
+
+.pv-gallery-prior {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  list-style: none;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  color: var(--pv-content-secondary);
+}
+
+/* The glyph sets. A mark with no name under it is a mark nobody can ask for. */
+.pv-gallery-glyphs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--pv-space-96), 1fr));
+  gap: var(--pv-space-12);
+  list-style: none;
+  inline-size: 100%;
+}
+
+.pv-gallery-glyph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pv-space-4);
+  padding-block: var(--pv-space-8);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface);
+}
+
+.pv-gallery-glyph-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  block-size: var(--pv-space-24);
+  color: var(--pv-content-primary);
+}
+
+.pv-gallery-glyph-name {
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  color: var(--pv-content-secondary);
+  text-align: center;
+}
+
+/* The resize demo needs something with a width for the handle to change. */
+.pv-gallery-resize {
+  display: flex;
+  align-items: stretch;
+  inline-size: 100%;
+}
+
+.pv-gallery-resize-panel {
+  padding: var(--pv-space-12);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface);
+}

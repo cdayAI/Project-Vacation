@@ -1,0 +1,120 @@
+/* The avatar trigger in the top bar, and the preferences panel behind it. */
+
+.pv-avatar-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  max-inline-size: 12rem;
+  padding: var(--pv-space-4) var(--pv-space-8);
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius-pill);
+  background: transparent;
+  color: var(--pv-content-primary);
+  cursor: pointer;
+  text-align: start;
+  transition: background-color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-avatar-menu-trigger:hover {
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-avatar-menu-trigger:active {
+  border-color: var(--pv-border-strong);
+}
+
+.pv-avatar-menu-trigger[aria-expanded="true"] {
+  background-color: var(--pv-surface-raised);
+  border-color: var(--pv-border-strong);
+}
+
+.pv-avatar-menu-identity {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+}
+
+.pv-avatar-menu-name,
+.pv-avatar-menu-roles {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-avatar-menu-name {
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-avatar-menu-roles {
+  color: var(--pv-content-tertiary);
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+}
+
+/* Below the panel-narrow breakpoint the name gives up its space to the
+   breadcrumb and the command trigger. The avatar and its accessible name stay,
+   so nothing is lost to a screen reader. */
+@media (max-width: 1279px) {
+  .pv-avatar-menu-identity {
+    display: none;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   The panel
+   -------------------------------------------------------------------------- */
+
+.pv-avatar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-24);
+  min-inline-size: 18rem;
+}
+
+.pv-avatar-menu-header {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-12);
+  padding-block-end: var(--pv-space-16);
+  border-block-end: 1px solid var(--pv-border-subtle);
+}
+
+.pv-avatar-menu-header-text {
+  min-inline-size: 0;
+}
+
+.pv-avatar-menu-header-name {
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+/* The role identifier, in the monospace face and unmodified. It is the string
+   that appears in the audit record, and an operator checking why they were
+   refused something needs to read the same characters the record holds. */
+.pv-avatar-menu-header-roles {
+  color: var(--pv-content-secondary);
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  overflow-wrap: anywhere;
+}
+
+.pv-avatar-menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  padding-block-start: var(--pv-space-16);
+  border-block-start: 1px solid var(--pv-border-subtle);
+}
+
+.pv-avatar-menu-reason {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

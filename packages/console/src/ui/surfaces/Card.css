@@ -1,0 +1,183 @@
+/* =============================================================================
+   Card — a bounded region with a title.
+
+   Elevation e1 at rest, e2 only when it is interactive and hovered. A card that
+   lifts on hover without being clickable is a card that lies about itself.
+   ========================================================================== */
+
+.pv-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface);
+  box-shadow: var(--pv-elevation-1);
+  color: var(--pv-content-primary);
+}
+
+/* Glass supplies its own background, border and shadow; the card must not draw
+   a second border over the recipe's. */
+.pv-card-glass {
+  background-color: transparent;
+  border: none;
+}
+
+/* -----------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+
+.pv-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pv-space-12);
+}
+
+.pv-card-heading-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+}
+
+.pv-card-header-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  flex: none;
+}
+
+.pv-card-eyebrow {
+  margin: 0;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+/* The step is fixed by the design; the heading level is document structure and
+   comes from the caller. Declaring the step here is what keeps an h4 card title
+   looking like a card title. */
+.pv-card-title {
+  margin: 0;
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+  color: var(--pv-content-primary);
+  min-width: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   The stretched trigger
+   -------------------------------------------------------------------------- */
+
+.pv-card-trigger {
+  all: unset;
+  cursor: pointer;
+  color: inherit;
+  /* The accessible name is the title alone. The hit area is the whole card,
+     drawn by the pseudo-element below. */
+}
+
+.pv-card-trigger::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.pv-card-interactive {
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    box-shadow var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-card-interactive:hover {
+  background-color: var(--pv-bg-subtle);
+  box-shadow: var(--pv-elevation-2);
+}
+
+.pv-card-interactive:active {
+  background-color: var(--pv-bg-subtle);
+  box-shadow: var(--pv-elevation-1);
+}
+
+/* The ring is drawn on the card, not on the title, because the title's box is
+   a fraction of the target the operator is actually on. */
+.pv-card-interactive:has(.pv-card-trigger:focus-visible) {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+}
+
+/* Fallback for engines without :has() — the ring lands on the title instead of
+   the card, which is smaller but still visible and still contrasting. */
+@supports not selector(:has(*)) {
+  .pv-card-trigger:focus-visible {
+    outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+    outline-offset: var(--pv-focus-ring-offset);
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   Selected and disabled
+   -------------------------------------------------------------------------- */
+
+/* A 2px leading bar plus a stronger boundary. The bar is the same language the
+   table uses for a selected row, so "chosen" looks the same everywhere. */
+.pv-card-selected {
+  border-color: var(--pv-border-strong);
+}
+
+.pv-card-selected::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 2px;
+  border-start-start-radius: var(--pv-radius-card);
+  border-end-start-radius: var(--pv-radius-card);
+  background-color: var(--pv-accent);
+}
+
+.pv-card-disabled {
+  color: var(--pv-content-tertiary);
+  box-shadow: var(--pv-elevation-0);
+}
+
+/* -----------------------------------------------------------------------------
+   Body, footer, and the designed states
+   -------------------------------------------------------------------------- */
+
+.pv-card-body {
+  min-width: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+/* Read-only puts values in content-primary. The point is that a read-only card
+   reads as authoritative rather than as switched off. */
+.pv-card[data-read-only] .pv-card-body {
+  color: var(--pv-content-primary);
+}
+
+.pv-card-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  padding-top: var(--pv-space-12);
+  border-top: 1px solid var(--pv-border-subtle);
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+/* Loading, error and empty are drawn by SurfaceState, which every surface in
+   this directory shares — see SurfaceState.tsx for why they are not here. */

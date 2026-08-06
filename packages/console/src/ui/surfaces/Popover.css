@@ -1,0 +1,97 @@
+/* =============================================================================
+   Popover — anchored, non-modal, elevation 2.
+
+   Positioned in JavaScript and rendered at the end of the document, so
+   everything about its box is set here and its coordinates arrive as inline
+   styles. See Popover.tsx for why it cannot live where it is written.
+   ========================================================================== */
+
+.pv-popover {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 12rem; /* 192 — narrower than this and nothing fits */
+  max-inline-size: 24rem; /* 384 */
+  max-block-size: 80vh;
+  border-radius: var(--pv-radius-card);
+  overflow: hidden;
+  color: var(--pv-content-primary);
+
+  opacity: 0;
+  transform: translateY(calc(var(--pv-space-4) * -1));
+  transition:
+    opacity var(--pv-motion-standard) var(--pv-ease-entry),
+    transform var(--pv-motion-standard) var(--pv-ease-entry);
+}
+
+/* Before the first measurement it sits at the origin with the entrance's own
+   opacity of 0, so there is no flash in the corner of the window — and it is
+   still in the accessibility tree, because a surface hidden from assistive
+   technology while it waits for a layout is a surface that is silent on any
+   page that never provides one. */
+.pv-popover[data-state="measuring"] {
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.pv-popover[data-state="open"] {
+  opacity: 1;
+  transform: none;
+}
+
+/* Opening upward rises from below, so the movement always begins at the
+   trigger rather than always beginning above it. */
+.pv-popover[data-placement^="top"] {
+  transform: translateY(var(--pv-space-4));
+}
+
+.pv-popover[data-placement^="top"][data-state="open"] {
+  transform: none;
+}
+
+/* -----------------------------------------------------------------------------
+   Header, body, footer
+   -------------------------------------------------------------------------- */
+
+.pv-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-12) var(--pv-space-12) var(--pv-space-8);
+}
+
+.pv-popover-title {
+  margin: 0;
+  /* label rather than title: a popover heading sits inside a 384px box and a
+     20px title in it reads as a page that has fallen into a menu. */
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+  color: var(--pv-content-primary);
+}
+
+.pv-popover-body {
+  padding: var(--pv-space-12);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-popover-header + .pv-popover-body {
+  padding-top: 0;
+}
+
+.pv-popover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-8) var(--pv-space-12);
+  border-top: 1px solid var(--pv-border-subtle);
+}

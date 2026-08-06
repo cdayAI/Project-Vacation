@@ -1,0 +1,111 @@
+/* CopilotMessage — one turn in the conversation.
+
+   Not a chat bubble. The context panel is 380px wide and a bubble spends a
+   quarter of that on rounded corners and asymmetric padding; an operator
+   reading an answer with three citations in it needs the width. The two authors
+   are distinguished by a leading rule and the byline, which is enough and stays
+   legible in a printed transcript. */
+
+.pv-copilot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-12);
+  padding-inline-start: var(--pv-space-12);
+  border-inline-start: 2px solid var(--pv-border-subtle);
+  color: var(--pv-content-primary);
+}
+
+.pv-copilot[data-author="operator"] {
+  border-inline-start-color: var(--pv-border-strong);
+  background-color: var(--pv-bg-subtle);
+  border-radius: var(--pv-radius-control);
+}
+
+.pv-copilot[data-author="copilot"] {
+  border-inline-start-color: var(--pv-accent);
+}
+
+/* "I don't know" is an honest answer, not a failure: it gets a neutral tone,
+   never the danger one. Painting it red teaches operators that the copilot
+   declining to guess is a malfunction. */
+.pv-copilot[data-unknown] {
+  border-inline-start-color: var(--pv-status-neutral-border);
+}
+
+.pv-copilot-byline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pv-space-8);
+  margin: 0;
+}
+
+.pv-copilot-author {
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  color: var(--pv-content-secondary);
+}
+
+.pv-copilot-time {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-copilot-body {
+  max-width: var(--pv-reading-measure);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+  color: var(--pv-content-primary);
+}
+
+/* The caret says text is still arriving, and it does not blink.
+
+   A blinking caret would need a cadence, and this product has exactly four
+   durations — all of them describing a transition, none of them a metronome.
+   Inventing a fifth for an ornament is how a motion system stops being a
+   system. It is also unnecessary: the text growing beside it is the movement
+   that says "still going", and a bar that pulses next to prose an operator is
+   trying to read competes with the one thing they are here to do. */
+.pv-copilot-caret {
+  display: inline-block;
+  inline-size: 2px;
+  block-size: var(--pv-type-body-size);
+  margin-inline-start: var(--pv-space-4);
+  vertical-align: text-bottom;
+  background-color: var(--pv-content-secondary);
+}
+
+.pv-copilot-citations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv-copilot-action {
+  padding-block-start: var(--pv-space-4);
+}
+
+.pv-copilot-route {
+  display: flex;
+  gap: var(--pv-space-8);
+}
+
+/* Cost and elapsed. Quiet, and never absent. */
+.pv-copilot-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  margin: 0;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  font-variant-numeric: tabular-nums;
+}

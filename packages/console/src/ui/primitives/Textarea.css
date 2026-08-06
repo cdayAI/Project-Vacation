@@ -1,0 +1,35 @@
+/* Textarea — the shared control box, opened up for more than one line.
+
+   The modifier lives here rather than in control.css because Textarea is the
+   only component that uses it: a control that grows is a different shape from a
+   control with a fixed height, and putting the exception next to the rule
+   invites the next component to reach for it. */
+
+.pv-ui-control[data-multiline="true"] {
+  align-items: stretch;
+  min-height: 0;
+  padding-block: var(--pv-space-8);
+}
+
+.pv-ui-textarea-field {
+  /* Vertical only. Horizontal resize breaks the column it sits in, and `both`
+     lets an operator drag a note field over the record beside it. */
+  resize: vertical;
+  min-height: var(--pv-control-height-lg);
+}
+
+/* Read-only notes are read, not edited: the handle would be a control that does
+   nothing, and the scrollbar is what tells an auditor there is more text. */
+.pv-ui-control[data-readonly="true"] .pv-ui-textarea-field {
+  resize: none;
+}
+
+.pv-ui-textarea-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The count turns to the warning tone as the limit approaches — but the words
+   change too ("40 characters left"), because the tone alone is not a signal. */
+.pv-ui-textarea-count[data-near-limit="true"] {
+  color: var(--pv-status-warning);
+}

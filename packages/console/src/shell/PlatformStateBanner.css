@@ -1,0 +1,57 @@
+/* The platform-state banner. Solid, never glass: it carries reading text about
+   something that is wrong, and §1.5 keeps glass off long-form reading. */
+
+.pv-platform-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pv-space-12);
+  padding: var(--pv-space-16) var(--pv-shell-gutter);
+  border-block-end: 1px solid var(--pv-status-danger-border);
+  background-color: var(--pv-status-danger-surface);
+  color: var(--pv-content-primary);
+}
+
+.pv-platform-banner-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  flex: none;
+  color: var(--pv-status-danger);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+  /* Aligned with the first line of the heading rather than centred in the
+     block: a mark that floats beside three paragraphs points at nothing. */
+  padding-block-start: var(--pv-space-4);
+}
+
+.pv-platform-banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  min-inline-size: 0;
+}
+
+.pv-platform-banner-heading {
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  letter-spacing: 0;
+}
+
+.pv-platform-banner-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  padding-inline-start: var(--pv-space-16);
+  list-style: disc;
+  max-inline-size: var(--pv-reading-measure);
+}
+
+@media (max-width: 899px) {
+  .pv-platform-banner {
+    padding-inline: var(--pv-shell-gutter-tablet);
+  }
+}

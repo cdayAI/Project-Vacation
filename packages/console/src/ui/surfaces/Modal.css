@@ -1,0 +1,114 @@
+/* =============================================================================
+   Modal.
+
+   Centred, elevation 3, radius 16. Sizes are layout dimensions rather than
+   design tokens — the scale governs type, space, radius and elevation, not how
+   wide a dialog is — so they are declared once here and named, and the largest
+   is the reading measure because the largest modal is the one with prose in it.
+   ========================================================================== */
+
+.pv-modal-host {
+  align-items: center;
+  justify-content: center;
+  padding: var(--pv-space-24);
+}
+
+.pv-modal {
+  inline-size: 100%;
+  border-radius: var(--pv-radius-sheet);
+  overflow: hidden;
+}
+
+.pv-modal-sm {
+  max-inline-size: 25rem; /* 400 — a confirmation and two buttons */
+}
+
+.pv-modal-md {
+  max-inline-size: 35rem; /* 560 — the default */
+}
+
+.pv-modal-lg {
+  /* 720: the same 60–80 character measure the reading passages use, because a
+     modal this wide is a modal with paragraphs in it. */
+  max-inline-size: var(--pv-reading-measure);
+}
+
+/* -----------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+
+.pv-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pv-space-16);
+  padding: var(--pv-space-20) var(--pv-space-20) var(--pv-space-12);
+}
+
+.pv-modal-heading-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+}
+
+.pv-modal-header-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  flex: none;
+}
+
+.pv-modal-title {
+  margin: 0;
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+  color: var(--pv-content-primary);
+}
+
+/* The title takes focus on open so the operator hears the question first. It is
+   not a control, so it gets no ring of its own — the surface is what appeared,
+   and the question is what was announced. */
+.pv-modal-title:focus-visible {
+  outline: none;
+}
+
+.pv-modal-description {
+  margin: 0;
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+
+/* -----------------------------------------------------------------------------
+   Body and actions
+   -------------------------------------------------------------------------- */
+
+.pv-modal-body {
+  padding: 0 var(--pv-space-20) var(--pv-space-20);
+  overflow-y: auto;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-modal-body :where(p) {
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-primary);
+}
+
+.pv-modal-actions {
+  display: flex;
+  align-items: center;
+  /* Trailing, and the safe answer sits first in the DOM so it comes first in
+     the tab order. Neither is styled as the easy path — that is the caller's
+     job and the specification's rule (§3.2). */
+  justify-content: flex-end;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-16) var(--pv-space-20);
+  border-top: 1px solid var(--pv-border-subtle);
+}

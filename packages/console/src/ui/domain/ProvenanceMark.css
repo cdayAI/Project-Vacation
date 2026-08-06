@@ -1,0 +1,54 @@
+/* Provenance — retrieved, asserted, computed.
+
+   No tint and no status colour. The three kinds are separated by their mark,
+   their word, and the style of the leading rule, so the distinction survives a
+   greyscale printout, a monochrome display, and a fax of a scan of the audit
+   pack. The rule is 2px and uses border-control, which clears 3:1 on every
+   surface in both themes — border-subtle would be structure, and this is
+   meaning. */
+
+.pv-provenance {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  padding-inline-start: var(--pv-space-8);
+  border-inline-start: 2px solid var(--pv-border-control);
+  color: var(--pv-content-secondary);
+  white-space: nowrap;
+}
+
+.pv-provenance[data-kind="retrieved"] {
+  border-inline-start-style: solid;
+}
+
+.pv-provenance[data-kind="asserted"] {
+  border-inline-start-style: dashed;
+}
+
+.pv-provenance[data-kind="computed"] {
+  border-inline-start-style: dotted;
+}
+
+.pv-provenance[data-size="sm"] {
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-provenance[data-size="md"] {
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+}
+
+.pv-provenance-word {
+  font-weight: var(--pv-type-label-weight);
+  color: var(--pv-content-primary);
+}
+
+/* The meaning wraps where the word must not: it is a sentence, and a sentence
+   held on one line at the end of a dense row is a horizontal scrollbar. */
+.pv-provenance-meaning {
+  white-space: normal;
+  color: var(--pv-content-secondary);
+}

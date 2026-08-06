@@ -1,0 +1,56 @@
+/* EmptyState — nothing here, and why that is.
+
+   Calm and illustration-free. The block centres itself in a large region and
+   sits left in a card, but the prose inside it is always left-aligned: a
+   centred paragraph forces the eye to find a new left edge on every line, and
+   the whole point of this block is that it is read rather than glanced at. */
+
+.pv-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+  padding-block: var(--pv-space-40);
+  color: var(--pv-content-primary);
+}
+
+.pv-empty-state[data-align="center"] {
+  align-items: center;
+  text-align: center;
+}
+
+.pv-empty-state[data-align="start"] {
+  align-items: flex-start;
+  padding-block: var(--pv-space-24);
+}
+
+.pv-empty-state-title {
+  margin: 0;
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+}
+
+.pv-empty-state-body {
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-lg-size);
+  line-height: var(--pv-type-body-lg-line);
+  text-align: start;
+}
+
+.pv-empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-8);
+  padding-block-start: var(--pv-space-4);
+}
+
+.pv-empty-state-hint {
+  margin: 0;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

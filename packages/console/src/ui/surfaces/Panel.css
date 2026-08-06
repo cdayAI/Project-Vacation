@@ -1,0 +1,174 @@
+/* =============================================================================
+   Panel — furniture, not content.
+
+   The shell's context panel and every collapsible section in a detail view.
+   No elevation of its own when it is glass, because the glass recipe brings
+   its own; e1 and a hairline otherwise.
+   ========================================================================== */
+
+.pv-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface);
+  box-shadow: var(--pv-elevation-1);
+  color: var(--pv-content-primary);
+  /* Clips the scrim children to the rounded corner. Without it a glass panel
+     shows a square scrim poking out of a round frame. */
+  overflow: hidden;
+}
+
+.pv-panel-glass {
+  background-color: transparent;
+  border: none;
+}
+
+.pv-panel-resizable {
+  /* The handle is absolutely positioned against this box, and a resizable
+     panel must not be squeezed below its own minimum by a flex parent. */
+  flex: none;
+}
+
+/* -----------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+
+.pv-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pv-space-12);
+  padding: var(--pv-space-12) var(--pv-space-16);
+  border-bottom: 1px solid var(--pv-border-subtle);
+}
+
+.pv-panel-heading-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+}
+
+.pv-panel-header-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  flex: none;
+}
+
+.pv-panel-title {
+  margin: 0;
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+  color: var(--pv-content-primary);
+  min-width: 0;
+}
+
+.pv-panel-description {
+  margin: 0;
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+/* -----------------------------------------------------------------------------
+   Collapse
+   -------------------------------------------------------------------------- */
+
+/* The whole title is the target, not the chevron. A 12px glyph is below the
+   24px floor WCAG 2.2 2.5.8 sets, and it is also just annoying to hit. */
+.pv-panel-collapse {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  min-height: var(--pv-target-min);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+.pv-panel-collapse:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+  border-radius: var(--pv-radius-control);
+}
+
+.pv-panel-collapse:hover {
+  color: var(--pv-accent);
+}
+
+.pv-panel-collapse-mark {
+  flex: none;
+  color: var(--pv-content-tertiary);
+  transition: transform var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+/* Rotation is the only thing the chevron does, and it is the only part of the
+   panel that animates. The body appearing is instant: waiting for content you
+   asked for is the definition of hesitation. */
+.pv-panel-collapse[aria-expanded="false"] .pv-panel-collapse-mark {
+  transform: rotate(-90deg);
+}
+
+.pv-panel-collapse:hover .pv-panel-collapse-mark {
+  color: var(--pv-accent);
+}
+
+.pv-panel-collapsed .pv-panel-header {
+  border-bottom: none;
+}
+
+/* -----------------------------------------------------------------------------
+   Body and footer
+   -------------------------------------------------------------------------- */
+
+.pv-panel-body {
+  min-width: 0;
+  padding: var(--pv-space-16);
+  overflow: auto;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-panel[data-read-only] .pv-panel-body {
+  color: var(--pv-content-primary);
+}
+
+.pv-panel-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-12) var(--pv-space-16);
+  border-top: 1px solid var(--pv-border-subtle);
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+/* -----------------------------------------------------------------------------
+   Resize handles
+   -------------------------------------------------------------------------- */
+
+.pv-panel-resize-leading {
+  inset-inline-start: calc(var(--pv-space-12) * -0.5);
+  inset-inline-end: auto;
+}
+
+.pv-panel-resize-trailing {
+  inset-inline-end: calc(var(--pv-space-12) * -0.5);
+  inset-inline-start: auto;
+}
+
+/* Loading, error and empty are drawn by SurfaceState, which every surface in
+   this directory shares — see SurfaceState.tsx for why they are not here. */

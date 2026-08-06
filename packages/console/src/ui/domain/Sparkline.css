@@ -1,0 +1,44 @@
+/* Sparkline — the shape of a metric, at the size of a word.
+
+   Sized from the spacing scale rather than from an invented number, and drawn
+   in content-secondary rather than in a chart colour: on a metric tile the
+   number is the subject and the line is the sentence around it. A sparkline in
+   the accent colour competes with the value it is describing. */
+
+.pv-sparkline {
+  display: block;
+  inline-size: 100%;
+  block-size: var(--pv-space-32);
+  color: var(--pv-content-secondary);
+}
+
+.pv-sparkline-canvas {
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+}
+
+.pv-sparkline-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A zero-length segment with a round cap is a dot that stays a dot when the
+   coordinate space is stretched. A <circle> here would be an ellipse. */
+.pv-sparkline-point {
+  fill: none;
+  stroke: var(--pv-content-primary);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.pv-sparkline-empty {
+  display: block;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

@@ -1,0 +1,16 @@
+/* =============================================================================
+   The solid an overlay renders when it has no blur.
+
+   Deliberately identical to the values glass.css installs under reduced
+   transparency, so there is one solid overlay drawing in the product rather
+   than two that nearly match. A surface that lost its blur to the budget and a
+   surface on a machine where the operator asked for less transparency look the
+   same, which means the reduced-transparency variant is exercised constantly
+   instead of only by the people who need it.
+   ========================================================================== */
+
+.pv-overlay-solid {
+  background-color: var(--pv-surface-raised);
+  border: 1px solid var(--pv-border-subtle);
+  box-shadow: var(--pv-elevation-2);
+}

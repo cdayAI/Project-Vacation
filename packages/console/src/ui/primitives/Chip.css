@@ -1,0 +1,161 @@
+/* Chip — a small dense label that can also be a filter toggle or a removable
+   token.
+
+   Distinct from Badge on purpose: a Badge states a status and is never
+   interactive; a Chip is usually something the operator can act on. Keeping
+   them apart means a filter bar full of chips never looks like a row of
+   statuses, which is the confusion that makes a saved view look like an alert.
+
+   Tones arrive as the three --pv-tone-* variables set on the element by
+   toneVariables(); see tone.ts for why. */
+
+.pv-ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  max-width: 100%;
+  padding-inline: var(--pv-space-8);
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    border-color var(--pv-motion-micro) var(--pv-ease-entry),
+    color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-ui-chip[data-size="sm"] {
+  min-height: var(--pv-space-20);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+}
+
+.pv-ui-chip[data-size="md"] {
+  min-height: var(--pv-target-min);
+}
+
+/* WCAG 2.2 2.5.8: anything a pointer has to hit is at least 24×24 whatever size
+   the caller asked for. A 20px filter pill is a miss waiting to happen on a
+   trackpad, and an operator who mis-clicks a filter gets a wrong answer with no
+   sign that anything went wrong. */
+.pv-ui-chip[data-interactive="true"] {
+  min-height: var(--pv-target-min);
+}
+
+.pv-ui-chip[data-toned="true"] {
+  border-color: var(--pv-tone-border);
+  background-color: var(--pv-tone-surface);
+  color: var(--pv-tone-text);
+}
+
+.pv-ui-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Counts are why chips carry tabular figures: a row of saved-view pills whose
+   numbers change width as counts update makes the whole filter bar twitch. */
+.pv-ui-chip-count {
+  color: var(--pv-content-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -----------------------------------------------------------------------------
+   The toggle form
+   -------------------------------------------------------------------------- */
+
+.pv-ui-chip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  min-height: var(--pv-target-min);
+  padding: 0;
+  border: 0;
+  border-radius: var(--pv-radius-pill);
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.pv-ui-chip[data-interactive="true"]:hover {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+/* Selected carries a check mark as well as a fill. Tint alone is not a state:
+   it fails in greyscale, it fails for a monochromat, and the filter bar is the
+   one place where being wrong about state changes the answer silently. */
+.pv-ui-chip[data-selected="true"] {
+  border-color: var(--pv-accent);
+  background-color: color-mix(in oklab, var(--pv-accent) 12%, var(--pv-surface));
+  color: var(--pv-content-primary);
+}
+
+.pv-ui-chip[data-selected="true"]:hover {
+  background-color: color-mix(in oklab, var(--pv-accent) 18%, var(--pv-surface));
+}
+
+.pv-ui-chip-check {
+  color: var(--pv-accent);
+}
+
+.pv-ui-chip[data-disabled="true"],
+.pv-ui-chip[data-disabled="true"]:hover {
+  border-color: var(--pv-border-subtle);
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-tertiary);
+}
+
+.pv-ui-chip[data-disabled="true"] .pv-ui-chip-toggle,
+.pv-ui-chip[data-disabled="true"] .pv-ui-chip-remove {
+  cursor: not-allowed;
+}
+
+/* -----------------------------------------------------------------------------
+   The remove form
+   -------------------------------------------------------------------------- */
+
+.pv-ui-chip-remove {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pv-space-16);
+  height: var(--pv-space-16);
+  margin-inline-end: calc(var(--pv-space-4) * -1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--pv-radius-pill);
+  background: none;
+  color: var(--pv-content-tertiary);
+  cursor: pointer;
+}
+
+.pv-ui-chip-remove:hover {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+/* The painted target stays 16px so a row of tokens stays dense; the *hit*
+   target is the 24 WCAG asks for, grown past the painted edge into space
+   nothing else claims. */
+.pv-ui-chip-remove::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  width: var(--pv-target-min);
+  height: var(--pv-target-min);
+  transform: translate(-50%, -50%);
+}

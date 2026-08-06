@@ -1,0 +1,13 @@
+/* Stacked segments.
+
+   The hairline between segments is the surface colour, not a border token: it
+   is a gap cut into the stack rather than a line drawn on it, which is what
+   keeps the boundary visible when two adjacent fills print at the same
+   lightness. non-scaling-stroke keeps that gap one pixel wide at every chart
+   width instead of stretching into a stripe. */
+
+.pv-stack-segment {
+  stroke: var(--pv-surface);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}

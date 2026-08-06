@@ -1,0 +1,46 @@
+/* The layer a control's popup is drawn on: the option list, the calendar.
+
+   Deliberately solid rather than glass, against the specification's list of
+   glass surfaces (§1.5), for the reason the same section gives two lines later:
+   never blur behind a scrolling list. An option list scrolls, and a backdrop
+   filter over moving content costs a repaint per frame. It gets the designed
+   solid instead — surface-raised, a hairline, elevation 2 — which is exactly
+   what every glass surface becomes when transparency is reduced, so the console
+   loses nothing by being consistent about it here.
+
+   Rendered inline rather than portalled. That keeps the DOM order the same as
+   the reading order, which is what makes `aria-activedescendant` and Escape
+   behave without any focus bookkeeping. The cost is that a caller who puts a
+   control inside `overflow: hidden` will clip its popup; the composites that do
+   that own the fix, because only they know what the container is for. */
+
+.pv-ui-popup {
+  position: relative;
+}
+
+.pv-ui-popup-layer {
+  position: absolute;
+  z-index: 20;
+  inset-block-start: calc(100% + var(--pv-space-4));
+  inset-inline: 0;
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface-raised);
+  box-shadow: var(--pv-elevation-2);
+  animation: pv-ui-popup-enter var(--pv-motion-standard) var(--pv-ease-entry);
+}
+
+/* Wider than its field and sized by its content — a calendar has a width of its
+   own and squeezing it into a narrow field would misalign the columns. */
+.pv-ui-popup-layer[data-fit="content"] {
+  inset-inline-end: auto;
+  min-width: max-content;
+}
+
+/* Opacity only, no travel. A dropdown that slides is a dropdown the operator
+   waits for, and the standard duration is the whole budget. */
+@keyframes pv-ui-popup-enter {
+  from {
+    opacity: 0;
+  }
+}

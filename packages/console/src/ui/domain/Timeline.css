@@ -1,0 +1,212 @@
+/* Timeline — the spine of a run.
+
+   The rail is drawn with a marker and a connecting line rather than with a
+   border on the list, because the line has to stop at the last step: a rail
+   that runs past the final marker reads as "and then something else happened",
+   which on a case detail screen is exactly the wrong thing to imply. */
+
+.pv-timeline {
+  color: var(--pv-content-primary);
+}
+
+.pv-timeline-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv-timeline-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--pv-space-12);
+}
+
+.pv-timeline-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pv-space-4);
+}
+
+.pv-timeline-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--pv-space-24);
+  block-size: var(--pv-space-24);
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-secondary);
+  flex: none;
+  /* Aligns the marker with the first line of the headline rather than with the
+     top of the row, which on a two-line title leaves it floating. */
+  margin-block-start: calc((var(--pv-type-body-line) - var(--pv-space-24)) / 2);
+}
+
+.pv-timeline-line {
+  inline-size: 1px;
+  flex: 1;
+  background-color: var(--pv-border-subtle);
+}
+
+/* The last step ends the rail. */
+.pv-timeline-step:last-child .pv-timeline-line {
+  display: none;
+}
+
+/* State reaches the marker as well as the badge: on a long run the marker
+   column is what an operator scans, and a failed step has to be findable
+   without reading. Tone and shape both — the mark inside the ring already
+   differs by kind, and the ring weight differs by state. */
+.pv-timeline-step[data-state="failed"] .pv-timeline-marker {
+  border-color: var(--pv-status-danger-border);
+  background-color: var(--pv-status-danger-surface);
+  color: var(--pv-status-danger);
+}
+
+.pv-timeline-step[data-state="parked"] .pv-timeline-marker {
+  border-color: var(--pv-status-warning-border);
+  background-color: var(--pv-status-warning-surface);
+  color: var(--pv-status-warning);
+}
+
+.pv-timeline-step[data-state="running"] .pv-timeline-marker {
+  border-color: var(--pv-status-info-border);
+  background-color: var(--pv-status-info-surface);
+  color: var(--pv-status-info);
+}
+
+.pv-timeline-step[data-state="skipped"] .pv-timeline-marker {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+  padding-block-end: var(--pv-space-16);
+}
+
+.pv-timeline-headline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+  margin: 0;
+}
+
+/* Fixed width so the times form a column the eye can run down. */
+.pv-timeline-time {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-timeline-title {
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-timeline-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-12);
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-timeline-measure {
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-timeline-actor {
+  color: var(--pv-content-secondary);
+}
+
+.pv-timeline-detail {
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-timeline-citations {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv-timeline-citation {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-timeline-citation-source {
+  color: var(--pv-content-secondary);
+  font-family: var(--pv-font-mono);
+}
+
+/* The failure and what followed it, on one line, in the danger tone with the
+   words carrying the meaning — this block is read on a printout. */
+.pv-timeline-failure {
+  margin: 0;
+  padding: var(--pv-space-8);
+  border-inline-start: 2px solid var(--pv-status-danger-border);
+  background-color: var(--pv-status-danger-surface);
+  border-radius: var(--pv-radius-control);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-timeline-failure-what {
+  color: var(--pv-status-danger);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-timeline-failure-then {
+  color: var(--pv-content-secondary);
+}
+
+.pv-timeline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+  margin: 0;
+  padding-block-start: var(--pv-space-4);
+}
+
+/* The chevron points down when closed and up when open. A transform rather than
+   a second glyph, so the two states are the same drawing. */
+.pv-timeline-chevron-open {
+  transform: rotate(180deg);
+}
+
+.pv-timeline-details {
+  padding: var(--pv-space-12);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}

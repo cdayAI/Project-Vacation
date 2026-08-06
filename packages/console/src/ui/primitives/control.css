@@ -1,0 +1,156 @@
+/* The box every text-shaped control is drawn in: Input, Textarea, the Select
+   trigger, Combobox, DatePicker.
+
+   It lives in its own file because five components share it and a sixth will be
+   added by someone who has not read this comment. What they share is not a
+   look — it is a *contract*: one border colour that clears 3:1, one focus
+   treatment, one invalid treatment, and one read-only treatment. If each
+   component drew its own box, the read-only form would be the screen where the
+   inconsistency showed, because that is the state nobody checks.
+
+   The wrapper draws the border and the inner field is transparent. That is what
+   lets an addon — a currency prefix, a spinner, a calendar button — sit inside
+   the same border as the text without the caller doing arithmetic. */
+
+.pv-ui-control {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-primary);
+  transition:
+    border-color var(--pv-motion-micro) var(--pv-ease-entry),
+    background-color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-ui-control[data-size="sm"] {
+  min-height: var(--pv-control-height-sm);
+  padding-inline: var(--pv-space-8);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+}
+
+.pv-ui-control[data-size="md"] {
+  min-height: var(--pv-control-height-md);
+  padding-inline: var(--pv-space-12);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-ui-control[data-size="lg"] {
+  min-height: var(--pv-control-height-lg);
+  padding-inline: var(--pv-space-16);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-ui-control:hover:not([data-disabled="true"]):not([data-readonly="true"]) {
+  border-color: var(--pv-content-tertiary);
+}
+
+/* Two different signals on purpose. A pointer user who clicked into a field
+   gets the heavier border and no ring — they know where they are, and a ring
+   on every click is visual noise. A keyboard user gets the designed ring,
+   which is the thing WCAG 2.2 2.4.13 measures. */
+.pv-ui-control:focus-within {
+  border-color: var(--pv-accent);
+}
+
+.pv-ui-control:has(:focus-visible) {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+}
+
+/* The ring belongs to the box, not to the field inside it, or it would be drawn
+   twice and inside the border. */
+.pv-ui-control-field:focus-visible {
+  outline: none;
+}
+
+.pv-ui-control[data-invalid="true"] {
+  border-color: var(--pv-status-danger);
+}
+
+.pv-ui-control[data-disabled="true"] {
+  border-color: var(--pv-border-subtle);
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-tertiary);
+}
+
+/* Read-only is a designed state, not a disabled one (spec §4). No border, no
+   fill, the value in content-primary at full strength, and the inline padding
+   dropped so the value sits on the same left edge as its label — which is what
+   turns a form into a record an auditor can read down. The field stays
+   focusable and selectable so the value can still be copied. */
+.pv-ui-control[data-readonly="true"] {
+  border-color: transparent;
+  background-color: transparent;
+  padding-inline: 0;
+  color: var(--pv-content-primary);
+}
+
+.pv-ui-control-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  /* Ids, amounts, dates, and durations all pass through these boxes. Tabular
+     figures stop a value re-rendering at a different width. */
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-ui-control-field::placeholder {
+  color: var(--pv-content-tertiary);
+  opacity: 1; /* Firefox dims placeholders further; contrast is already decided. */
+}
+
+.pv-ui-control-field:disabled {
+  cursor: not-allowed;
+  /* Safari lightens disabled field text past the point where it can be read. */
+  -webkit-text-fill-color: var(--pv-content-tertiary);
+}
+
+/* An addon is decoration or a control of its own — a currency prefix, a
+   spinner, the calendar button. Never the only place a meaning lives. */
+.pv-ui-control-addon {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+}
+
+.pv-ui-control-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--pv-target-min);
+  height: var(--pv-target-min);
+  margin-inline-end: calc(var(--pv-space-4) * -1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--pv-radius-control);
+  background: none;
+  color: var(--pv-content-secondary);
+  cursor: pointer;
+}
+
+.pv-ui-control-button:hover {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+.pv-ui-control-button:disabled {
+  color: var(--pv-content-tertiary);
+  cursor: not-allowed;
+}

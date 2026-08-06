@@ -1,0 +1,102 @@
+/* =============================================================================
+   The `?` shortcut reference.
+
+   A reading surface: two columns, keys on the left, meaning on the right, one
+   section per part of the day. It is generated from the shortcut table, so the
+   only thing this file decides is how it reads.
+   ========================================================================== */
+
+.pv-shortcuts {
+  display: grid;
+  /* Two columns where there is room, one where there is not. The breakpoint is
+     the content's own — a section narrower than this stops being two readable
+     columns and becomes two cramped ones. */
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--pv-space-32);
+}
+
+.pv-shortcuts-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+}
+
+.pv-shortcuts-heading {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+.pv-shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+}
+
+.pv-shortcuts-row {
+  display: grid;
+  grid-template-columns: 6rem 1fr;
+  gap: var(--pv-space-12);
+  align-items: start;
+}
+
+.pv-shortcuts-term {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.pv-shortcuts-keys {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: var(--pv-target-min);
+  padding: 0 var(--pv-space-8);
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-control);
+  color: var(--pv-content-primary);
+  font-family: var(--pv-font-sans);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  font-weight: var(--pv-type-label-weight);
+  white-space: nowrap;
+}
+
+.pv-shortcuts-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  margin: 0;
+}
+
+.pv-shortcuts-label {
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-shortcuts-description,
+.pv-shortcuts-scope {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-shortcuts-scope {
+  color: var(--pv-content-tertiary);
+}
+
+/* A verb nobody has bound on this screen is dimmed only in company with the
+   words "not on this screen" — the state is never carried by the tint alone. */
+.pv-shortcuts-row:not([data-available="true"]) .pv-shortcuts-keys {
+  color: var(--pv-content-tertiary);
+  border-color: var(--pv-border-subtle);
+}
+
+.pv-shortcuts-inert {
+  color: var(--pv-status-neutral);
+}

@@ -1,0 +1,159 @@
+/* =============================================================================
+   Dropdown menu — anchored, elevation 2.
+
+   Items are full-width rows rather than padded text, so the target is the row.
+   A menu whose hit area is the label leaves dead space that swallows clicks and
+   teaches an operator to aim.
+   ========================================================================== */
+
+.pv-dropdown {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 12rem; /* 192 */
+  max-inline-size: 22rem; /* 352 */
+  max-block-size: 70vh;
+  border-radius: var(--pv-radius-card);
+  overflow: hidden;
+  color: var(--pv-content-primary);
+
+  opacity: 0;
+  transform: translateY(calc(var(--pv-space-4) * -1));
+  transition:
+    opacity var(--pv-motion-standard) var(--pv-ease-entry),
+    transform var(--pv-motion-standard) var(--pv-ease-entry);
+}
+
+/* Before the first measurement it sits at the origin with the entrance's own
+   opacity of 0, so there is no flash in the corner of the window — and it is
+   still in the accessibility tree, because a surface hidden from assistive
+   technology while it waits for a layout is a surface that is silent on any
+   page that never provides one. */
+.pv-dropdown[data-state="measuring"] {
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.pv-dropdown[data-state="open"] {
+  opacity: 1;
+  transform: none;
+}
+
+.pv-dropdown[data-placement^="top"] {
+  transform: translateY(var(--pv-space-4));
+}
+
+.pv-dropdown[data-placement^="top"][data-state="open"] {
+  transform: none;
+}
+
+.pv-dropdown-list {
+  padding: var(--pv-space-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pv-dropdown-state {
+  padding: var(--pv-space-12);
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+/* -----------------------------------------------------------------------------
+   An item
+   -------------------------------------------------------------------------- */
+
+.pv-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pv-space-12);
+  inline-size: 100%;
+  min-block-size: var(--pv-control-height-md);
+  padding: var(--pv-space-8) var(--pv-space-8);
+  border: none;
+  border-radius: var(--pv-radius-control);
+  background: none;
+  text-align: start;
+  cursor: pointer;
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+  transition: background-color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+/* Hover and keyboard focus land on the same fill, so pointer and keyboard show
+   the same thing as "where you are". */
+.pv-dropdown-item:hover,
+.pv-dropdown-item:focus-visible {
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-dropdown-item:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: calc(var(--pv-focus-ring-offset) * -1);
+}
+
+.pv-dropdown-item:active {
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-dropdown-item[aria-disabled="true"] {
+  color: var(--pv-content-tertiary);
+  cursor: default;
+}
+
+.pv-dropdown-item[aria-disabled="true"]:hover {
+  background-color: transparent;
+}
+
+/* Destructive items are danger-coloured *and* separated by a rule *and* carry
+   the word "destructive" for a screen reader. Colour is the least of the three:
+   it is the one that disappears in a printed audit pack. */
+.pv-dropdown-item[data-destructive] {
+  color: var(--pv-status-danger);
+}
+
+.pv-dropdown-item[data-destructive]:hover,
+.pv-dropdown-item[data-destructive]:focus-visible {
+  background-color: var(--pv-status-danger-surface);
+}
+
+.pv-dropdown-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+}
+
+.pv-dropdown-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pv-dropdown-item-description {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-dropdown-item-shortcut {
+  flex: none;
+  padding: 0 var(--pv-space-4);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  color: var(--pv-content-tertiary);
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+}
+
+.pv-dropdown-separator {
+  block-size: 1px;
+  margin: var(--pv-space-4) 0;
+  background-color: var(--pv-border-subtle);
+}

@@ -1,0 +1,34 @@
+/* Select — the trigger. The popup is OptionList.css. */
+
+.pv-ui-select-trigger {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  text-align: start;
+  cursor: pointer;
+}
+
+.pv-ui-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The placeholder is tertiary and the chosen value is primary, so a glance down
+   a form shows which fields are still unanswered. */
+.pv-ui-select-value[data-placeholder="true"] {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-ui-select-chevron {
+  color: var(--pv-content-tertiary);
+  transition: transform var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-ui-control[data-open="true"] .pv-ui-select-chevron {
+  transform: rotate(180deg);
+}
+
+.pv-ui-control[data-disabled="true"] .pv-ui-select-trigger {
+  cursor: not-allowed;
+}

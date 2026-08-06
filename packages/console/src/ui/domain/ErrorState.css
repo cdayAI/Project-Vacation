@@ -1,0 +1,94 @@
+/* ErrorState — what happened, what it means, what to do, and the reference.
+
+   Left-aligned by default. A failure is read carefully rather than glanced at,
+   and it is very often transcribed into a ticket; both of those want a stable
+   left edge. */
+
+.pv-error-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-20);
+  border: 1px solid var(--pv-tone-border);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-tone-surface);
+  color: var(--pv-content-primary);
+}
+
+.pv-error-state[data-tone="danger"] {
+  --pv-tone-text: var(--pv-status-danger);
+  --pv-tone-surface: var(--pv-status-danger-surface);
+  --pv-tone-border: var(--pv-status-danger-border);
+}
+
+.pv-error-state[data-tone="warning"] {
+  --pv-tone-text: var(--pv-status-warning);
+  --pv-tone-surface: var(--pv-status-warning-surface);
+  --pv-tone-border: var(--pv-status-warning-border);
+}
+
+.pv-error-state[data-align="center"] {
+  align-items: center;
+}
+
+/* The word, in the tone's own colour and above the title. Not decoration: this
+   block is screenshotted into tickets and printed into audit packs, and both
+   are monochrome. */
+.pv-error-state-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  margin: 0;
+  color: var(--pv-tone-text);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+.pv-error-state-title {
+  margin: 0;
+  max-width: var(--pv-reading-measure);
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+  /* Deliberately not the tone colour. A wall of red text is harder to read at
+     the moment the operator most needs to read it. */
+  color: var(--pv-content-primary);
+}
+
+.pv-error-state-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-error-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-8);
+  padding-block-start: var(--pv-space-4);
+}
+
+/* Monospace and selectable. It gets read aloud down a phone line and typed
+   into a search box, so the digits must not be ambiguous. */
+.pv-error-state-reference {
+  margin: 0;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-error-state-reference code {
+  color: var(--pv-content-secondary);
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}

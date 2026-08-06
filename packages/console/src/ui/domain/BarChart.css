@@ -1,0 +1,9 @@
+/* Bars.
+
+   No rounded corners. The radius scale is for controls and cards; a rounded bar
+   top removes a slice of the very length the bar exists to communicate, and at
+   small values it removes all of it. */
+
+.pv-bar {
+  stroke: none;
+}

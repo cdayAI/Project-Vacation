@@ -1,0 +1,201 @@
+/* Button — four variants at three heights.
+
+   Two decisions worth stating, because both look like details and neither is:
+
+   1. The primary and the danger button are the same size and the same weight as
+      the button beside them. The specification is explicit that Approve and
+      Reject are equals (§3.2): nothing here may style one decision as the easy
+      path.
+   2. Press is signalled by *losing* elevation, not by a lift or a scale. A
+      button that grows under the cursor moves its own label at the moment the
+      operator commits to hitting it, and the queue is worked at speed. */
+
+.pv-ui-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pv-space-8);
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius-control);
+  background-color: transparent;
+  font-family: inherit;
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  letter-spacing: var(--pv-type-body-strong-tracking);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    border-color var(--pv-motion-micro) var(--pv-ease-entry),
+    box-shadow var(--pv-motion-micro) var(--pv-ease-entry),
+    color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-ui-button[data-size="sm"] {
+  height: var(--pv-control-height-sm);
+  padding-inline: var(--pv-space-8);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+}
+
+.pv-ui-button[data-size="md"] {
+  height: var(--pv-control-height-md);
+  padding-inline: var(--pv-space-12);
+}
+
+.pv-ui-button[data-size="lg"] {
+  height: var(--pv-control-height-lg);
+  padding-inline: var(--pv-space-16);
+}
+
+/* Square, and never below the 24×24 WCAG 2.2 2.5.8 asks for — which the 28px
+   small size already clears. */
+.pv-ui-button[data-icon-only="true"] {
+  padding-inline: 0;
+  aspect-ratio: 1;
+}
+
+.pv-ui-button[data-full-width="true"] {
+  width: 100%;
+}
+
+/* -----------------------------------------------------------------------------
+   Variants
+   -------------------------------------------------------------------------- */
+
+.pv-ui-button[data-variant="primary"] {
+  background-color: var(--pv-accent);
+  color: var(--pv-accent-contrast);
+  box-shadow: var(--pv-elevation-1);
+}
+
+.pv-ui-button[data-variant="primary"]:hover:not([data-inert="true"]) {
+  background-color: var(--pv-accent-hover);
+}
+
+.pv-ui-button[data-variant="primary"]:active:not([data-inert="true"]) {
+  background-color: var(--pv-accent-hover);
+  box-shadow: var(--pv-elevation-0);
+}
+
+.pv-ui-button[data-variant="secondary"] {
+  border-color: var(--pv-border-control);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-primary);
+}
+
+.pv-ui-button[data-variant="secondary"]:hover:not([data-inert="true"]) {
+  background-color: var(--pv-bg-subtle);
+  border-color: var(--pv-content-tertiary);
+}
+
+.pv-ui-button[data-variant="secondary"]:active:not([data-inert="true"]) {
+  background-color: var(--pv-bg-subtle);
+  box-shadow: var(--pv-elevation-0);
+}
+
+.pv-ui-button[data-variant="ghost"] {
+  color: var(--pv-content-secondary);
+}
+
+.pv-ui-button[data-variant="ghost"]:hover:not([data-inert="true"]) {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+/* Danger is a tint, a boundary, a red label, and a mark — not a filled red
+   block. There is no token for text on a danger fill, and inventing one here
+   would be a token decision taken in a component: in dark theme the status red
+   is #ff6b6b, and white on it measures about 2.5:1. Soft danger clears contrast
+   in both themes and still reads as the destructive control in the row. */
+.pv-ui-button[data-variant="danger"] {
+  border-color: var(--pv-status-danger-border);
+  background-color: var(--pv-status-danger-surface);
+  color: var(--pv-status-danger);
+}
+
+.pv-ui-button[data-variant="danger"]:hover:not([data-inert="true"]) {
+  background-color: color-mix(in oklab, var(--pv-status-danger) 14%, var(--pv-status-danger-surface));
+  border-color: var(--pv-status-danger);
+}
+
+.pv-ui-button[data-variant="danger"]:active:not([data-inert="true"]) {
+  box-shadow: var(--pv-elevation-0);
+}
+
+/* -----------------------------------------------------------------------------
+   Unavailable
+   -------------------------------------------------------------------------- */
+
+/* One designed appearance for every way a button can be unavailable — the
+   native `disabled`, the focusable `aria-disabled`, and the loading state.
+   Deliberately not an opacity knock-down: opacity on a coloured fill lands
+   wherever it lands, and the result is unreadable often enough that "greyed
+   out" has become a synonym for "illegible". These are tokens that were checked
+   for contrast. */
+.pv-ui-button[data-inert="true"],
+.pv-ui-button[data-inert="true"]:hover {
+  border-color: var(--pv-border-subtle);
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-tertiary);
+  box-shadow: var(--pv-elevation-0);
+  cursor: not-allowed;
+}
+
+/* Loading keeps the resting fill: the operator has just pressed Approve and a
+   button that goes grey under their hand reads as a rejection of the click. */
+.pv-ui-button[data-loading="true"],
+.pv-ui-button[data-loading="true"]:hover {
+  cursor: progress;
+}
+
+.pv-ui-button[data-loading="true"][data-variant="primary"] {
+  background-color: var(--pv-accent);
+  color: var(--pv-accent-contrast);
+}
+
+.pv-ui-button[data-loading="true"][data-variant="secondary"] {
+  border-color: var(--pv-border-control);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-primary);
+}
+
+.pv-ui-button[data-loading="true"][data-variant="danger"] {
+  border-color: var(--pv-status-danger-border);
+  background-color: var(--pv-status-danger-surface);
+  color: var(--pv-status-danger);
+}
+
+/* -----------------------------------------------------------------------------
+   Content and the spinner
+   -------------------------------------------------------------------------- */
+
+.pv-ui-button-content {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+}
+
+/* Zero opacity rather than `visibility: hidden` or an unmounted label. The
+   button must not change width when it starts working — a decision bar that
+   reflows under the cursor is how an operator clicks the wrong thing — and
+   `visibility: hidden` would take the label out of the accessibility tree,
+   so the button would lose its name at the exact moment it is describing what
+   it is doing. */
+.pv-ui-button[data-loading="true"] .pv-ui-button-content {
+  opacity: 0;
+}
+
+.pv-ui-button-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -1,0 +1,72 @@
+/* The breadcrumb in the top bar. One line, never two: the bar is 56px and a
+   breadcrumb that wraps pushes the command trigger out of the middle. */
+
+.pv-breadcrumb {
+  min-inline-size: 0;
+}
+
+.pv-breadcrumb-list {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  min-inline-size: 0;
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-breadcrumb-item {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  min-inline-size: 0;
+}
+
+.pv-breadcrumb-item + .pv-breadcrumb-item {
+  margin-inline-start: var(--pv-space-8);
+}
+
+.pv-breadcrumb-separator {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-breadcrumb-label,
+.pv-breadcrumb-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-breadcrumb-link {
+  color: var(--pv-content-secondary);
+  text-decoration: none;
+  border-radius: var(--pv-radius-control);
+}
+
+.pv-breadcrumb-link:hover {
+  color: var(--pv-content-primary);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* The page you are on: the heaviest thing in the trail, and not a link. */
+.pv-breadcrumb-item[data-position="last"] .pv-breadcrumb-label {
+  color: var(--pv-content-primary);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-breadcrumb-item[data-position="ancestor"] .pv-breadcrumb-label {
+  color: var(--pv-content-secondary);
+}
+
+/* Below the panel-overlay breakpoint only the current page survives. Dropping
+   ancestors rather than shrinking every crumb keeps the one thing an operator
+   needs to read at full size. */
+@media (max-width: 899px) {
+  .pv-breadcrumb-item[data-position="ancestor"] {
+    display: none;
+  }
+
+  .pv-breadcrumb-item[data-position="last"] .pv-breadcrumb-separator {
+    display: none;
+  }
+}

@@ -1,0 +1,94 @@
+/* =============================================================================
+   The shared machinery of a modal and a sheet.
+
+   The <dialog> element is the scrim and fills the viewport; ::backdrop is left
+   transparent on purpose — see dialogHost.tsx for why. The surface inside it is
+   what moves.
+   ========================================================================== */
+
+.pv-dialog-host {
+  position: fixed;
+  inset: 0;
+  /* The UA stylesheet centres a dialog with auto margins and caps its size.
+     Everything here is laid out by the component instead. */
+  margin: 0;
+  padding: 0;
+  max-width: none;
+  max-height: none;
+  inline-size: 100%;
+  block-size: 100%;
+  border: none;
+  background-color: var(--pv-scrim);
+  overflow: hidden;
+
+  display: flex;
+  opacity: 0;
+  transition: opacity var(--pv-motion-surface) var(--pv-ease-entry);
+}
+
+.pv-dialog-host[data-state="open"] {
+  opacity: 1;
+}
+
+.pv-dialog-host[data-state="exiting"] {
+  opacity: 0;
+  transition-duration: var(--pv-motion-surface-exit);
+  transition-timing-function: var(--pv-ease-exit);
+}
+
+/* The element paints its own scrim, so the platform's must not paint a second
+   one over it. */
+.pv-dialog-host::backdrop {
+  background-color: transparent;
+}
+
+/* -----------------------------------------------------------------------------
+   The surface
+   -------------------------------------------------------------------------- */
+
+.pv-dialog-surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-block-size: 100%;
+  color: var(--pv-content-primary);
+  /* Elevation 3: modals, sheets, the command palette. The glass recipe brings
+     elevation 2, so this overrides it rather than adding to it. */
+  box-shadow: var(--pv-glass-highlight), var(--pv-elevation-3);
+
+  /* The translate and the scale have to agree about where the surface is
+     growing from, and 0 0 is what makes them agree. */
+  transform-origin: 0 0;
+  opacity: 0;
+  transform: translate3d(var(--pv-origin-x, 0), var(--pv-origin-y, 0), 0)
+    scale(var(--pv-origin-scale-x, 1), var(--pv-origin-scale-y, 1));
+  transition:
+    transform var(--pv-motion-surface) var(--pv-ease-entry),
+    opacity var(--pv-motion-surface) var(--pv-ease-entry);
+}
+
+.pv-dialog-surface[data-state="open"] {
+  opacity: 1;
+  transform: none;
+}
+
+.pv-dialog-surface[data-state="exiting"] {
+  opacity: 0;
+  /* Back into the row it came from, faster than it arrived. */
+  transform: translate3d(var(--pv-origin-x, 0), var(--pv-origin-y, 0), 0)
+    scale(var(--pv-origin-scale-x, 1), var(--pv-origin-scale-y, 1));
+  transition-duration: var(--pv-motion-surface-exit);
+  transition-timing-function: var(--pv-ease-exit);
+}
+
+/* Under a reduced-motion request the origin variables are never written, so the
+   transform resolves to its identity and only the opacity moves — at the 80ms
+   motion.css imposes. Stated here as well so the intent is legible next to the
+   rule it governs rather than only in a stylesheet three files away. */
+@media (prefers-reduced-motion: reduce) {
+  .pv-dialog-surface,
+  .pv-dialog-surface[data-state="exiting"] {
+    transform: none;
+  }
+}

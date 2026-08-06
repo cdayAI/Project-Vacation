@@ -1,0 +1,165 @@
+/* =============================================================================
+   The app shell's grid. Specification §2.
+
+   ┌──────────────────────────────────────────────────────────┐
+   │  top bar  56px                                           │
+   ├────────┬──────────────────────────┬──────────────────────┤
+   │ rail   │ content                  │ context panel        │
+   └────────┴──────────────────────────┴──────────────────────┘
+
+   One grid, three named areas, and every width from a token. The breakpoints
+   are spelled as numbers because a custom property does not resolve inside a
+   media query — theme/tokens.ts documents that and holds the same four values
+   for the JavaScript side.
+   ========================================================================== */
+
+.pv-shell {
+  display: grid;
+  grid-template-areas:
+    "topbar topbar topbar"
+    "rail content panel";
+  grid-template-columns: var(--pv-shell-rail-current) minmax(0, 1fr) var(--pv-shell-panel-column);
+  grid-template-rows: var(--pv-shell-top-bar-height) minmax(0, 1fr);
+
+  /* dvh rather than vh: on a phone with a retracting toolbar, vh is the tall
+     measurement and the bottom of the shell spends its life under the browser
+     chrome. */
+  block-size: 100dvh;
+  overflow: hidden;
+  /* The containing block for the skip link, so its parked position is clipped
+     by the rule above rather than floating above the window. */
+  position: relative;
+
+  --pv-shell-rail-current: var(--pv-shell-rail-width);
+  --pv-shell-panel-current: var(--pv-shell-panel-width);
+  --pv-shell-panel-column: var(--pv-shell-panel-current);
+}
+
+.pv-shell[data-rail="icons"] {
+  --pv-shell-rail-current: var(--pv-shell-rail-width-collapsed);
+}
+
+/* Collapsed to the 48px strip that holds the way back. */
+.pv-shell[data-panel-collapsed="true"] {
+  --pv-shell-panel-column: var(--pv-space-48);
+}
+
+/* An overlay panel is a sheet: it takes no column at all, and the content
+   spreads into the space. */
+.pv-shell[data-panel="overlay"],
+.pv-shell[data-panel="overlay"][data-panel-collapsed="true"] {
+  --pv-shell-panel-column: 0;
+}
+
+/* The width transition is on the grid, so the rail and the panel move together
+   with the content rather than sliding over it. Surface duration (§1.6). */
+@media (prefers-reduced-motion: no-preference) {
+  .pv-shell {
+    transition: grid-template-columns var(--pv-motion-surface) var(--pv-ease-entry);
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   The skip link
+
+   First in the document and invisible until focused, at which point it is a
+   real control in the top-left with the same focus ring as everything else.
+   -------------------------------------------------------------------------- */
+
+.pv-skip-link {
+  position: absolute;
+  z-index: 70;
+  inset-block-start: var(--pv-space-8);
+  inset-inline-start: var(--pv-space-8);
+  padding: var(--pv-space-8) var(--pv-space-12);
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface-raised);
+  box-shadow: var(--pv-elevation-2);
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  text-decoration: none;
+  /* Moved off screen rather than hidden: `display: none` and `visibility:
+     hidden` both make it unfocusable, which is the one thing it must be. */
+  transform: translateY(calc(-100% - var(--pv-space-16)));
+  transition: transform var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-skip-link:focus-visible {
+  transform: none;
+}
+
+/* -----------------------------------------------------------------------------
+   Content
+   -------------------------------------------------------------------------- */
+
+.pv-shell-content {
+  grid-area: content;
+  display: grid;
+  /* The banner does not scroll away. It states the three facts an operator must
+     never go looking for, and a fact you have to scroll up for is a fact you
+     will stop checking. */
+  grid-template-rows: auto minmax(0, 1fr);
+  min-inline-size: 0;
+  min-block-size: 0;
+  background-color: var(--pv-bg-base);
+}
+
+.pv-shell-main {
+  min-block-size: 0;
+  overflow-y: auto;
+  /* Page gutters: 24 desktop, 16 tablet (§1.2). */
+  padding: var(--pv-shell-gutter);
+}
+
+/* The main landmark takes focus on every route change. Its ring would trace
+   the whole scroll region, which says "everything" rather than "you have
+   arrived"; the announcement and the heading carry that instead. */
+.pv-shell-main:focus-visible {
+  outline: none;
+}
+
+.pv-shell-main-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-24);
+}
+
+/* -----------------------------------------------------------------------------
+   Breakpoints (§2)
+
+   ≥1440 full · 1280 the panel narrows to its minimum · 1024 the rail collapses
+   to icons · 900 the panel becomes an overlay sheet and layouts go read-only.
+
+   Each rung is also computed in shell/layout.ts, because two of them change
+   which component renders rather than only how it looks. These rules are what
+   make the transition land on the same frame as the re-render.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1279px) {
+  .pv-shell {
+    --pv-shell-panel-current: var(--pv-shell-panel-width-min);
+  }
+}
+
+@media (max-width: 1023px) {
+  .pv-shell {
+    --pv-shell-rail-current: var(--pv-shell-rail-width-collapsed);
+  }
+}
+
+@media (max-width: 899px) {
+  /* Matched to the specificity of the data-attribute rules above so that a
+     first paint, before the layout hook has read the viewport, still gets the
+     right column rather than a 48px strip on a phone. */
+  .pv-shell[data-panel],
+  .pv-shell[data-panel][data-panel-collapsed="true"] {
+    --pv-shell-panel-column: 0;
+  }
+
+  .pv-shell-main {
+    padding: var(--pv-shell-gutter-tablet);
+  }
+}
