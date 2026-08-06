@@ -26,6 +26,7 @@ import type {
   ContactEvidence,
   ContactPolicy,
   ContactRiskBand,
+  FrequencyCap,
   OutboundMessage,
   OutboundRequest,
 } from "./types.js";
@@ -160,14 +161,13 @@ export class ContactGate {
       timeZoneProblem = error instanceof Error ? error.message : String(error);
     }
 
-    const consentEvents = await this.answer("consent", async () => {
-      const events = await this.store.listConsentEvents({
+    const consentEvents = await this.answer(() =>
+      this.store.listConsentEvents({
         subjectRef: request.subjectRef,
         channel: request.channel,
         purpose: request.purpose,
-      });
-      return events;
-    });
+      }),
+    );
 
     const checks: ContactCheck[] = [];
 
@@ -286,7 +286,7 @@ export class ContactGate {
     }
 
     // ---- 3. Do-not-call. ------------------------------------------------
-    const suppressions = await this.answer("do_not_call", () =>
+    const suppressions = await this.answer(() =>
       this.store.findDoNotCall({
         subjectRef: request.subjectRef,
         destinationDigest: request.destinationDigest,
@@ -335,7 +335,7 @@ export class ContactGate {
         ),
       );
     } else {
-      const window = await this.answer("quiet_hours", async () =>
+      const window = await this.answer(async () =>
         resolveQuietHours(this.policy, request.jurisdiction, request.channel),
       );
       if (window.outcome !== "ok") {
@@ -377,14 +377,14 @@ export class ContactGate {
     }
 
     // ---- 5. Frequency caps, over a rolling window. ----------------------
-    const caps = await this.answer("frequency_cap", async () =>
+    const caps = await this.answer(async () =>
       resolveFrequencyCaps(this.policy, request.jurisdiction, request.channel, request.purpose),
     );
     if (caps.outcome !== "ok") {
       checks.push(unavailable("frequency_cap", caps.problem));
     } else {
-      const counted = await this.answer("frequency_cap", async () => {
-        const measured: { cap: (typeof caps.value)[number]; count: number }[] = [];
+      const counted = await this.answer(async () => {
+        const measured: { cap: FrequencyCap; count: number }[] = [];
         for (const cap of caps.value) {
           const since = new Date(nowMs - cap.windowHours * HOUR_MS).toISOString();
           const count = await this.store.countMessagesSince({
@@ -741,7 +741,6 @@ export class ContactGate {
    * the five questions went unanswered.
    */
   private async answer<T>(
-    name: ContactCheckName,
     fn: () => Promise<T>,
   ): Promise<{ outcome: "ok"; value: T } | { outcome: "unavailable"; problem: string }> {
     try {
@@ -752,7 +751,6 @@ export class ContactGate {
       // unanswered check back into a raised `contact.evidence_unavailable`
       // before anything is sent, so nothing proceeds on a swallowed refusal —
       // see the `!evidence.allowed` branch above, which always throws.
-      void name;
       return {
         outcome: "unavailable",
         problem: error instanceof Error ? error.message : String(error),
