@@ -840,7 +840,9 @@ async function enrollAgent(args: CommandArgs, context: AgentsCommandContext): Pr
       eligibleRoles: ["supervisor", "compliance_reviewer", "platform_admin"],
       subject: {
         externalAgentName: request.name,
-        owner: request.owner,
+        // The accountable owner is not written here. It is an email address,
+        // and this subject reaches the append-only chain; the enrolment record
+        // names them and can be corrected when somebody changes job.
         department: request.department,
         hostPlatform: request.hostPlatform,
       },
@@ -1023,7 +1025,6 @@ async function revokeAgent(args: CommandArgs, context: AgentsCommandContext): Pr
       subject: {
         externalAgentId: agent.id,
         externalAgentName: agent.name,
-        owner: agent.owner,
         department: agent.department,
       },
       ...(context.correlationId !== undefined ? { correlationId: context.correlationId } : {}),

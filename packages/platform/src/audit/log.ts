@@ -31,6 +31,30 @@ import type { AuditEntry, AuditEventType, AuditFilter, NewAuditEntry } from "./t
  * Generous enough that no legitimate decision comes close, small enough that a
  * seven-year chain stays cheap to store and quick to verify.
  */
+/**
+ * Email addresses and telephone numbers, the two shapes that are never a
+ * reference.
+ *
+ * Deliberately narrow, and narrowed once more after it fired on a digest. A
+ * sha256 hex string contains long digit runs by chance, so a pattern that
+ * matched bare digits refused the very values this rule wants callers to write.
+ * The telephone half therefore requires punctuation or a country prefix —
+ * something a person typed — and digests are skipped outright at the call site.
+ * A broad heuristic here is not "safer": a refused audit write refuses the
+ * action it was recording, so over-refusal costs accountability rather than
+ * buying privacy.
+ */
+const LOOKS_PERSONAL = new RegExp(
+  [
+    // An email address.
+    "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+    // A telephone number as a human writes one: a country prefix, or digit
+    // groups separated by spaces, dots, hyphens or brackets.
+    "\\+\\d[\\d \\-().]{7,}\\d",
+    "\\d{3}[ \\-.()]+\\d{3}[ \\-.()]+\\d{4}",
+  ].join("|"),
+);
+
 const MAX_ENTRY_CONTENT_BYTES = 16 * 1024;
 
 export class AuditLog {
@@ -159,6 +183,23 @@ export class AuditLog {
         throw new DeniedError(
           "record.unavailable",
           `Audit subject.${key} contains something that looks like a credential or a card number and was refused.`,
+          { field: `subject.${key}`, eventType: content.eventType },
+        );
+      }
+      // Defence in depth, not the primary control.
+      //
+      // Callers that take a subject from an untrusted source reduce it to
+      // opaque references before it gets here, which is where that belongs —
+      // this chain is append-only and kept for seven years, so a value written
+      // by mistake cannot be taken out again. This check exists because "the
+      // caller does it" is a convention, and a convention is one careless new
+      // caller away from being false. It catches the two shapes that are
+      // unambiguously a person rather than a reference.
+      // A digest is already the answer this rule is asking for.
+      if (!isDigest(value) && LOOKS_PERSONAL.test(value)) {
+        throw new DeniedError(
+          "record.unavailable",
+          `Audit subject.${key} looks like personal contact details rather than an opaque reference, and was refused. The chain records who a decision was about by identifier or digest, never by name, email, or telephone number — it cannot be edited afterwards to remove one.`,
           { field: `subject.${key}`, eventType: content.eventType },
         );
       }
