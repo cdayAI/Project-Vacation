@@ -1,17 +1,12 @@
+import type { ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type { WorkflowInstanceView } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DefinitionList,
-  EmptyState,
-  StepStatusPill,
-  type DefinitionItem,
-} from "../components";
 import { NOT_RECORDED, formatDateTime, formatDurationMs, formatUsd, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import type { StatusTone } from "../theme/tokens";
+import { Badge, Callout, EmptyState, IconCircle, IconDash, MarkUndo, Panel } from "../ui";
 
 /**
  * One workflow instance, written for a supervisor.
@@ -51,6 +46,72 @@ function stepKindLabel(kind: string): string {
 }
 
 /**
+ * Step status, in words.
+ *
+ * The label is the carrier; the tone and the mark are redundant channels laid
+ * on top of it, so a step that failed still says "Failed" printed in greyscale
+ * (WCAG 1.4.1). `denied` is its own tone rather than a shade of `danger` — a
+ * step the platform refused to take is governance working.
+ *
+ * A mark is named only where the tone's default would collapse two statuses
+ * onto one shape: `Badge` keys its default mark by tone, so pending and skipped
+ * would otherwise be the same dot.
+ *
+ * Status arrives as a free-form string from the operating record, so an
+ * unrecognised value is shown raw in a neutral badge rather than being given a
+ * tone the platform never claimed for it.
+ */
+interface Presentation {
+  readonly label: string;
+  readonly tone: StatusTone;
+  readonly icon?: ReactNode;
+}
+
+const STEP_STATUS: Readonly<Record<string, Presentation>> = {
+  pending: { label: "Pending", tone: "neutral", icon: <IconCircle size="sm" /> },
+  running: { label: "Running", tone: "info" },
+  succeeded: { label: "Succeeded", tone: "success" },
+  failed: { label: "Failed", tone: "danger" },
+  denied: { label: "Refused", tone: "denied" },
+  skipped: { label: "Skipped", tone: "neutral", icon: <IconDash size="sm" /> },
+  compensated: { label: "Compensated", tone: "warning", icon: <MarkUndo size="sm" /> },
+};
+
+function StepStatusBadge({ status }: { readonly status: string }) {
+  const presentation = STEP_STATUS[status];
+  if (presentation === undefined) return <Badge tone="neutral">{status}</Badge>;
+  return (
+    <Badge tone={presentation.tone} icon={presentation.icon}>
+      {presentation.label}
+    </Badge>
+  );
+}
+
+interface Fact {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`, with each pair wrapped in a `<div>` so the grid can lay it out
+ * without breaking the term/description association. Screen readers announce
+ * "definition list, N items" and pair each term with its description, which a
+ * two-column grid of divs does not.
+ */
+function FactList({ items }: { readonly items: readonly Fact[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
  * Elapsed time between two instants, or from a start that has not ended.
  *
  * Returns undefined rather than a zero when there is nothing to measure, so
@@ -73,7 +134,7 @@ export function WorkflowInstance({ instance }: WorkflowInstanceProps) {
   const doneCount = instance.steps.filter((step) => step.status === "succeeded").length;
   const isFinished = instance.endedAt !== undefined;
 
-  const summaryItems: DefinitionItem[] = [
+  const summaryItems: Fact[] = [
     { term: "Process", description: instance.definitionName },
     {
       term: "Process version",
@@ -142,12 +203,9 @@ export function WorkflowInstance({ instance }: WorkflowInstanceProps) {
 
       {/* The one thing a supervisor came for, before anything they have to
           interpret. */}
-      <section className="pv-panel" aria-labelledby="workflow-status">
-        <h2 className="pv-panel-heading" id="workflow-status">
-          Where this has got to
-        </h2>
+      <Panel title="Where this has got to">
         <p className="pv-lede-text">{instance.plainLanguageStatus}</p>
-      </section>
+      </Panel>
 
       {instance.waitingOn !== undefined && (
         <Callout tone="warning" title="This is waiting for something">
@@ -170,18 +228,11 @@ export function WorkflowInstance({ instance }: WorkflowInstanceProps) {
         </Callout>
       )}
 
-      <section className="pv-panel" aria-labelledby="workflow-summary">
-        <h2 className="pv-panel-heading" id="workflow-summary">
-          Summary
-        </h2>
-        <DefinitionList items={summaryItems} />
-      </section>
+      <Panel title="Summary">
+        <FactList items={summaryItems} />
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="workflow-steps">
-        <h2 className="pv-panel-heading" id="workflow-steps">
-          What happens, in order
-        </h2>
-
+      <Panel title="What happens, in order">
         {instance.steps.length === 0 ? (
           <EmptyState
             title="No steps yet"
@@ -192,22 +243,19 @@ export function WorkflowInstance({ instance }: WorkflowInstanceProps) {
             {instance.steps.map((step, index) => {
               const duration = elapsedMs(step.startedAt, step.endedAt);
               return (
-                <li
-                  className={step.slaBreached ? "pv-step pv-step-breached" : "pv-step"}
-                  key={`${index}-${step.name}`}
-                >
+                <li className="pv-step" key={`${index}-${step.name}`}>
                   <div className="pv-step-heading">
                     <span className="pv-step-seq">Step {index + 1}</span>
                     <h3>{step.name}</h3>
-                    <StepStatusPill status={step.status} />
-                    {step.slaBreached && (
-                      <Badge tone="danger" glyph="▲">
-                        Past due
-                      </Badge>
-                    )}
+                    <StepStatusBadge status={step.status} />
+                    {/* The breach is said in words and drawn in the danger tone
+                        on the step itself, so a supervisor scanning a long
+                        sequence has a second channel that survives greyscale
+                        and a supervisor reading it has a first one. */}
+                    {step.slaBreached && <Badge tone="danger">Past due</Badge>}
                   </div>
 
-                  <DefinitionList
+                  <FactList
                     items={[
                       { term: "What this step does", description: stepKindLabel(step.kind) },
                       {
@@ -255,7 +303,7 @@ export function WorkflowInstance({ instance }: WorkflowInstanceProps) {
             })}
           </ol>
         )}
-      </section>
+      </Panel>
     </div>
   );
 }

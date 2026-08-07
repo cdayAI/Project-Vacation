@@ -1,9 +1,18 @@
+import { useState } from "react";
 import { useClient } from "../api/ClientProvider";
 import type { DiscoveryCandidateView } from "../api/contract";
 import { useResource } from "../api/useResource";
-import { Badge, Callout, DataTable, EmptyState, type Column } from "../components";
 import { formatCount, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
+import {
+  Badge,
+  Callout,
+  EmptyState,
+  Panel,
+  Table,
+  type TableColumn,
+  type TableSort,
+} from "../ui";
 
 /**
  * The work discovery backlog.
@@ -26,7 +35,50 @@ import { ResourceView } from "../ResourceView";
  * A candidate reaches production only by being written up as an agent role and
  * a process and going through the same governance as everything else, which
  * means human approval and an evaluation against a curated set.
+ *
+ * The table brings controls of its own — a sort control per column and a column
+ * chooser — and they are not an exception to that rule. They change what this
+ * operator is looking at and nothing else; neither reaches the platform, and no
+ * ordering of a list has ever started a run.
  */
+
+/**
+ * Order the rows the table has been told it is showing.
+ *
+ * The table sorts for itself only while it owns the sort state, and it starts
+ * that state at "unsorted" — which would list candidates in whatever order the
+ * server returned while `aria-sort` said nothing was sorted at all. Holding the
+ * state here is what lets the screen open on the most-repeated work *and* say
+ * so. The comparison matches the table's own: numbers numerically, everything
+ * else with a numeric case-insensitive collation, ties broken by original
+ * position so the order is stable.
+ */
+function orderBy<T>(
+  rows: readonly T[],
+  columns: readonly TableColumn<T>[],
+  sort: TableSort | null,
+): readonly T[] {
+  const sortValue =
+    sort === null ? undefined : columns.find((column) => column.key === sort.columnKey)?.sortValue;
+  if (sort === null || sortValue === undefined) return rows;
+
+  const direction = sort.direction === "ascending" ? 1 : -1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const a = sortValue(left.row);
+      const b = sortValue(right.row);
+      const result =
+        typeof a === "number" && typeof b === "number"
+          ? a - b
+          : String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+      return result !== 0 ? result * direction : left.index - right.index;
+    })
+    .map((entry) => entry.row);
+}
+
+/** Most-repeated work first. That ranking is the whole point of the list. */
+const INITIAL_SORT: TableSort = { columnKey: "occurrences", direction: "descending" };
 
 export interface DiscoveryBacklogProps {
   readonly enabled: boolean;
@@ -34,6 +86,8 @@ export interface DiscoveryBacklogProps {
 }
 
 export function DiscoveryBacklog({ enabled, candidates }: DiscoveryBacklogProps) {
+  const [sort, setSort] = useState<TableSort | null>(INITIAL_SORT);
+
   if (!enabled) {
     return <DiscoveryDisabled />;
   }
@@ -43,13 +97,15 @@ export function DiscoveryBacklog({ enabled, candidates }: DiscoveryBacklogProps)
     0,
   );
 
-  const columns: readonly Column<DiscoveryCandidateView>[] = [
+  const columns: readonly TableColumn<DiscoveryCandidateView>[] = [
     {
       key: "summary",
       header: "Repeated work observed",
       rowHeader: true,
+      alwaysVisible: true,
+      width: 360,
       sortValue: (candidate) => candidate.summary,
-      render: (candidate) => (
+      cell: (candidate) => (
         <span className="pv-stack-tight">
           <span>{candidate.summary}</span>
           <span className="pv-meta pv-mono">{candidate.candidateId}</span>
@@ -59,31 +115,34 @@ export function DiscoveryBacklog({ enabled, candidates }: DiscoveryBacklogProps)
     {
       key: "state",
       header: "State",
-      render: () => (
-        <Badge tone="denied" glyph="⊟">
-          Draft only
-        </Badge>
-      ),
+      width: 160,
+      // Not sortable, because every row says the same thing and always will.
+      // The badge is on every row rather than in the caption alone so that a
+      // row read out of context still says what it is.
+      cell: () => <Badge tone="denied">Draft only</Badge>,
     },
     {
       key: "occurrences",
       header: "Times observed",
       numeric: true,
+      width: 150,
       sortValue: (candidate) => candidate.occurrences,
-      render: (candidate) => <span>{formatCount(candidate.occurrences)}</span>,
+      cell: (candidate) => <span>{formatCount(candidate.occurrences)}</span>,
     },
     {
       key: "minutes",
       header: "Estimated minutes each",
       numeric: true,
+      width: 200,
       sortValue: (candidate) => candidate.estimatedMinutesPerOccurrence,
-      render: (candidate) => <span>{candidate.estimatedMinutesPerOccurrence}</span>,
+      cell: (candidate) => <span>{candidate.estimatedMinutesPerOccurrence}</span>,
     },
     {
       key: "applications",
       header: "Applications involved",
+      width: 260,
       sortValue: (candidate) => candidate.applications.join(", "),
-      render: (candidate) =>
+      cell: (candidate) =>
         candidate.applications.length === 0 ? (
           <span className="pv-meta">None recorded</span>
         ) : (
@@ -142,12 +201,19 @@ export function DiscoveryBacklog({ enabled, candidates }: DiscoveryBacklogProps)
           headingLevel={2}
         />
       ) : (
-        <DataTable
+        <Table
           caption={`Work discovery candidates, ${pluralise(candidates.length, "candidate", "candidates")}. All are drafts.`}
+          tableId="discovery-backlog"
           columns={columns}
-          rows={candidates}
+          rows={orderBy(candidates, columns, sort)}
           rowKey={(candidate) => candidate.candidateId}
-          defaultSort={{ columnKey: "occurrences", direction: "descending" }}
+          rowNoun="candidates"
+          sort={sort}
+          onSortChange={setSort}
+          // Selection exists to feed bulk actions, and this screen has none to
+          // feed. Read-only also drops `X` from the row cursor, so there is no
+          // keystroke that puts a candidate into a set waiting to be acted on.
+          readOnly
         />
       )}
     </div>
@@ -180,10 +246,7 @@ function DiscoveryDisabled() {
         </p>
       </Callout>
 
-      <section className="pv-panel" aria-labelledby="discovery-why">
-        <h2 className="pv-panel-heading" id="discovery-why">
-          Why it is off
-        </h2>
+      <Panel title="Why it is off">
         <p>
           The obligations that attach to observing staff are not uniform and not optional, and they
           have not been answered in writing for this deployment:
@@ -208,12 +271,9 @@ function DiscoveryDisabled() {
           Until those are answered, the safe default is off, and the default is off in code rather
           than in a deployment setting.
         </p>
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="discovery-controls">
-        <h2 className="pv-panel-heading" id="discovery-controls">
-          What is in place for when it is switched on
-        </h2>
+      <Panel title="What is in place for when it is switched on">
         <ul className="pv-prose-list">
           <li>
             <strong>Three independent gates.</strong> The feature enabled in configuration, a named
@@ -247,19 +307,16 @@ function DiscoveryDisabled() {
             execute, save, schedule, or activate either, and no method exists that would.
           </li>
         </ul>
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="discovery-meanwhile">
-        <h2 className="pv-panel-heading" id="discovery-meanwhile">
-          What happens instead
-        </h2>
+      <Panel title="What happens instead">
         <p>
           The automation backlog for this release is chosen from interviews and process metrics.
           That is slower and less rigorous than observation, and it is the right trade while the
           questions above are open. If the answer turns out to be &ldquo;never&rdquo;, this module
           is deleted and nothing else in the platform changes, because nothing depends on it.
         </p>
-      </section>
+      </Panel>
     </div>
   );
 }

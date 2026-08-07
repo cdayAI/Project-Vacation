@@ -116,7 +116,14 @@ describe("ContainmentControls", () => {
     const onChange = vi.fn();
     renderSurface(<ContainmentControls switches={containmentClear} onChange={onChange} />);
 
-    await user.selectOptions(screen.getByLabelText("What kind of thing"), "role");
+    // The scope picker is a listbox combobox, not a native <select>, so choosing
+    // is open-then-pick. It is named by the words on the screen rather than by
+    // the scope code behind them, which is what the operator is choosing between.
+    const kind = screen.getByRole("combobox", { name: "What kind of thing" });
+    await user.click(kind);
+    await user.click(screen.getByRole("option", { name: "One agent role" }));
+    expect(kind).toHaveTextContent("One agent role");
+
     await user.type(screen.getByLabelText("Its name"), "role_owner_services_drafting");
     await user.click(screen.getByRole("button", { name: "Stop it" }));
     await user.type(screen.getByLabelText("Why are you doing this?"), "Below threshold since v7.");

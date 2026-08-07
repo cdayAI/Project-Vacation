@@ -105,8 +105,40 @@ export interface DemoResult {
   readonly chainIntact: boolean;
 }
 
-export async function runDemo(out: Output = createOutput()): Promise<DemoResult> {
-  const config = loadConfig({ PV_ENV: "development", PV_STORE: "memory" });
+/**
+ * The demonstration, and the platform it ran on.
+ *
+ * The platform is handed back rather than closed so that something else can
+ * serve from it — see `pv serve --seed`. A caller that only wants the story
+ * uses {@link runDemo}, which closes it.
+ */
+export interface DemoRun {
+  readonly platform: Platform;
+  readonly result: DemoResult;
+}
+
+/**
+ * Run the demonstration and keep the platform open.
+ *
+ * The record this produces lives in memory for as long as the process does.
+ * That is the whole reason the console can be looked at without a database:
+ * the same in-process record the demonstration wrote is the one the HTTP API
+ * then reads.
+ */
+export async function runDemoKeepingPlatform(
+  out: Output = createOutput(),
+  overrides: Readonly<Record<string, string>> = {},
+): Promise<DemoRun> {
+  // Hermetic by default: an explicit environment, not `process.env`, so the
+  // demonstration produces the same bytes on a laptop with a dozen PV_ keys
+  // exported as it does in CI. That is what the determinism gate checks.
+  //
+  // `overrides` is the narrow exception, and `pv serve --seed` is its only
+  // caller: a server has to listen on the port the operator asked for. Without
+  // it the seeded API listened on 8080 while the console's dev proxy — which
+  // does read PV_HTTP_PORT — pointed somewhere else, and the console reported
+  // the platform unreachable while a perfectly healthy platform was running.
+  const config = loadConfig({ ...overrides, PV_ENV: "development", PV_STORE: "memory" });
   const clock = new FixedClock(DEMO_NOW);
   const ids = new SeededIdGenerator(config.demoSeed);
   const memoryDb = new MemoryDb();
@@ -205,20 +237,45 @@ export async function runDemo(out: Output = createOutput()): Promise<DemoResult>
   // product reporting that its evidence is fine when it has none is the worst
   // sentence it can produce, and the demonstration is where that impression
   // was formed. It ends by saying where its record went.
+  // Where the record went is said by the caller, not here, because the two
+  // callers send it to different places. `runDemo` closes the platform and the
+  // record is gone; `pv serve --seed` keeps it and serves it. Printing "gone
+  // now" from inside would make the sentence false on the path that keeps it —
+  // which is the same defect as the verifier that called an erased chain empty,
+  // committed by the narration instead of by the code.
+
+  return {
+    platform,
+    result: {
+      runsCreated: runs.length,
+      deadlinesComputed,
+      refusals,
+      auditEntries: chain.length,
+      chainIntact: verification.intact,
+    },
+  };
+}
+
+/**
+ * Run the demonstration and close the platform behind it.
+ *
+ * The shape `pnpm demo` and the determinism check in CI use. Closing here
+ * rather than in the caller is what makes the sentence above — "the record is
+ * gone now" — true rather than aspirational.
+ */
+export async function runDemo(out: Output = createOutput()): Promise<DemoResult> {
+  const { platform, result } = await runDemoKeepingPlatform(out);
+  await platform.close();
+
+  // Said after the close, so it is true when it is read. `pv audit verify`
+  // building a fresh platform and reporting an empty chain, moments after this
+  // printed a verified one, is the impression this paragraph exists to prevent.
   out.line("This demonstration ran entirely in memory. The record above was verified");
   out.line("in this process and is gone now — there is nothing left on disk for");
   out.line("`pv audit verify` to read. To verify a chain after the fact, point the");
   out.line("platform at Postgres (PV_STORE=postgres) and run work through it.");
 
-  await platform.close();
-
-  return {
-    runsCreated: runs.length,
-    deadlinesComputed,
-    refusals,
-    auditEntries: chain.length,
-    chainIntact: verification.intact,
-  };
+  return result;
 }
 
 // ---------------------------------------------------------------------------

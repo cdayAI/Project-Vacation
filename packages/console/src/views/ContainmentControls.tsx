@@ -1,20 +1,16 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { isDenial } from "../api/client";
 import { useClient } from "../api/ClientProvider";
 import type { ContainmentView, DenialView } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Button,
-  Callout,
-  DataTable,
-  DefinitionList,
-  Dialog,
-  Field,
-  type Column,
-} from "../components";
+// The switch table is the one thing on this screen still drawn by the old
+// component layer. See the note above it: `ui/surfaces/Table` has no
+// `rowClassName`, and that class is what makes a stopped row readable as
+// stopped from across the room.
+import { DataTable, type Column } from "../components";
 import { formatDateTime, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
+import { Badge, Button, Callout, Input, Modal, Panel, Select, Textarea } from "../ui";
 import { Denial } from "./Denial";
 
 /**
@@ -72,6 +68,36 @@ const SCOPE_NOUN: Readonly<Record<ContainmentView["scope"], string>> = {
 
 /** Scopes an operator can engage by naming a target. Global is its own control. */
 const TARGETED_SCOPES: readonly ContainmentView["scope"][] = ["workflow", "role", "integration"];
+
+/** The scope picker's options, in the order the labels above declare them. */
+const SCOPE_OPTIONS = TARGETED_SCOPES.map((scope) => ({
+  value: scope,
+  label: SCOPE_LABEL[scope],
+}));
+
+interface DefinitionItem {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`, with each pair wrapped in a `<div>` so the grid can lay it out
+ * without breaking the term/description association. Screen readers announce
+ * "definition list, N items" and pair each term with its description, which a
+ * two-column grid of divs does not.
+ */
+function DefinitionList({ items }: { readonly items: readonly DefinitionItem[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 export interface ContainmentChangeRequest {
   readonly scope: ContainmentView["scope"];
@@ -164,15 +190,7 @@ export function ContainmentControls({
       header: "State",
       sortValue: (entry) => (entry.engaged ? 0 : 1),
       render: (entry) =>
-        entry.engaged ? (
-          <Badge tone="danger" glyph="⊘">
-            Stopped
-          </Badge>
-        ) : (
-          <Badge tone="success" glyph="✓">
-            Running
-          </Badge>
-        ),
+        entry.engaged ? <Badge tone="danger">Stopped</Badge> : <Badge tone="success">Running</Badge>,
     },
     {
       key: "reason",
@@ -255,14 +273,7 @@ export function ContainmentControls({
       {/* ---------------------------------------------------------------
           Global state, stated before any control.
           --------------------------------------------------------------- */}
-      <section
-        className={globallyPaused ? "pv-panel pv-panel-alarm" : "pv-panel pv-panel-global"}
-        aria-labelledby="containment-global"
-      >
-        <h2 className="pv-panel-heading" id="containment-global">
-          {globallyPaused ? "Everything is stopped" : "The platform is running"}
-        </h2>
-
+      <Panel title={globallyPaused ? "Everything is stopped" : "The platform is running"}>
         {globallyPaused ? (
           <div className="pv-stack">
             <p className="pv-lede-text">
@@ -339,7 +350,7 @@ export function ContainmentControls({
             </p>
           </div>
         )}
-      </section>
+      </Panel>
 
       {targetedEngaged.length > 0 && (
         <Callout
@@ -357,12 +368,20 @@ export function ContainmentControls({
         </Callout>
       )}
 
+      {/* The id sits on a wrapper because `aria-describedby` needs an element to
+          point at and the callout owns its own markup. Pointing at the wrapper
+          rather than at the paragraph inside it is also what makes the whole
+          explanation the description, title included. */}
       {!mayEngage && (
-        <p id="containment-not-permitted" className="pv-callout pv-callout-info">
-          Your session is not showing the entitlement to change a containment switch, so these
-          controls are drawn unavailable. This is a courtesy of the console, not a control: the
-          platform decides entitlement when a change is submitted.
-        </p>
+        <div id="containment-not-permitted">
+          <Callout tone="info" title="These controls are drawn unavailable">
+            <p>
+              Your session is not showing the entitlement to change a containment switch. This is
+              a courtesy of the console, not a control: the platform decides entitlement when a
+              change is submitted.
+            </p>
+          </Callout>
+        </div>
       )}
 
       {submitting && (
@@ -374,16 +393,19 @@ export function ContainmentControls({
       {/* ---------------------------------------------------------------
           Everything the platform knows about
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="containment-switches">
-        <h2 className="pv-panel-heading" id="containment-switches">
-          Every switch on record
-        </h2>
+      <Panel title="Every switch on record">
         <p className="pv-meta">
           {switches.length === 0
             ? "No switch has ever been set. Nothing is stopped."
             : `${pluralise(switches.length, "switch", "switches")} on record, ${engaged.length} engaged.`}
         </p>
 
+        {/* Still the old DataTable, deliberately. `rowClassName` is what paints
+            a stopped row in the denied tone with a bar down its leading edge,
+            and `ui/surfaces/Table` has no equivalent: it hardcodes the row's
+            class. Pushing the tone into a cell instead would be a weaker claim
+            — the whole row is what reads as stopped. Swap this the moment Table
+            takes a `rowClassName`. */}
         {switches.length > 0 && (
           <DataTable
             caption={`Containment switches, ${pluralise(switches.length, "switch", "switches")}.`}
@@ -394,58 +416,33 @@ export function ContainmentControls({
             defaultSort={{ columnKey: "engaged", direction: "ascending" }}
           />
         )}
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           Stop something that has never been stopped before
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="containment-new">
-        <h2 className="pv-panel-heading" id="containment-new">
-          Stop something not listed above
-        </h2>
+      <Panel title="Stop something not listed above">
         <p className="pv-meta">
           A switch appears in the table only once it has been set. To stop something for the first
           time, name it here.
         </p>
 
         <div className="pv-toolbar">
-          <Field label="What kind of thing" hint={SCOPE_HINT[newScope]}>
-            {(control) => (
-              <select
-                id={control.id}
-                className="pv-select"
-                aria-describedby={control.describedBy}
-                value={newScope}
-                onChange={(event) =>
-                  setNewScope(event.target.value as ContainmentView["scope"])
-                }
-              >
-                {TARGETED_SCOPES.map((scope) => (
-                  <option key={scope} value={scope}>
-                    {SCOPE_LABEL[scope]}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
+          <Select
+            label="What kind of thing"
+            hint={SCOPE_HINT[newScope]}
+            options={SCOPE_OPTIONS}
+            value={newScope}
+            onChange={(scope) => setNewScope(scope as ContainmentView["scope"])}
+          />
 
-          <Field
+          <Input
             label="Its name"
             hint="The process name, agent role identifier, or integration name, exactly as the platform records it."
             error={targetError}
-          >
-            {(control) => (
-              <input
-                id={control.id}
-                className="pv-input"
-                type="text"
-                aria-describedby={control.describedBy}
-                aria-invalid={control.invalid}
-                value={newTarget}
-                onChange={(event) => setNewTarget(event.target.value)}
-              />
-            )}
-          </Field>
+            value={newTarget}
+            onChange={(event) => setNewTarget(event.target.value)}
+          />
 
           <Button
             variant="danger"
@@ -456,9 +453,9 @@ export function ContainmentControls({
             Stop it
           </Button>
         </div>
-      </section>
+      </Panel>
 
-      <Dialog
+      <Modal
         open={pending !== null}
         title={
           pending === null
@@ -470,6 +467,13 @@ export function ContainmentControls({
                 : "Release this stop?"
         }
         onClose={() => setPending(null)}
+        // Cancel below is already the way out, and a second dismissal control
+        // competing with it is one more thing to read while an incident runs.
+        hideCloseButton
+        // A stray click beside the dialog would throw away the typed reason,
+        // and the reason is the only part of this the operator cannot get back
+        // — it is what the audit entry holds and what the next operator reads.
+        dismissOnOutsideClick={false}
         actions={
           <>
             <Button variant="secondary" onClick={() => setPending(null)}>
@@ -510,7 +514,6 @@ export function ContainmentControls({
 
         {pending !== null && (
           <DefinitionList
-            stacked
             items={[
               { term: "Scope", description: SCOPE_LABEL[pending.scope] },
               {
@@ -527,23 +530,14 @@ export function ContainmentControls({
           />
         )}
 
-        <Field
+        <Textarea
           label="Why are you doing this?"
           hint="Recorded in the audit log with your name, and shown to whoever finds this stopped."
           error={reasonError}
-        >
-          {(control) => (
-            <textarea
-              id={control.id}
-              className="pv-textarea"
-              aria-describedby={control.describedBy}
-              aria-invalid={control.invalid}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          )}
-        </Field>
-      </Dialog>
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </Modal>
     </div>
   );
 }

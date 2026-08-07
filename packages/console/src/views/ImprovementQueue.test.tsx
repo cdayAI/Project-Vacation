@@ -26,10 +26,26 @@ describe("ImprovementQueue", () => {
     );
 
     const buttons = screen.queryAllByRole("button");
-    for (const button of buttons) {
-      // Every button on this screen is a table sort control and nothing else.
-      expect(button.className).toContain("pv-dt-sort");
-    }
+    expect(buttons.length).toBeGreaterThan(0);
+
+    // Every button on this screen belongs to a table's own view controls: a
+    // sort control, or the column chooser. Both change what this reader is
+    // looking at and neither reaches the platform.
+    //
+    // Matched on what each control announces rather than on a class name. A
+    // control that applied a change could be given any class; it could not
+    // pass this without telling a screen-reader user it sorts a column.
+    const columnChoosers = buttons.filter((button) => button.textContent === "Columns");
+    const sortControls = buttons.filter((button) =>
+      /, (not sorted|sorted (ascending|descending))\. Activate to sort (ascending|descending)\.$/.test(
+        button.textContent ?? "",
+      ),
+    );
+
+    // One chooser per table, and the two kinds account for every button — so a
+    // third kind cannot arrive unnoticed.
+    expect(columnChoosers).toHaveLength(2);
+    expect(columnChoosers.length + sortControls.length).toBe(buttons.length);
   });
 
   it("ranks clusters by how often each one happens", () => {
@@ -37,12 +53,26 @@ describe("ImprovementQueue", () => {
       <ImprovementQueue clusters={improvementClusters} proposals={improvementProposals} />,
     );
 
-    const clusterTable = screen.getByRole("table", { name: /Observation clusters/ });
+    // `grid`, not `table`: J/K/Enter row navigation is a widget and the role
+    // says so. Its columnheader, row and rowheader children are unchanged.
+    const clusterTable = screen.getByRole("grid", { name: /Observation clusters/ });
     const rows = within(clusterTable).getAllByRole("row");
     // Header plus three, most frequent first.
     expect(rows).toHaveLength(4);
     expect(within(rows[1] as HTMLElement).getByText("412")).toBeInTheDocument();
     expect(within(rows[3] as HTMLElement).getByText("58")).toBeInTheDocument();
+
+    // The table mounts a window of rows, so a count of what is in the DOM can
+    // no longer stand on its own: `aria-rowcount` is what a screen reader is
+    // told, and it must be the whole list rather than the mounted part of it.
+    // +1 for the header row, which occupies index 1 in that coordinate space.
+    expect(clusterTable).toHaveAttribute("aria-rowcount", String(improvementClusters.length + 1));
+
+    // And the ranking is announced, not merely applied. A list that is
+    // silently sorted is a list nobody can trust the top of.
+    expect(
+      within(clusterTable).getByRole("columnheader", { name: /Times seen/ }),
+    ).toHaveAttribute("aria-sort", "descending");
   });
 
   it("shows the cost of each cluster and the total", () => {
@@ -96,11 +126,12 @@ describe("ImprovementQueue", () => {
       <ImprovementQueue clusters={improvementClusters} proposals={improvementProposals} />,
     );
 
-    const clusterTable = screen.getByRole("table", { name: /Observation clusters/ });
+    const clusterTable = screen.getByRole("grid", { name: /Observation clusters/ });
     const costHeader = within(clusterTable).getByRole("columnheader", { name: /Estimated cost/ });
     await user.click(within(costHeader).getByRole("button"));
     await user.click(within(costHeader).getByRole("button"));
 
+    expect(costHeader).toHaveAttribute("aria-sort", "descending");
     const rows = within(clusterTable).getAllByRole("row");
     expect(within(rows[1] as HTMLElement).getByText("$186.42")).toBeInTheDocument();
   });

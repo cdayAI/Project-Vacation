@@ -1,12 +1,13 @@
+import type { ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type {
   ExecutiveMetricView,
   ExecutiveView as ExecutiveViewModel,
 } from "../api/contract";
 import { useResource } from "../api/useResource";
-import { Callout, DefinitionList, EmptyState } from "../components";
 import { formatCount, formatDateTime, formatUsd } from "../format";
 import { ResourceView } from "../ResourceView";
+import { Callout, EmptyState, Panel } from "../ui";
 
 /**
  * The executive view.
@@ -72,6 +73,20 @@ const TONE_WORD: Readonly<Record<ChangeTone, string>> = {
   neutral: "",
 };
 
+/**
+ * The tile is local, and stays local.
+ *
+ * `ui/domain/MetricTile` is the right shape for a dashboard and the wrong shape
+ * for this page: it computes its tone from the sign of a required numeric
+ * comparison, which is precisely the inference the second rule above forbids —
+ * a rising receivable reserve would come out green. It also has no slot for a
+ * source line, which the first rule makes mandatory on every tile, and it
+ * renders each tile as its own `aria-labelledby` section, so a grid of seven
+ * would put seven region landmarks between the operator and the next one.
+ *
+ * None of that is a defect in that component. It is a different component, and
+ * swapping it in would cost this screen the two things it exists to protect.
+ */
 function MetricTile({ metric }: { readonly metric: ExecutiveMetricView }) {
   const tone = changeTone(metric);
   const direction = metric.direction;
@@ -114,6 +129,33 @@ function MetricTile({ metric }: { readonly metric: ExecutiveMetricView }) {
   );
 }
 
+interface Fact {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`, each pair wrapped in a `<div>` so the grid can lay the two
+ * columns out without putting anything between a `<dt>` and its `<dd>`.
+ *
+ * A grid of plain divs would look identical and announce nothing: a screen
+ * reader says "definition list, three items" here and pairs each term with its
+ * description, which is the whole reason these figures are a list of terms
+ * rather than a table.
+ */
+function FactList({ items }: { readonly items: readonly Fact[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export interface ExecutiveProps {
   readonly executive: ExecutiveViewModel;
 }
@@ -142,10 +184,7 @@ export function ExecutiveView({ executive }: ExecutiveProps) {
         </p>
       </Callout>
 
-      <section className="pv-panel" aria-labelledby="executive-business">
-        <h2 className="pv-panel-heading" id="executive-business">
-          What MVW reported
-        </h2>
+      <Panel title="What MVW reported">
         {executive.businessMetrics.length === 0 ? (
           <EmptyState
             title="No business metrics are configured"
@@ -158,12 +197,9 @@ export function ExecutiveView({ executive }: ExecutiveProps) {
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="executive-platform">
-        <h2 className="pv-panel-heading" id="executive-platform">
-          What this platform did
-        </h2>
+      <Panel title="What this platform did">
         {executive.platformMetrics.length === 0 ? (
           <EmptyState
             title="No platform metrics are available"
@@ -176,14 +212,10 @@ export function ExecutiveView({ executive }: ExecutiveProps) {
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="executive-effort">
-        <h2 className="pv-panel-heading" id="executive-effort">
-          Work completed, cost, and estimated effort
-        </h2>
-
-        <DefinitionList
+      <Panel title="Work completed, cost, and estimated effort">
+        <FactList
           items={[
             {
               term: "Runs completed",
@@ -226,7 +258,7 @@ export function ExecutiveView({ executive }: ExecutiveProps) {
             </Callout>
           </div>
         )}
-      </section>
+      </Panel>
     </div>
   );
 }

@@ -41,7 +41,10 @@ describe("AuditEvidence", () => {
 
     expect(screen.getByText("This record does not verify")).toBeInTheDocument();
 
-    const breaks = screen.getByRole("table", { name: /Breaks found in the record/ });
+    // role="grid" rather than role="table": the library's table binds J/K/Enter
+    // row navigation, which is a widget. It is still a real <table> with a
+    // <caption>, <th scope>, and aria-sort, so everything below is unchanged.
+    const breaks = screen.getByRole("grid", { name: /Breaks found in the record/ });
     const rows = within(breaks).getAllByRole("row");
     // Header plus all three breaks. Not a count, not the first one — all of them.
     expect(rows).toHaveLength(4);
@@ -138,7 +141,15 @@ describe("AuditEvidence", () => {
     const onFiltersChange = vi.fn();
     renderAudit({ onFiltersChange });
 
-    await user.selectOptions(screen.getByLabelText("What happened"), "authorization.denied");
+    // The event-type filter is a listbox combobox, not a native <select>, so
+    // choosing is open-then-pick. The option is found by the words a compliance
+    // officer reads rather than by the code behind them, which is the same
+    // guarantee the "labels entries for a compliance officer" test makes.
+    const happened = screen.getByRole("combobox", { name: "What happened" });
+    await user.click(happened);
+    await user.click(screen.getByRole("option", { name: /^An action was refused/ }));
+    expect(happened).toHaveTextContent("An action was refused");
+
     await user.type(screen.getByLabelText("What it was about"), "CTR-2026-FL-0184423");
     await user.type(screen.getByLabelText("Who or what did it"), "act_bb10f5a7");
     await user.type(screen.getByLabelText("Piece of work"), "run_01k3m6h1c5");

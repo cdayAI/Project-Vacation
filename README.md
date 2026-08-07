@@ -78,6 +78,29 @@ verifying it is the operator command it was written to be:
 pnpm audit:verify   # exits non-zero on a broken chain, and reports every break
 ```
 
+### Looking at the console
+
+```bash
+pnpm api:seed   # the seeded demonstration, then HTTP over the same record
+pnpm console    # the operator console, in a second terminal
+```
+
+Open http://localhost:5173. The console proxies `/api` to `PV_HTTP_PORT`, so
+those two commands are the whole setup — no database, no Docker.
+
+`pnpm api:seed` runs the demonstration into an in-memory platform and then
+serves *that* platform, which is the only reason there is anything to look at.
+`pnpm demo` closes its platform behind itself, so an API started afterwards
+serves an empty store and every screen renders its empty state — a fair
+rendering of an empty platform and a useless way to review a design.
+
+**Everything it serves is fabricated and lives in memory.** It disappears when
+the process stops, and it is not a record of anything. The command refuses to
+run unless `PV_ENV` is `development`: a process serving invented owners,
+contracts and approvals over a real HTTP API is a demonstration in one place
+and a platform telling an operator untrue things about people who do not exist
+in every other.
+
 ### Running the API, the worker, and the console
 
 ```bash
