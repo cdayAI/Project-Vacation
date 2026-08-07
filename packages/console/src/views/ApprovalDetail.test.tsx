@@ -37,7 +37,12 @@ describe("ApprovalDetail", () => {
 
     const digests = screen.getAllByText(decidable.proposalDigest);
     expect(digests.length).toBeGreaterThan(0);
-    expect(digests[0]?.textContent).toHaveLength(64);
+    // Character for character, algorithm prefix included. A digest with its
+    // algorithm removed cannot be compared against the audit chain, and a
+    // digest with its middle elided cannot be compared against anything —
+    // which is the entire reason it is on screen.
+    expect(digests[0]?.textContent).toBe(decidable.proposalDigest);
+    expect(decidable.proposalDigest.replace(/^sha256:/, "")).toHaveLength(64);
     expect(
       screen.getByText(/Your decision binds to this digest and to no other proposal/),
     ).toBeInTheDocument();
@@ -66,10 +71,15 @@ describe("ApprovalDetail", () => {
     renderSurface(<ApprovalDetail approval={decidable} />);
 
     expect(screen.getByText(/1 of 2 granted — 1 more is needed/)).toBeInTheDocument();
-    expect(screen.getByText("Marcus Oyelaran")).toBeInTheDocument();
+    const first = decidable.decisions[0];
+    expect(first).toBeDefined();
+    expect(screen.getByText(first?.actor.displayName as string)).toBeInTheDocument();
     expect(screen.getByText("Granted")).toBeInTheDocument();
-    // A second approver has to be able to see that the first one hedged.
-    expect(screen.getByText(/the rule is still marked unverified in the corpus/)).toBeInTheDocument();
+    // A second approver has to be able to see the caveat the first one
+    // attached. The note is rendered in full, not summarised into "approved".
+    expect(first?.note).toBeDefined();
+    expect(screen.getByText(first?.note as string)).toBeInTheDocument();
+    expect(first?.note).toMatch(/past its review date/);
   });
 
   it("shows the expiry as a countdown next to the absolute deadline", () => {
@@ -87,8 +97,13 @@ describe("ApprovalDetail", () => {
     // sentence that says why.
     const describedBy = approve.getAttribute("aria-describedby");
     expect(describedBy).toBe("approval-decide-blocked");
+    // The platform's own sentence, verbatim — see `viewerEligibility` in
+    // api/approval-context.ts. The console does not rewrite it, because the
+    // server refuses on that rule and the screen must not describe a
+    // different one.
+    expect(notDecidable.viewerMayNotDecideReason).toBeDefined();
     expect(document.getElementById(describedBy as string)).toHaveTextContent(
-      "You raised this proposal, and nobody may approve their own.",
+      notDecidable.viewerMayNotDecideReason as string,
     );
   });
 

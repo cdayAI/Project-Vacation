@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   NOT_RECORDED,
+  formatAge,
   formatCountdown,
   formatDurationMs,
   formatUsd,
@@ -61,6 +62,35 @@ describe("formatCountdown", () => {
     const countdown = formatCountdown("2026-08-06T09:59:59.000Z", now);
     expect(countdown.expired).toBe(true);
     expect(countdown.text).toBe("Expired");
+  });
+});
+
+describe("formatAge", () => {
+  const now = new Date("2026-08-06T10:00:00.000Z");
+
+  it("stops at two units, so the column does not jitter every minute", () => {
+    expect(formatAge("2026-08-04T05:43:00.000Z", now)).toBe("2d 4h");
+    expect(formatAge("2026-08-06T05:43:00.000Z", now)).toBe("4h 17m");
+  });
+
+  it("drops the second unit when it is zero rather than writing 2d 0h", () => {
+    expect(formatAge("2026-08-04T10:00:00.000Z", now)).toBe("2d");
+    expect(formatAge("2026-08-06T06:00:00.000Z", now)).toBe("4h");
+  });
+
+  it("uses minutes under the hour, and words under the minute", () => {
+    expect(formatAge("2026-08-06T09:43:00.000Z", now)).toBe("17m");
+    expect(formatAge("2026-08-06T09:59:30.000Z", now)).toBe("just now");
+  });
+
+  it("reads a future instant as 'not yet' rather than as a negative age", () => {
+    // Browser and platform clocks disagree by small amounts all the time.
+    // "-3s" in an age column reads as a defect in the queue.
+    expect(formatAge("2026-08-06T10:00:03.000Z", now)).toBe("not yet");
+  });
+
+  it("says so when the instant cannot be read", () => {
+    expect(formatAge("not a date", now)).toBe(NOT_RECORDED);
   });
 });
 

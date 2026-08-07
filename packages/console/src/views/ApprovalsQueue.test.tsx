@@ -21,13 +21,15 @@ describe("ApprovalsQueue", () => {
   it("lists each approval with its action, risk, and progress", () => {
     renderSurface(<ApprovalsQueue approvals={[soon, later]} total={2} />);
 
+    // The row leads with the ask, in plain language — not with the action
+    // registry's description of the class of action, which is identical on
+    // every row of that kind.
     expect(
-      screen.getByRole("link", {
-        name: "Send a corrected disclosure package to the purchaser on contract CTR-2026-FL-0184423",
-      }),
+      screen.getByRole("link", { name: soon.ask }),
     ).toHaveAttribute("href", "/approvals/apr_01k3n2f6r4");
+    expect(screen.getByText(soon.actionDescription)).toBeInTheDocument();
 
-    expect(screen.getByText("High consequence risk")).toBeInTheDocument();
+    expect(screen.getAllByText("High consequence risk").length).toBeGreaterThan(0);
     expect(screen.getByText("1 of 2")).toBeInTheDocument();
   });
 
@@ -57,8 +59,12 @@ describe("ApprovalsQueue", () => {
     renderSurface(<ApprovalsQueue approvals={[soon, later]} />);
 
     expect(screen.getByText("May decide")).toBeInTheDocument();
+    // The server's own sentence, rendered verbatim. The console does not
+    // paraphrase a refusal reason: two wordings of one rule is how a screen
+    // and an API start disagreeing about what the rule is.
+    expect(later.viewerMayNotDecideReason).toBeDefined();
     expect(
-      screen.getByText(/May not decide — You raised this proposal, and nobody may approve their own/),
+      screen.getByText(`May not decide — ${later.viewerMayNotDecideReason}`),
     ).toBeInTheDocument();
   });
 

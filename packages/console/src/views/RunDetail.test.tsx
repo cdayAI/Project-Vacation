@@ -9,14 +9,15 @@ describe("RunDetail", () => {
     renderSurface(<RunDetail run={runWithRefusedStep} />);
 
     expect(
-      screen.getByRole("heading", {
-        level: 1,
-        name: "Delinquency evidence pack — loan LN-2024-NV-0930881 (NV)",
-      }),
+      screen.getByRole("heading", { level: 1, name: runWithRefusedStep.title }),
     ).toBeInTheDocument();
     expect(screen.getAllByText("run_01k3m6h1c5").length).toBeGreaterThan(0);
     expect(screen.getByText("Supervised")).toBeInTheDocument();
-    expect(screen.getByText("Priya Raghunathan (owner_services_agent)")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `${runWithRefusedStep.requestedBy.displayName} (${runWithRefusedStep.requestedBy.roles.join(", ")})`,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows total cost and cost by category", () => {
@@ -27,7 +28,11 @@ describe("RunDetail", () => {
     expect(screen.getAllByText("$0.0184")).toHaveLength(3);
     expect(screen.getByRole("columnheader", { name: /Category/ })).toBeInTheDocument();
     const costTable = screen.getByRole("table");
-    expect(within(costTable).getByText("knowledge.retrieve")).toBeInTheDocument();
+    // Every category the run reports, not a selection of them: a breakdown
+    // that omits a line does not add up to the total above it.
+    for (const category of Object.keys(runWithRefusedStep.costByCategory)) {
+      expect(within(costTable).getByText(category)).toBeInTheDocument();
+    }
   });
 
   it("renders every step with status, duration, cost, attempt, and digests", () => {
@@ -36,11 +41,18 @@ describe("RunDetail", () => {
     expect(screen.getByRole("heading", { name: "Load loan file" })).toBeInTheDocument();
     expect(screen.getByText("2.4 s")).toBeInTheDocument();
     expect(screen.getByText("2 (retried 1×)")).toBeInTheDocument();
-    // The digest is shown in full: a shortened one cannot be compared against
-    // the audit chain, which is the reason it is on screen.
-    expect(
-      screen.getByText("44b1c07e9f2a5d8360cb14e7a09f5b2d3c81746ee0af9b25d3708c1a6e5f2093"),
-    ).toBeInTheDocument();
+    // Every digest the run carries, character for character with its algorithm
+    // prefix. A shortened digest cannot be compared against the audit chain,
+    // and one stripped of its algorithm cannot be recomputed — which between
+    // them are the only two reasons either is on screen.
+    const digests = runWithRefusedStep.steps.flatMap((step) =>
+      [step.inputDigest, step.outputDigest].filter((digest): digest is string => digest !== undefined),
+    );
+    expect(digests.length).toBeGreaterThan(0);
+    for (const digest of digests) {
+      expect(digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(screen.getByText(digest)).toBeInTheDocument();
+    }
   });
 
   it("renders a refused step as a refusal, in plain language, not as a failure", () => {
