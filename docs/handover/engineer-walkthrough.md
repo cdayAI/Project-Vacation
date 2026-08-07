@@ -18,15 +18,28 @@ pnpm install
 cp .env.example .env
 pnpm test
 pnpm demo
-pnpm audit:verify
 ```
 
 You need Node 22 and pnpm 10. No database, no Docker, no model-provider
 network access. If any of that was not true, the fifteen-minute gate has been
 missed and we want to know.
 
-`pnpm demo` runs a complete governed workflow with deterministic fakes.
-`pnpm audit:verify` verifies the chain the demo just wrote.
+`pnpm demo` runs a governed workflow with deterministic fakes, and verifies its
+own audit chain as its last act — that is the `Audit chain INTACT` block at the
+end of its output, and the process exits non-zero if it is not.
+
+**Do not run `pnpm audit:verify` here.** It used to be the next line of this
+walkthrough and it was misleading: the demonstration runs entirely in memory, so
+`audit:verify` builds a second platform against an empty store and reports that
+there is nothing to verify. Reading that as confirmation of the demo's chain is
+exactly the mistake this project cannot afford a reader to make. It becomes the
+right command in Step 2, once there is a database.
+
+**What `pnpm test` did not run.** Without `PV_TEST_DATABASE_URL` set, 158
+persistence contract assertions skipped — every case that proves the Postgres
+adapter behaves like the in-memory fake. The run prints which adapters it
+covered. Step 2 turns them on; do not treat the result before then as a full
+pass.
 
 **Check your understanding.** Run `pnpm demo` twice and diff the output. It
 should be byte-identical. CI asserts this. If you can explain *why* it is
@@ -49,7 +62,20 @@ pnpm test
 
 The second run of `pnpm test` executes the persistence contract suite against
 the real database as well as the in-memory one. Compare the test counts: the
-difference is the Postgres half, and it includes the concurrency tests.
+difference is the Postgres half — 158 assertions — and it includes the
+concurrency tests, the append-only triggers, and the store-unavailable refusals.
+
+Now `pnpm audit:verify` has something to read. Run some work through the
+platform first (`pnpm api` in one terminal, `pnpm worker` in another), then:
+
+```bash
+pnpm audit:verify
+```
+
+It verifies the chain in the configured store against a durable high-water mark,
+so a chain that has been truncated from the end reports `chain_truncated` rather
+than passing. On a database nothing has written to yet, it says so plainly and
+does not claim to have verified anything.
 
 **Check your understanding.** Open `packages/platform/src/store/db.ts` and find
 `MemoryDb.withLock`. Then answer: why does an in-memory fake need a mutex when

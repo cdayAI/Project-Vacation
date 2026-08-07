@@ -138,6 +138,52 @@ describe("what the README instructs", () => {
   });
 });
 
+describe("what the code says about itself", () => {
+  /**
+   * `integrations/egress.ts` opened by asserting that nothing in the platform
+   * called `fetch` at an external system directly. That was false from the day
+   * single sign-on landed — `identity/oidc.ts` calls it twice — and it failed
+   * no test, because nothing checked. A claim about the whole codebase that
+   * only a comment enforces is a claim that decays silently.
+   *
+   * This is the check. The allowlist is two files; a third fails here and has
+   * to be argued rather than merged.
+   */
+  const ALLOWED_DIRECT_FETCH = ["integrations/egress.ts", "identity/oidc.ts"];
+
+  function sourceFilesUnder(directory: string): readonly string[] {
+    const found: string[] = [];
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) found.push(...sourceFilesUnder(path));
+      else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) found.push(path);
+    }
+    return found;
+  }
+
+  it("has exactly the direct fetch callers the egress client says it has", () => {
+    const callers = sourceFilesUnder(SRC)
+      .filter((path) => /(?<![.\w])fetch\(/.test(readFileSync(path, "utf8")))
+      .map((path) => path.slice(SRC.length + 1).split("\\").join("/"))
+      .sort();
+
+    expect(
+      callers,
+      "Files calling fetch() directly. Everything reaching a system of record must go through integrations/egress.ts, which carries the allowlist, the credential scoping, the recorded step and the containment re-check. A new entry here bypasses all four.",
+    ).toEqual([...ALLOWED_DIRECT_FETCH].sort());
+  });
+
+  it("names the exception in the egress client's own header, rather than claiming there is none", () => {
+    const egress = readFileSync(join(SRC, "integrations", "egress.ts"), "utf8");
+
+    // The old sentence. It is the claim, not the wording, that must not return.
+    expect(egress).not.toContain("Nothing in this platform calls `fetch` at an external system directly");
+    // A reader of this file must be able to learn that OIDC is outside it
+    // without grepping the tree.
+    expect(egress).toContain("identity/oidc.ts");
+  });
+});
+
 describe("what the architecture document states", () => {
   const architecture = readRepoFile("docs", "architecture.md");
   const architectureTest = readFileSync(join(SRC, "architecture.test.ts"), "utf8");

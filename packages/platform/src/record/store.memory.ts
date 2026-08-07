@@ -9,7 +9,7 @@ import {
   isTerminalStepStatus,
   toStoredUsd,
 } from "./migrations.js";
-import type { RunStore } from "./port.js";
+import { RUN_COUNT_CAP, type RunStore } from "./port.js";
 import type {
   CostEntry,
   CostSummary,
@@ -170,7 +170,14 @@ export class MemoryRunStore implements RunStore {
   async countRuns(filter: RunFilter = {}): Promise<number> {
     // Deliberately ignores limit and offset: a count that respected the page
     // size could never tell a caller how many pages there are.
-    return this.db.rows<Run>(RUNS).filter((run) => matchesRunFilter(run, filter)).length;
+    //
+    // Capped at the same bound as the Postgres adapter, and for the contract
+    // rather than for performance — an in-memory filter is cheap. A fake that
+    // returned an uncapped figure would let a caller depend on exactness the
+    // real store stops providing, which is the whole failure mode this
+    // repository's paired adapters exist to prevent.
+    const matched = this.db.rows<Run>(RUNS).filter((run) => matchesRunFilter(run, filter)).length;
+    return Math.min(matched, RUN_COUNT_CAP + 1);
   }
 
   async appendStep(step: NewStep): Promise<Step> {

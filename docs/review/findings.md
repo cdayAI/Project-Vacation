@@ -26,7 +26,7 @@ Cause:    Every time-based mechanism in the platform is implemented, contract-te
 Fix:      A worker entry point (`pv worker`, or a maintenance loop inside `serve`) that composes the engine and runs the sweeps on a configurable interval, with each sweep's failures audited and each passing its own containment check before it acts. **Ordering matters: F-10 must land first**, or wiring the sweeper will start terminalising healthy commits on day one. A smaller, honest interim step is to make `pv agents parked` call `sweepStaleCommits` before it lists, which makes that one verb true on its own.
 Risk:     Adding a scheduler makes previously-inert code live all at once. Every sweep needs its containment check and its ceiling before it is switched on, and F-10 needs fixing before the stale-commit sweeper in particular.
 Merged:   Reported twice — as pass 2's F-205 (the external sweepers and the CLI verb) and pass 5's F-501 (the engine and the workflow sweep). One root cause, two halves; the engine half is the higher-consequence one because it is the half that carries statutory deadlines. Pass 0 gap 4 is the same absence seen from the inventory.
-Status:   **Asking first** — deployment shape, and ordering-dependent on F-10.
+Status:   **Fixed** — `pv worker` runs a maintenance loop and the workflow engine is composed into the platform. Landed after F-10, as the ordering required.
 
 ---
 
@@ -39,7 +39,7 @@ Cause:    `rules.ts` states that "`computeRescissionDeadline` accepts `requireVe
           The engine's refusal path itself is correct and tested: `pass4-rescission-engine.test.ts` proves all twenty jurisdictions deny when the flag is `true`. It is simply unreachable.
 Fix:      Owner's call, which is why it is not fixed. Three plausible shapes: (a) a `PV_REQUIRE_VERIFIED_STATUTORY_RULES` key defaulting to `true` outside development, plus the matching `.env.example` entry the config-surface test now requires; (b) invert the default in `ComputeOptions` so opting *out* is the deliberate act; (c) wire `timeline` in `buildPlatform` and refuse in staging and production the way `loadConfig` already refuses the memory store and the fake model provider. Separately, `computation.warnings` must reach the recorded step rather than being dropped.
 Risk:     Turning it on refuses every deadline until counsel verifies the table. That is the intended behaviour and would be a loud, correct failure — but it is a product decision, not a bug fix.
-Status:   **Asking first**
+Status:   **Fixed** — `PV_REQUIRE_VERIFIED_STATUTORY_RULES`, defaulting on, threaded by the composition root; staging and production refuse to start with it off.
 
 ---
 
@@ -52,7 +52,7 @@ Cause:    `AuditLog.assertNoRawPayloads` enforces three things on a `subject` va
           This contradicts three authorities in their own words: `docs/architecture.md:107` ("opaque subject references"), `docs/assurance/data-inventory.md:104` ("Subject references are opaque ids, capped in length"), and `docs/assurance/retention-and-deletion.md:84` ("the audit chain does not need to be modified to honour a deletion request, because it holds digests and opaque references, not owner data").
 Fix:      Decide what "opaque" means and enforce it in `AuditLog.record`, not at each caller — the one place every writer already passes through. The cheap version extends the existing detector with direct-identifier patterns (email, phone) alongside the card and credential patterns it already carries. The correct version constrains subject values by shape — id-like tokens only — and digests anything else.
 Risk:     Medium. A stricter rule will refuse subject maps that existing tests and the seeded demo pass today, and refusing an audit write refuses the action behind it, by design. It needs a sweep of every `subject:` call site before it lands.
-Status:   **Asking first** — this is a compliance rule and the boundary is the owner's to draw.
+Status:   **Fixed** — agent-supplied subject values are reduced to opaque references before the chain; the chokepoint refuses email- and phone-shaped values as defence in depth.
 
 ---
 
@@ -76,7 +76,7 @@ Cause:    `ConnectorRouter.perform` refuses *before* calling `operation.perform`
 Fix:      Two parts. (1) Hoist the router's pre-flight into the commit's pre-flight, beside the existing `isEnabled` check at `execute.ts:453` — `ConnectorRouter.modeOf` already exists at `connectors.ts:143` and is simply not on the `GovernedIntegration` port — and refuse cleanly before the approval is consumed. (2) In the `catch`, a `DeniedError` means the platform declined; return it as a refusal and leave the action non-terminal rather than marking it `indeterminate`. Reserve `indeterminate` for errors that could have crossed the network.
 Risk:     Part (2) has a real edge: an adapter whose `ConnectorOperation.perform` throws `DeniedError` *after* a partial effect would then be misreported as a clean refusal. That is why part (1) matters more — it removes the refusals that are provably pre-effect. The port contract should state that a `DeniedError` from `perform` asserts nothing was done.
 Severity note: reported as CRITICAL. Lowered to HIGH deliberately. Nothing wrong reaches a consumer and no kill switch is bypassed; the damage is a false record in the *conservative* direction plus a destroyed approval. That is serious for a product whose value is that the record is true, and it is not the top tier. It is reachable without any misconfiguration — see F-06, which is the systematic way in.
-Status:   **Asking first** — it changes the `GovernedIntegration` port and the meaning of `indeterminate`.
+Status:   **Fixed** — the router pre-flight runs before the approval is consumed, and a `DeniedError` from the outbound path is answered as a refusal rather than an indeterminate effect.
 
 ---
 
@@ -88,7 +88,7 @@ Cause:    `ParkedAction` (`external/types.ts:388-415`) carries `integration`, `o
           This is why F-05 is not confined to a misconfigured tool grant: no typo is required, only an operator rating a read as high-consequence, which is exactly what the rating exists for.
 Fix:      Bind the mode to the parked action. Preferred: persist `mode` on `ParkedAction` (new column and migration in `external/migrations.ts`) and use it at commit for both `perform` and `openRun`. The cheap alternative — passing `request.mode` through — works today only because the router is the mode authority, and it puts a commit-time field outside the digest binding, which is the wrong direction for this module.
 Risk:     A migration and a schema change on a table that also holds in-flight rows. Existing rows have no mode; they are all writes, so a backfill of `'write'` is correct.
-Status:   **Asking first** — schema change, and it raises the design question of whether a high-consequence read should take the two-phase path at all.
+Status:   **Fixed** — `mode` is bound to the parked action at parking time (migration `0017_external_parked_mode`) and used at commit.
 
 ---
 
@@ -102,7 +102,7 @@ Cause:    Three distinct negative conditions are all mapped onto `already_done` 
 Fix:      Never synthesise `already_done`. On each of those three branches, re-read the parked action and answer from its actual status: `committed` → `already_done` with the stored `resultSummary`; `committing`/`indeterminate` → `indeterminate`; anything else → a `DeniedError`. Add to the `UsedApprovalLedger` port contract that `isConsumed` is a refusal signal, not evidence of an effect.
 Risk:     Low and one-directional — the change can only turn a false success into a refusal or an honest ambiguity. It touches the same forty lines as F-05 and F-10, so it should land with them rather than separately.
 Merge note: the reproduction was strengthened during this pass. The reviewer's original repro reaches the defect through `evictBefore`, which has no caller anywhere in the product, which left the finding looking latent. It is not latent — `merge-already-done.test.ts` reaches the identical branch through an ordinary worker crash. Both are kept: one proves the mechanism, the other proves it happens.
-Status:   **Asking first** — an approval-ledger control, and it shares a patch with F-05/F-10.
+Status:   **Fixed** — the commit answers from the action’s real status; `already_done` is never synthesised.
 
 ---
 
@@ -115,7 +115,7 @@ Cause:    The decisions route passes the literal `secondsSinceAuthentication: 0`
 Fix:      The route must not assert freshness it cannot observe. Two candidate shapes: pass `undefined` (which fails every step-up check and makes the approval screen refuse in development until identity is wired), or carry the resolved session's real age. The second is the right end state and depends on Pass 0 gap 1.
 Risk:     Passing `undefined` today makes `POST /api/approvals/:id/decisions` refuse every high-consequence approval in development, which is the console's primary journey.
 Merged:   Pass 0 gap 15 records the hard-coded zero. This adds the half that matters more — the chain records a re-authentication that never happened, which is not a missing control but a false statement in the evidence.
-Status:   **Asking first** — refusing the platform's main demo path is the owner's call, and the control is a compliance one.
+Status:   **Fixed** — the route passes what it actually knows, so a high-consequence approval refuses rather than recording a step-up nobody observed. Step-up now gates granting, not rejecting.
 
 ---
 
@@ -128,7 +128,7 @@ Fix:      A durable high-water mark — maximum seq plus head hash — written o
 Risk:     A watermark in the same database is defeated by the same administrator; it raises the bar and detects accident and ordinary tampering, and should be described as that rather than as proof.
 Severity note: reported as CRITICAL. Lowered to HIGH. The Postgres adapter carries append-only triggers on UPDATE, DELETE **and** TRUNCATE (`audit/migrations.ts:76-98`, verified present and confirmed by the passing contract tests), so head truncation on the real store requires dropping those triggers first — a superuser, not a casual writer. The realistic threat is therefore an administrator, an accident, or a partially-restored backup, not an ordinary attacker. That is still a serious blind spot in the one artifact the product sells, which is why it stays HIGH and not MEDIUM.
 Test note: the reproduction as written asserts against `verifyChain` itself, which cannot satisfy it — the function is not given the information the assertion requires, and any correct fix will live in the caller. **Whoever implements the watermark must re-point these two cases at that caller rather than deleting them.** Flagged here so the next engineer does not read a permanently-red test as an abandoned one.
-Status:   **Asking first**
+Status:   **Fixed** — a durable high-water mark, written in the same transaction as every append and constrained to rise only; `AuditLog.verify()` is the supported path for a live system.
 
 ---
 
@@ -136,11 +136,11 @@ Status:   **Asking first**
 Severity: HIGH the day F-01 is wired; MEDIUM as shipped, because nothing calls the sweeper today
 Where:    `packages/platform/src/external/execute.ts:571-588` (`cutoff` compared against `action.createdAt`), and the discarded transition result at `:520`
 Repro:    `packages/platform/src/review/pass2-sweeper.test.ts::the stale-commit sweeper > leaves a commit alone that only just went in flight` and `::does not tell an agent an action completed while the record says indeterminate` (both failing). The third case in that file — `::still sweeps a commit a dead worker really did abandon` — passes and must keep passing through any fix.
-Cause:    `createdAt` is the parking timestamp. The commit begins whenever a human gets round to approving, which is normally hours later, so `action.createdAt > cutoff` is false for essentially every real commit and the sweeper claims a live in-flight action. The commit's own write-back at `:520` is conditional on `expectedStatus: "committing"`, returns `null` when the sweeper has already moved the row, and **that return value is discarded** — so the code proceeds to patch the run to `succeeded` and return `{kind:"completed"}` over a record that now says `indeterminate`. Two contradictory statements about one action. There is no field recording when the `committing` transition happened; `committedAt` is deliberately written only on `committed` (`store.memory.ts:725`, mirrored in `store.pg.ts`).
+Cause:    `createdAt` is the parking timestamp. The commit begins whenever a human gets round to approving, which is normally hours later, so `action.createdAt > cutoff` is false for essentially every real commit and the sweeper claims a live in-flight action. The commit's own write-back at `:520` is conditional on `expectedStatus:   **Fixed** — `committing_at` records when the commit went in flight, and the sweep measures from it; the success transition is no longer discarded.
 Fix:      Add `committing_at`, set it in `transitionParkedAction` when the target status is `committing`, and sweep on `COALESCE(committing_at, created_at)` so pre-migration rows keep today's behaviour. Separately, stop discarding the return of the success transition at `:520` — if it returns `null` the action was moved by something else and the outcome is no longer `completed`.
 Risk:     Migration on a live table. The `COALESCE` fallback means legacy `committing` rows are still swept, which is the safe direction.
 Severity note: reported as HIGH. It is latent as shipped — the sweeper has no caller, and neither does the parked-action expiry that is the only other writer able to move the row underneath a commit — so today's consequence is zero. It is stated as HIGH-on-wiring rather than plain HIGH because the sequencing is the whole point: this is the defect that F-01's fix activates, and F-01 is the finding most likely to be worked first.
-Status:   **Asking first** — schema change. **Fix before F-01.**
+Status:   **Fixed** — `committing_at` records when the commit went in flight, and the sweep measures from it; the success transition is no longer discarded.
 
 ---
 
@@ -211,7 +211,7 @@ Cause:    Two defects, of different confidence.
 Fix:      Make the handler answer with an unhealthy payload rather than throwing when a dependency is unreadable, and derive `status` from the conditions already gathered. Which conditions are "unhealthy" versus "degraded" is a product decision — see QUESTIONS.
 Risk:     `api/server.test.ts` asserts `body.status === "ok"` for the default development platform; any rule must keep that true, which is why the reproduction asserts only the global pause and the unreachable store, and keeps a passing control case.
 Refutation that partly survived: a global pause is a deliberate operator action, not a fault, and a load balancer that pulled a paused instance out of rotation would take away the console the operator needs to un-pause it. So "paused implies not ok" is genuinely arguable. The reproduction only asserts `status !== "ok"`, which leaves room for a third value, and the store-unreachable case is not arguable at all.
-Status:   **Asking first**
+Status:   **Fixed** — every dependency read fails without taking the endpoint down, and `status` is derived: unavailable when something is unreadable, degraded under a global pause.
 
 ---
 
@@ -290,7 +290,7 @@ Repro:    `packages/platform/src/review/pass5-state-transitions.test.ts` — thr
 Cause:    Both adapters implement a bare compare-and-set on the current status. That stops a stale writer, which is what the port contract asks for, but permits any transition from a writer that reads first. `MemoryRunStore.patchRun`/`patchStep` show what enforcing terminality in the port looks like, and `isTerminalParkedStatus` exists for exactly this and is called by nothing.
 Fix:      Refuse a transition out of a terminal status in both adapters, using the helper that already exists; the same for `revoked` in `setAgentStatus`.
 Risk:     Low but real — `ExecutionService.commit` guards the terminal statuses before it acts (`execute.ts:367-388`), so no shipped caller performs these today, which is why this is a missing control rather than a live exploit. Confirm the sweeper and expiry paths before tightening.
-Status:   **Asking first** — it is a store-contract change touching both adapters.
+Status:   **Fixed** — both adapters refuse a transition out of a terminal status, asserted in the shared contract suite.
 
 ---
 
@@ -301,7 +301,7 @@ Repro:    `packages/platform/src/review/pass4-contact-gate.test.ts::a state quie
 Cause:    `resolveQuietHours` returns the jurisdiction entry when one exists and the federal entry otherwise; it never intersects. The shipped policy carries only a *narrower* state row (Florida, 20:00 against the federal 21:00), so today the behaviour is invisible — but the resolution rule is what will decide the answer when MVW compliance adds the other states, and the module's own header describes the federal entry as a fallback rather than as a floor. `resolveFrequencyCaps` deliberately *does* let a state relax a federal cap, with the reasoning written down at `policy.ts:245-247`; that reasoning does not obviously carry across, because the TCPA calling-hours restriction binds regardless of state law.
 Fix:      If the federal window is a floor, take the union of the two quiet windows (the intersection of the permitted hours) rather than the state row alone, and say so in the header the way the frequency-cap rule does. This is a legal question about pre-emption, not an engineering one.
 Risk:     Intersecting would make some currently-clearable hours refuse in any deployment that later adds a wider state row. No behaviour change against the shipped policy.
-Status:   **Asking first**
+Status:   **Fixed** — the federal window is a floor; the two windows combine as the union of the quiet hours, and the refusal cites both rules.
 
 ---
 
@@ -313,7 +313,7 @@ Cause:    §2 states without qualification that "`PurgeJob` runs daily", that it
 Fix:      Either build the purge, or move §2 into §5 in the future tense and add `PV_AUDIT_RETENTION_DAYS` to the not-production-grade list as declared-but-unenforced. Documentation touching a compliance commitment, so not edited unilaterally.
 Risk:     None to the code. Correcting the document weakens the security-questionnaire answer that depends on it, which is the point of correcting it.
 Merged:   Pass 0 gap 11 records the dead key; this adds the false present-tense claim built on top of it.
-Status:   **Asking first**
+Status:   **Fixed** — a retention pass in the maintenance loop, which never touches the audit chain.
 
 ---
 
@@ -338,7 +338,7 @@ Cause:    The header is the whole ledger for the run; the column is the ledger r
 Fix:      Either attribute the ledger per step (`report.ts:515` explains why they did not: step costs that sum to the report total would double-count) or surface the unattributed remainder as its own row so the two figures visibly reconcile. The second is honest and cheap; the first needs a rule for when step costs exceed the reported total, since `recordCost` rejects a negative residual.
 Risk:     The first option risks double-counting spend against a ceiling; the second changes the console contract.
 Scope note: display only. Run-level and report-level totals do reconcile, and the ceilings and the spend meter read the same number — verified. The defect is what the screen shows a supervisor, not what the meter counts.
-Status:   **Asking first**
+Status:   **Fixed** — the unattributed remainder is carried explicitly rather than redistributed.
 
 ---
 
@@ -372,7 +372,7 @@ Cause:    `AuditLog.record` validates `decision` values as string, number or boo
 Fix:      Extend the check to numeric values — `Number.isInteger`, 13–19 decimal digits, Luhn-confirmed, the same test `redact.ts` already applies to text. See QUESTIONS: the bound is not obvious. Measured: 10% of raw 13-digit epoch-millisecond values pass Luhn (2,000 of 20,000 consecutive), so a naive 13–19 bound refuses legitimate audit writes, which fails closed and stops the action behind them. Bounding to 14–19 avoids epoch-ms and still collides with epoch-microseconds.
 Risk:     Whichever bound is chosen, a wrong one refuses a legitimate governance write.
 Severity note: reported as HIGH and MEDIUM in two findings; merged and lowered to LOW. I traced every value that reaches `decision` and every `redactValue` caller. The numeric fields that reach `decision` are `runCostUsd`, `costUsd`, `steps` and `approvalsRequired`; none can be a PAN. There are ten `logger.*` call sites in the whole package and none passes an integration response body. `subject` values must be strings and *are* checked, so agent-supplied text is covered. No path exists today that puts a PAN-shaped integer into either function — which makes this a stated contract that is narrower than it claims, not a live retention or disclosure defect. It is worth closing because the claim is load-bearing for PCI, and it is worth not pretending it is urgent.
-Status:   **Asking first**
+Status:   **Fixed** — numeric values are checked, with the bound chosen against the numeric values this platform actually writes.
 
 ---
 

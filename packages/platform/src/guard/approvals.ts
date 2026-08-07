@@ -367,7 +367,15 @@ export class ApprovalService {
     return this.store.listApprovals(filter);
   }
 
-  /** Sweep expired approvals. Called by the scheduler and by the CLI. */
+  /**
+   * Sweep expired approvals.
+   *
+   * Called by the `approvals.expire` pass of the maintenance loop, which is
+   * `pv worker`, and by nothing else. This used to say "the scheduler and the
+   * CLI", at a time when there was neither a scheduler nor a CLI verb that
+   * called it — so approvals never expired anywhere, and the sentence was the
+   * reason nobody checked.
+   */
   async expireDue(): Promise<readonly ApprovalRequest[]> {
     const expired = await this.store.expireApprovals(this.clock.nowIso());
     for (const request of expired) {

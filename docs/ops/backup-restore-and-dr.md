@@ -46,21 +46,50 @@ confirm they match the business need.
 
 ## 4. Restore drill
 
+**`tools/restore-drill.sh` does not exist.** This section used to open with a
+command line for it, which is the kind of sentence an operator copies at 3am and
+then has to debug instead of restoring. Until the script is written, the drill is
+run by hand from the steps below; every command named here has been executed
+against a scratch database and works.
+
+Take the census **before** the backup, so there is something to compare against:
+
 ```bash
-tools/restore-drill.sh --snapshot <id> --target-env drill
+psql "$PV_DATABASE_URL" -c \
+  "SELECT 'run' t, count(*) FROM run
+    UNION ALL SELECT 'audit_entry', count(*) FROM audit_entry
+    UNION ALL SELECT 'step', count(*) FROM step
+    UNION ALL SELECT 'cost_entry', count(*) FROM cost_entry"
+pv audit head        # the sequence and hash the restored chain must reach
 ```
 
 The drill is not "did the data come back". It is:
 
-1. Restore to an isolated environment.
-2. Run migrations; confirm no pending migration and no checksum mismatch.
-3. **Verify the audit chain end to end** — `pnpm audit:verify`. A restored chain
-   that does not verify is a failed restore, whatever else came back.
-4. Confirm the operating record's row counts against the pre-backup census.
-5. Confirm workflow instances resume: start the engine, let timers fire, assert
-   in-flight instances continue rather than stall.
+1. Restore to an isolated environment — `pg_restore` into a database no
+   production process can reach.
+2. `pv db status` — confirm every migration is applied, none pending, and no
+   checksum mismatch. A checksum mismatch refuses wholesale and applies nothing.
+3. **Verify the audit chain end to end** — `pv audit verify`. A restored chain
+   that does not verify is a failed restore, whatever else came back. It exits
+   non-zero on a break, so this step is scriptable. Confirm the head matches the
+   `pv audit head` taken before the backup: the verifier compares against the
+   durable watermark, so a chain restored short of where it was reports
+   `chain_truncated` rather than passing.
+4. Re-run the census query above and diff it against the pre-backup one.
+5. Confirm work resumes: start `pv worker` against the restored database and
+   confirm timers fire and in-flight instances continue rather than stall.
+   Without a worker nothing time-based happens at all, so a drill that omits
+   this step proves only that rows came back.
 6. Record the result — snapshot id, wall-clock duration, verification outcome,
-   and the operator — as evidence.
+   census diff, and the operator — as evidence.
+
+**What has been exercised, and what has not.** Steps 1–4 were run end to end
+against a local scratch Postgres during the verification pass and passed:
+`pg_dump` 0.27s, `pg_restore` 0.69s, no pending migrations, chain INTACT over
+the restored entries, row counts identical. That was a laptop-scale database on
+one machine. It is not the drill this section asks for, which is against real
+infrastructure at real volume with a recorded RTO — see B3 in
+`docs/handover/not-production-grade.md`.
 
 **Cadence once deployed: monthly, plus after any schema change.** The result is
 an artifact, not an assertion.

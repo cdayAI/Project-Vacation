@@ -211,6 +211,30 @@ CREATE INDEX IF NOT EXISTS run_cost_run_idx ON run_cost (run_id);
 CREATE INDEX IF NOT EXISTS run_cost_recorded_at_idx ON run_cost (recorded_at);
 `;
 
+/**
+ * The index the work queue's own query needs.
+ *
+ * `WHERE status = ANY(...) ORDER BY created_at DESC LIMIT n` had no index that
+ * satisfied both halves, so Postgres read every matching row and sorted it
+ * before the limit applied. Measured against 200,000 runs with 300 open: 22,645
+ * shared buffer hits and 25 ms to return 151 rows.
+ *
+ * The reason this is worth a migration rather than a note is that **the plan
+ * flips on data distribution and the bad plan is the realistic one**. With an
+ * even open/closed split the planner picks `run_listing_idx` and the query is
+ * 0.1 ms; with a small open backlog against a large history — which is what a
+ * healthy operations team looks like — it picks the status index and sorts.
+ * So the query gets slower precisely as the platform succeeds.
+ *
+ * Additive, and a new id rather than an edit: the runner checksums applied SQL
+ * and refuses the whole run if a released migration changed.
+ */
+const RUN_LISTING_SQL = `
+CREATE INDEX IF NOT EXISTS run_status_listing_idx
+  ON run (status, created_at DESC, ordinal DESC);
+`;
+
 export const MIGRATIONS: readonly { readonly id: string; readonly sql: string }[] = [
   { id: "0001_record", sql: RECORD_SQL },
+  { id: "0019_run_status_listing", sql: RUN_LISTING_SQL },
 ];
