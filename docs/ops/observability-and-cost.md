@@ -9,9 +9,22 @@ Everything is JSON, through `kernel/logger.ts`, and **every payload passes
 remember — it is applied inside the logger, because "no secrets in logs" cannot
 depend on each author's care at each call site.
 
-Every line carries `correlationId`, plus `runId` and `actorId` where they exist,
-so one unit of work is reconstructable across the API, the engine, and its model
-calls.
+A line carries `correlationId`, plus `runId` and `actorId`, when its caller
+supplies them — the logger stamps whatever context it is given and invents
+nothing, and `child()` is how a caller makes that automatic for everything below
+it.
+
+**What is actually written today is much less than this section implies.**
+Fastify's own request logging is switched off, deliberately (two loggers with
+different redaction rules is how a secret reaches a log), and nothing replaced
+it. So a running API writes two lines at startup and one line per *unhandled
+failure* — that failure line does carry the correlation id, the flattened error
+message and the stack. A request that succeeds, or that is refused with a
+`DeniedError`, writes nothing at all. One unit of work is reconstructable
+through the audit chain and the operating record, both of which carry the
+caller's correlation id; it is not reconstructable through the log stream,
+because there is almost no log stream. See S9 in
+`docs/handover/not-production-grade.md`.
 
 Levels: `error` for something needing a human; `warn` for degraded-but-working;
 `info` for state transitions; `debug` and `trace` off in production.
@@ -20,7 +33,23 @@ Levels: `error` for something needing a human; `warn` for degraded-but-working;
 correctly. Logging denials as errors would train operators to ignore errors,
 which is the opposite of useful. Denial *rate* is what alerts.
 
-## Metrics
+## Metrics — specified, none emitted
+
+**Nothing in this repository emits a metric.** There is no metrics client, no
+exporter, and no instrumentation: the platform's runtime dependencies are
+Fastify, `jose`, `pg`, `pino` and `zod`, and none of the names below appears in
+the source. This table used to be presented as a description of the
+instrumentation and it is a specification of it — which is a materially
+different thing to hand an SRE who is planning a dashboard.
+
+It is kept because it is the right list, derived from the SLOs it serves, and
+because deciding what to measure is most of the work. Building it is recorded as
+a gap in `docs/handover/not-production-grade.md`. Until then, everything an
+operator can actually observe comes from the CLI — `pv health`, `pv cost
+report`, `pv approvals list --ageing`, `pv models degradation`, `pv engine
+timers`, `pv audit verify` — each of which exits non-zero on the condition it
+checks for, which is what makes them schedulable in place of alerts on metrics
+that do not exist.
 
 | Metric | Type | Labels | Why |
 | --- | --- | --- | --- |

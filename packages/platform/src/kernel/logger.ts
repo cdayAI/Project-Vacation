@@ -4,11 +4,24 @@ import { redactValue } from "./redact.js";
 /**
  * Structured logging with correlation.
  *
- * Every log line carries a correlation id so a single unit of work can be
- * reconstructed across the API, the workflow engine, and the model calls it
- * made. Every payload passes through `redactValue` before it reaches a sink,
- * because "no secrets in source or logs" has to be enforced somewhere other
- * than in each author's memory.
+ * Every payload passes through `redactValue` before it reaches a sink, because
+ * "no secrets in source or logs" has to be enforced somewhere other than in
+ * each author's memory. That one *is* unconditional: it happens in `write`, so
+ * no call site can skip it.
+ *
+ * A line carries a correlation id **when its caller supplies one**. This
+ * comment used to say every line does, which is a promise this type cannot
+ * keep: `correlationId` is optional on `LogContext` and a caller passing no
+ * context at all is legal — the platform's own startup lines are exactly that.
+ * `child()` is how a caller makes correlation automatic for everything below
+ * it, and it is the right habit; it is not enforced.
+ *
+ * Worth knowing before relying on the log stream to reconstruct a case: there
+ * is no HTTP request log. Fastify's own logger is switched off deliberately —
+ * two loggers with different redaction rules is how a secret reaches a log —
+ * and nothing replaced it, so a successful request writes nothing here. The
+ * audit chain and the operating record both carry the caller's correlation id
+ * and are where a case is actually followed today.
  */
 
 export interface LogContext {

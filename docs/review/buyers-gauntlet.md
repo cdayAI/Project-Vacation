@@ -358,7 +358,7 @@ report**, which requires an approval nobody can grant (§2).
 
 **Defect O-6 — no operator surface starts a run.**
 
-### 3.5 Take a backup and restore it — **works; the documented script does not exist**
+### 3.5 Take a backup and restore it — **works, by hand**
 
 The mechanical path is sound, and the drill's own checks pass:
 

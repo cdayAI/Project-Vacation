@@ -247,6 +247,20 @@ id is already minted per request and already reaches the audit chain and the run
 row, so the join is one field away. Confirm the redaction rules cover the URL
 before turning it on.
 
+### S9a. No metrics are emitted; the metric list is a specification
+
+`docs/ops/observability-and-cost.md` specifies sixteen metrics with types and
+labels, derived from the SLOs they serve. **None of them is emitted.** There is
+no metrics client, no exporter, and no instrumentation anywhere in the platform;
+its runtime dependencies are Fastify, `jose`, `pg`, `pino` and `zod`.
+
+The list is right and worth building. What an operator has instead today is the
+CLI: `pv health`, `pv cost report`, `pv approvals list --ageing`, `pv models
+degradation`, `pv engine timers` and `pv audit verify` each exit non-zero on the
+condition they check for, so a scheduler can alert on them without a metrics
+pipeline. That covers the alerts; it does not cover dashboards, trends, or
+anything an SRE would call observability.
+
 ### S10. Single sign-on does not pass through the egress allowlist
 
 **What.** `PV_EGRESS_ALLOWLIST` bounds every call to a system of record, because

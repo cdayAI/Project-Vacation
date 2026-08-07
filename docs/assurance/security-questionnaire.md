@@ -193,10 +193,12 @@ never pruned, deliberately: §3.
 
 **C.8 Can data be deleted on request?**
 **No. Subject-rights handling is not built.** This answer previously said "yes"
-and cited `subject-rights-runbook.md`; the runbook prescribes four commands —
-`subject-rights record`, `export`, `delete`, and the opt-out verb — and **none
-of the four exists.** There is no `subject-rights` verb in the command line at
-all. The two audit event types the runbook says it writes,
+and cited `subject-rights-runbook.md` as though it described a procedure. It
+describes a specification: the runbook prescribes five commands —
+`subject-rights record`, `export`, `delete`, `correct`, and `consent revoke` —
+and **none of them exists**, each exiting 2 with "Unknown command". The runbook
+now carries a status banner saying exactly that at the top, so the two documents
+no longer contradict each other. The two audit event types it depends on,
 `subject_rights.request_recorded` and `subject_rights.fulfilled`, are declared
 in `audit/types.ts:73-74` and written nowhere. The two registered actions
 `owner.export_data` and `owner.delete_data` have no caller, and both require
@@ -294,12 +296,14 @@ drill's own checks — migrations reported `17 applied, 0 pending, 0 unrecognise
 0 changed`, and the audit chain verified INTACT against the restored data.
 Triggers survived the restore.
 
-Two qualifications. **The drill has not been executed against real
-infrastructure**, because there is none — a named gate. And
-`backup-restore-and-dr.md` §4 presents `tools/restore-drill.sh` in a code block
-as a runnable command; **that file does not exist**, which §7 discloses two
-sections later. Anyone following §4 in order hits the failure before reading the
-disclosure.
+One qualification stands: **the drill has not been executed against real
+infrastructure**, because there is none. That is a named gate.
+
+A second was found and closed during this review. §4 used to present
+`tools/restore-drill.sh` in a code block as a runnable command; that file does
+not exist, and only §7 said so, two sections later. §4 now opens with the
+absence and gives the by-hand steps, each of which was executed against a
+scratch database.
 
 **E.3 Is there a disaster recovery plan?**
 Documented with RTO 4 hours (1 hour for read-only evidence access) and RPO 15
