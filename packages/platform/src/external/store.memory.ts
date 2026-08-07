@@ -26,6 +26,8 @@ import type {
 } from "./port.js";
 import {
   isStrongCredentialKind,
+  isTerminalAgentStatus,
+  isTerminalParkedStatus,
   type AgentCredential,
   type DenialClass,
   type EnrolledAgent,
@@ -244,6 +246,13 @@ export class MemoryEnrollmentStore implements EnrollmentStore {
       // the caller re-reads and discovers the agent is already stopped, which
       // is the outcome it wanted anyway.
       if (!current || current.status !== input.expectedStatus) return null;
+      // Terminality is enforced here and not only in `EnrollmentService`,
+      // because compare-and-set stops a *stale* writer and permits anything at
+      // all from a writer that reads first. Without this line a caller holding
+      // this port could walk a revoked agent back to `active` and resume its
+      // admission — the offboarding undone by a status flip, with no fresh
+      // enrollment and no second approval.
+      if (isTerminalAgentStatus(current.status)) return null;
 
       const next: EnrolledAgent = {
         ...current,
@@ -718,6 +727,19 @@ export class MemoryParkedActionStore implements ParkedActionStore {
       // from, and reads back the first caller's result instead of overwriting
       // it with its own.
       if (!current || current.status !== input.expectedStatus) return null;
+      // A terminal status is final, and that has to be true of the data rather
+      // than of one code path. Compare-and-set alone permits any transition
+      // from a writer that reads first, so `committed → pending` would put a
+      // refund that already went out back in front of an approver, and
+      // `indeterminate → approved` would make the one state the platform says
+      // it cannot resolve committable again on the original approval.
+      //
+      // The list comes from `isTerminalParkedStatus` rather than being restated
+      // here. `committing` is deliberately not in it: the commit path moves out
+      // of `committing` to every one of `committed`, `pending` and
+      // `indeterminate`, and a second list that included it would break the
+      // only writer that matters.
+      if (isTerminalParkedStatus(current.status)) return null;
 
       const next: ParkedAction = {
         ...current,

@@ -50,6 +50,22 @@ export interface ToolGrant {
 export type AgentStatus = "active" | "contained" | "revoked";
 
 /**
+ * Enrollment states that are the end of the story.
+ *
+ * `contained` is deliberately not one of them: containment is a pause an
+ * operator can release, and modelling it as terminal would make release
+ * impossible. Revocation is the state `EnrollmentService.revoke` describes —
+ * "there is no release from it — bringing the agent back is a fresh
+ * enrollment" — and the store is where that has to hold, because the service is
+ * not the only writer that reaches it.
+ */
+export const TERMINAL_AGENT_STATUSES: readonly AgentStatus[] = ["revoked"];
+
+export function isTerminalAgentStatus(status: AgentStatus): boolean {
+  return TERMINAL_AGENT_STATUSES.includes(status);
+}
+
+/**
  * A registry entry for one external agent.
  *
  * Enrollment is the whole basis of admission: an unenrolled caller is refused.
@@ -342,6 +358,37 @@ export interface IngestedReport {
   readonly duplicate: boolean;
   readonly costUsd: number;
 }
+
+/**
+ * How one cost entry for external work came to be attributed, recorded on the
+ * entry's `detail` under the key `attribution`.
+ *
+ * External work is the only work in this record whose costs arrive as two
+ * separate claims — a total for the episode and a figure for each step — made
+ * by a system this platform did not run. The two need not agree, and a ledger
+ * that silently keeps one and drops the other produces a run-detail screen
+ * whose column and header disagree with no way to tell which is wrong. So the
+ * relationship between them is written down on every entry.
+ *
+ * Native work never needs this: the platform records its own costs against the
+ * step that incurred them as it incurs them, so there is nothing to reconcile
+ * and no entry carries an attribution.
+ */
+export const COST_ATTRIBUTION = {
+  /** The agent's own figure for one step, recorded against that step. */
+  reportedStep: "reported_step",
+  /**
+   * Reported total in excess of the step figures — real spend the agent
+   * declined to attribute. Carried as its own entry rather than spread across
+   * the steps, which would invent a precision the agent never reported.
+   */
+  unattributed: "unattributed_remainder",
+  /**
+   * The step figures summed to more than the reported total, so none of them
+   * was promoted to the ledger. See `ReportIngestor.write`.
+   */
+  unreconciled: "unreconciled",
+} as const;
 
 // ---------------------------------------------------------------------------
 // Governed execution

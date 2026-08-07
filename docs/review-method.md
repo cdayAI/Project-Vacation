@@ -4,8 +4,8 @@ Stop building. This is a full review of what exists, hunting for what is wrong,
 what is missing, what is claimed but not true, and what would stop a buyer.
 
 Run this against the program brief (`docs/program-brief.md`), the design
-authority (`docs/design/spec.md`), and the architecture authority
-(`docs/architecture/spec.md`). Those three define what "correct" means; this
+authority (`docs/design/design-spec.md`), and the architecture authority
+(`docs/architecture.md`). Those three define what "correct" means; this
 document is only the method for checking it. Where they disagree with your
 memory of what you built, they win.
 

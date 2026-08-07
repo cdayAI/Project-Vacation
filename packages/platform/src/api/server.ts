@@ -400,6 +400,11 @@ export function createServer(options: ServerOptions): FastifyInstance {
         denialReason: run.denialReason,
         steps: timeline.steps,
         totalCostUsd: timeline.totalCostUsd,
+        // Spend recorded against no step, so the screen can account for the
+        // header from the rows it is showing rather than presenting a total
+        // with no derivation. Non-zero only for external work, which reports
+        // its costs after the fact and may attribute only part of them.
+        unattributedCostUsd: timeline.unattributedCostUsd,
         costByCategory: timeline.costByCategory,
         workflowInstanceId: run.workflowInstanceId,
         roleId: run.roleId,

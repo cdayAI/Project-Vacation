@@ -16,6 +16,7 @@ import type {
   NewRun,
   NewStep,
   Run,
+  RunCostRollup,
   RunFilter,
   RunPatch,
   Step,
@@ -326,6 +327,77 @@ export class MemoryRunStore implements RunStore {
       .rows<CostEntry>(COSTS)
       .filter((entry) => entry.recordedAt >= since)
       .reduce((total, entry) => toStoredUsd(total + entry.amountUsd), 0);
+  }
+
+  async costRollupSince(since: string): Promise<readonly RunCostRollup[]> {
+    assertIsoUtc("since", since);
+
+    const runs = this.db.table<Run>(RUNS);
+    const accumulator = new Map<
+      string,
+      { rollup: RunCostRollup; byCategory: Record<string, number> }
+    >();
+
+    for (const entry of this.db.rows<CostEntry>(COSTS)) {
+      if (entry.recordedAt < since) continue;
+
+      let held = accumulator.get(entry.runId);
+      if (!held) {
+        const run = runs.get(entry.runId);
+        if (!run) {
+          // Unreachable: `recordCost` refuses spend against a run that is not
+          // in the record, and nothing deletes a run. Kept because a cost
+          // entry with no run would otherwise silently vanish from a report
+          // that is supposed to reconcile with the spend meter.
+          throw new DeniedError(
+            "record.unavailable",
+            `Cost is recorded against run ${entry.runId}, which is not in the operating record.`,
+            { runId: entry.runId },
+          );
+        }
+        const byCategory: Record<string, number> = {};
+        held = {
+          byCategory,
+          rollup: {
+            runId: run.id,
+            kind: run.kind,
+            status: run.status,
+            mode: run.mode,
+            roleId: run.roleId,
+            roleVersion: run.roleVersion,
+            workflowInstanceId: run.workflowInstanceId,
+            totalUsd: 0,
+            byCategory,
+            entries: 0,
+            lastRecordedAt: entry.recordedAt,
+          },
+        };
+        accumulator.set(entry.runId, held);
+      }
+
+      // Snapped after each addition for the same reason `costForRun` snaps:
+      // these totals are compared against the figure Postgres produces with
+      // exact decimal arithmetic, and unsnapped binary sums drift off it.
+      held.byCategory[entry.category] = toStoredUsd(
+        (held.byCategory[entry.category] ?? 0) + entry.amountUsd,
+      );
+      held.rollup = {
+        ...held.rollup,
+        totalUsd: toStoredUsd(held.rollup.totalUsd + entry.amountUsd),
+        entries: held.rollup.entries + 1,
+        lastRecordedAt:
+          entry.recordedAt > held.rollup.lastRecordedAt
+            ? entry.recordedAt
+            : held.rollup.lastRecordedAt,
+        byCategory: held.byCategory,
+      };
+    }
+
+    // Most expensive first. The one row that answers "loop or volume?" is then
+    // the first row, which is the whole point of reading this during an alert.
+    return [...accumulator.values()]
+      .map((held) => held.rollup)
+      .sort((a, b) => b.totalUsd - a.totalUsd || a.runId.localeCompare(b.runId));
   }
 
   async listCostEntries(runId: Id<"run">): Promise<readonly CostEntry[]> {

@@ -200,27 +200,57 @@ export function verifyChain(
   };
 }
 
-/** Render a verification result as operator-readable text. */
+/**
+ * Render a verification result as operator-readable text.
+ *
+ * This string is the entire operator-facing surface of chain verification:
+ * `pv audit verify` prints it and nothing else, and the structured result is
+ * only reachable behind `--json`. A break the verifier finds and this function
+ * does not print is therefore a break nobody sees.
+ *
+ * Breaks are reported before emptiness for exactly that reason. An erased chain
+ * has no entries *and* a `chain_truncated` break, and the earlier version of
+ * this function short-circuited on the entry count — so the one case the
+ * watermark exists to catch, the total wipe, rendered as "Audit chain is empty.
+ * Nothing to verify." while the exit code silently went to 1. A reassuring
+ * sentence over a destroyed chain is the worst output this function can
+ * produce, and it was the default one.
+ */
 export function formatVerificationResult(result: VerificationResult): string {
-  if (result.entriesChecked === 0) {
-    return "Audit chain is empty. Nothing to verify.";
-  }
-  if (result.intact) {
-    return [
-      `Audit chain INTACT.`,
+  if (!result.intact) {
+    const lines = [
+      `Audit chain BROKEN — ${result.breaks.length} problem${result.breaks.length === 1 ? "" : "s"} found.`,
       `  entries checked : ${result.entriesChecked}`,
-      `  sequence range  : ${result.firstSeq}..${result.lastSeq}`,
-      `  head hash       : ${result.headHash}`,
+    ];
+    // A wiped chain has no range to report, and printing "null..null" beside a
+    // break would read as a second fault rather than as an absence of entries.
+    if (result.firstSeq !== null && result.lastSeq !== null) {
+      lines.push(`  sequence range  : ${result.firstSeq}..${result.lastSeq}`);
+    }
+    lines.push("");
+    for (const problem of result.breaks) {
+      lines.push(`  [${problem.kind}] seq ${problem.seq}: ${problem.detail}`);
+    }
+    return lines.join("\n");
+  }
+
+  if (result.entriesChecked === 0) {
+    // Deliberately not phrased as a result. An empty chain is correct on a
+    // deployment that has never recorded anything, so this cannot be an alarm —
+    // but it is not a verification either, and the sequence the README used to
+    // instruct (`pnpm demo` then `pnpm audit:verify`, against a store the
+    // demonstration never wrote to) had readers taking it for one.
+    return [
+      "Audit chain is empty — nothing was verified.",
+      "  An empty chain is what a deployment that has recorded nothing looks like.",
+      "  It is not evidence that anything is intact.",
     ].join("\n");
   }
-  const lines = [
-    `Audit chain BROKEN — ${result.breaks.length} problem${result.breaks.length === 1 ? "" : "s"} found.`,
+
+  return [
+    `Audit chain INTACT.`,
     `  entries checked : ${result.entriesChecked}`,
     `  sequence range  : ${result.firstSeq}..${result.lastSeq}`,
-    "",
-  ];
-  for (const problem of result.breaks) {
-    lines.push(`  [${problem.kind}] seq ${problem.seq}: ${problem.detail}`);
-  }
-  return lines.join("\n");
+    `  head hash       : ${result.headHash}`,
+  ].join("\n");
 }

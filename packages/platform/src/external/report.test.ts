@@ -309,6 +309,149 @@ describe("ingesting an episode as first-class work", () => {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * An agent reports two things about money — a total for the episode and a
+ * figure per step — and nothing makes the parts sum to the whole.
+ *
+ * The rule these assert: the ledger for the run totals the *reported total*,
+ * always, because that is the figure of record the meter and the ceilings read;
+ * and within that total, the step figures are recorded where they were reported
+ * and the difference is carried as its own entry rather than spread, hidden, or
+ * quietly dropped.
+ */
+describe("reconciling a reported total against its reported steps", () => {
+  /** The ledger, split the way the run-detail screen splits it. */
+  async function ledger(harness: Harness, runId: Id<"run">) {
+    const entries = await harness.record.listCostEntries(runId);
+    return {
+      perStep: entries.filter((entry) => entry.stepId !== undefined),
+      unattributed: entries.filter((entry) => entry.stepId === undefined),
+      total: (await harness.record.costForRun(runId)).totalUsd,
+    };
+  }
+
+  it("attributes each reported step cost to its step", async () => {
+    const harness = build();
+    const ingested = await harness.ingestor.ingest(
+      reportOf({
+        steps: [step({ costUsd: 0.85 }), step({ name: "draft_note", costUsd: 0.4 })],
+        costUsd: 1.25,
+      }),
+    );
+
+    const steps = await harness.record.listSteps(ingested.runId);
+    const { perStep, unattributed, total } = await ledger(harness, ingested.runId);
+
+    expect(perStep.map((entry) => [entry.stepId, entry.amountUsd])).toEqual([
+      [steps[0]?.id, 0.85],
+      [steps[1]?.id, 0.4],
+    ]);
+    expect(perStep.every((entry) => entry.detail?.["attribution"] === "reported_step")).toBe(true);
+    // The parts account for the whole, so there is no remainder to carry and
+    // no entry claiming one.
+    expect(unattributed).toEqual([]);
+    expect(total).toBe(1.25);
+    expect((await harness.spend.getMeter(AGENT, "2026-08"))?.spentUsd).toBe(1.25);
+  });
+
+  it("carries spend the agent did not attribute as its own entry", async () => {
+    const harness = build();
+    // The default report: one step with no cost at all, one at $0.40, under a
+    // $1.25 total. The missing $0.85 is real spend the agent declined to place.
+    const ingested = await harness.ingestor.ingest(reportOf());
+
+    const steps = await harness.record.listSteps(ingested.runId);
+    const { perStep, unattributed, total } = await ledger(harness, ingested.runId);
+
+    expect(perStep.map((entry) => [entry.stepId, entry.amountUsd])).toEqual([[steps[1]?.id, 0.4]]);
+    expect(unattributed).toHaveLength(1);
+    expect(unattributed[0]?.amountUsd).toBe(0.85);
+    expect(unattributed[0]?.detail?.["attribution"]).toBe("unattributed_remainder");
+
+    // Shown, not spread. Splitting $0.85 across two steps would put a number
+    // on each that the agent never reported, and a supervisor could not tell
+    // it apart from one the agent did.
+    expect(total).toBe(1.25);
+    expect(
+      perStep.reduce((sum, entry) => sum + entry.amountUsd, 0) +
+        (unattributed[0]?.amountUsd ?? 0),
+    ).toBeCloseTo(total, 10);
+  });
+
+  it("does not attribute step figures that sum to more than the reported total", async () => {
+    const harness = build();
+    const ingested = await harness.ingestor.ingest(
+      reportOf({
+        // The agent contradicts itself: $1.40 of steps inside a $1.25 episode.
+        steps: [step({ costUsd: 0.9 }), step({ name: "draft_note", costUsd: 0.5 })],
+        costUsd: 1.25,
+      }),
+    );
+
+    const { perStep, unattributed, total } = await ledger(harness, ingested.runId);
+
+    // Neither number is silently trusted. The total stands because it is the
+    // figure of record — the meter moved by it and the agent was told it was
+    // charged it — and not one step figure is promoted to the ledger, because
+    // publishing them would make the column exceed the header.
+    expect(perStep).toEqual([]);
+    expect(unattributed).toHaveLength(1);
+    expect(unattributed[0]?.amountUsd).toBe(1.25);
+    expect(unattributed[0]?.detail?.["attribution"]).toBe("unreconciled");
+    expect(unattributed[0]?.detail?.["reportedStepCostUsd"]).toBe(1.4);
+    expect(unattributed[0]?.detail?.["reportedTotalCostUsd"]).toBe(1.25);
+    expect(total).toBe(1.25);
+    expect((await harness.spend.getMeter(AGENT, "2026-08"))?.spentUsd).toBe(1.25);
+  });
+
+  it("keeps the episode, and what the agent claimed, when the two contradict", async () => {
+    const harness = build();
+    const ingested = await harness.ingestor.ingest(
+      reportOf({
+        steps: [step({ costUsd: 0.9 }), step({ name: "draft_note", costUsd: 0.5 })],
+        costUsd: 1.25,
+      }),
+    );
+
+    // Refusing the report was the other option and is not what happens: the
+    // episode ran in somebody else's system, and discarding it would leave the
+    // work invisible and its spend unmetered — the blind spot this plane
+    // exists to close.
+    const run = await harness.record.requireRun(ingested.runId);
+    expect(run.status).toBe("succeeded");
+
+    // The agent's own figures survive on the steps. Disagreeing with a claim
+    // is not a reason to destroy it; a person reconciling this needs to see
+    // exactly what was reported.
+    const steps = await harness.record.listSteps(ingested.runId);
+    expect(steps[0]?.detail["reportedCostUsd"]).toBe(0.9);
+    expect(steps[1]?.detail["reportedCostUsd"]).toBe(0.5);
+
+    // And the contradiction is on the tamper-evident record, because an agent
+    // whose accounting does not add up is a fact about the vendor's
+    // integration rather than a fact about one run.
+    const ended = await harness.audit.list({ eventType: ["run.ended"] });
+    expect(ended[0]?.decision["costReconciled"]).toBe(false);
+    expect(ended[0]?.decision["reportedStepCostUsd"]).toBe(1.4);
+    expect(ended[0]?.decision["unattributedCostUsd"]).toBe(1.25);
+    expect(ended[0]?.decision["costUsd"]).toBe(1.25);
+    expect(verifyChain(await harness.audit.readChain()).intact).toBe(true);
+  });
+
+  it("records nothing at all for an episode that cost nothing", async () => {
+    const harness = build();
+    const ingested = await harness.ingestor.ingest(
+      reportOf({ steps: [step()], costUsd: 0 }),
+    );
+    expect(await harness.record.listCostEntries(ingested.runId)).toEqual([]);
+    // An entry of zero and no entry say the same thing, and the meter must not
+    // record a period for an agent that has spent nothing in it.
+    expect(await harness.spend.getMeter(AGENT, "2026-08")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+
 describe("exactly once", () => {
   it("moves the meter once when the same report is sent twice at the same moment", async () => {
     const harness = build();

@@ -174,6 +174,78 @@ async function ensureRegistry(db: Db): Promise<void> {
 }
 
 /**
+ * A migration this build knows about whose SQL no longer matches what was
+ * applied. `runMigrations` refuses outright on any of these, and refuses
+ * wholesale — including the unrelated migrations that follow.
+ */
+export interface ChangedMigration {
+  readonly id: string;
+  readonly appliedAt: string;
+  /** What this database recorded when the migration was applied. */
+  readonly appliedChecksum: Digest;
+  /** What the SQL in this build hashes to now. */
+  readonly buildChecksum: Digest;
+}
+
+export interface MigrationStatus {
+  readonly applied: readonly AppliedMigration[];
+  /** Ids this build has that the database does not, in the order they will run. */
+  readonly pending: readonly string[];
+  /** Ids the database has that this build does not know about. */
+  readonly unrecognised: readonly string[];
+  /** Applied migrations whose SQL has since been edited. Nothing will migrate. */
+  readonly changed: readonly ChangedMigration[];
+}
+
+/**
+ * What this database has, what it is missing, and whether the two agree.
+ *
+ * Read-only in the sense that matters: it applies no migration and changes no
+ * table this platform owns. It does create the registry table if it is absent,
+ * because otherwise "no migration has been applied here" and "this database is
+ * unreachable" would be told apart by a query that errors — and a status
+ * command has to distinguish those two rather than confuse them.
+ *
+ * Separate from `runMigrations` because the questions are different. An
+ * operator during an incident is asking whether the schema is where the build
+ * expects it, and answering that by *migrating* is the last thing anybody
+ * wants at three in the morning.
+ */
+export async function migrationStatus(
+  db: Db,
+  migrations: readonly Migration[],
+): Promise<MigrationStatus> {
+  const ordered = orderMigrations(migrations);
+  const applied = await readAppliedMigrations(db);
+  const appliedById = new Map(applied.map((entry) => [entry.id, entry]));
+
+  const pending: string[] = [];
+  const changed: ChangedMigration[] = [];
+
+  for (const migration of ordered) {
+    const record = appliedById.get(migration.id);
+    if (!record) {
+      pending.push(migration.id);
+      continue;
+    }
+    const checksum = migrationChecksum(migration.sql);
+    if (record.checksum !== checksum) {
+      changed.push({
+        id: migration.id,
+        appliedAt: record.appliedAt,
+        appliedChecksum: record.checksum,
+        buildChecksum: checksum,
+      });
+    }
+  }
+
+  const known = new Set(ordered.map((migration) => migration.id));
+  const unrecognised = [...appliedById.keys()].filter((id) => !known.has(id)).sort();
+
+  return { applied, pending, unrecognised, changed };
+}
+
+/**
  * Apply every pending migration, in id order.
  *
  * @throws {DeniedError} `config.invalid` if an applied migration's SQL has

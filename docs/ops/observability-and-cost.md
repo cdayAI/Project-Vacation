@@ -97,14 +97,27 @@ tasks. Because cost is attached to the run, aggregation by workflow, role,
 department, or case falls out without a second accounting path.
 
 ```bash
-... cost report --since <ISO> --group-by workflow
-... cost report --since <ISO> --group-by role --format csv
-... cost per-case --workflow rescission.verify --since <ISO>
+pv cost report --since <ISO> --group-by workflow
+pv cost report --since <ISO> --group-by role,category --top 20
+
+# Per run, into a spreadsheet. There is no --format flag: --json plus jq is the
+# one output convention across every verb, and it composes into anything.
+pv cost report --since <ISO> --json \
+  | jq -r '.runsByCost[] | [.runId, .kind, .roleId, .totalUsd, .entries] | @csv'
 ```
 
-`cost per-case` divides total spend by completed runs — the number to bring to
-a business-case conversation, alongside the human time the workflow displaced,
-which is measured in shadow and assisted modes rather than assumed.
+The window is applied to when spend was *recorded*, which is the window the
+daily ceiling counts, so this report and the meter that raises a ceiling alert
+cannot disagree about the same day. The report leads with the largest single run
+and its share of the window: one run holding most of a window is a loop, spend
+spread across many is volume, and that distinction is the whole reason to run it
+during an alert.
+
+**Cost per resolved case is not yet a command.** The figures it needs are all in
+the operating record — spend is attached to the run, and a run carries its
+workflow, role, and outcome — but nothing divides one by the other today, and
+the number that reaches a business-case conversation should not come from a
+report nobody has built. Compute it from `--json` until it is.
 
 Budget alerts fire at 80% of the daily ceiling. **The ceiling is enforced at
 consumption**, not only pre-flight, so a runaway loop is bounded by one step's

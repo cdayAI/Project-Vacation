@@ -625,6 +625,102 @@ function runContract(name: string, factory: () => Harness, skip: boolean): void 
         expect(entries[1]?.units).toBe(30);
         expect(entries[1]?.detail).toEqual({ region: "us-east-1" });
       });
+
+      it("rolls the window up per run, carrying the attributes a report groups by", async () => {
+        const loop = await store.runs.createRun(
+          aRun({ kind: "rescission.verify", roleId: "rol_verifier" as Id<"role">, roleVersion: 3 }),
+        );
+        const ordinary = await store.runs.createRun(aRun({ kind: "intake.triage" }));
+
+        await store.runs.recordCost({
+          runId: loop.id,
+          category: "model",
+          amountUsd: 4,
+          recordedAt: T0,
+        });
+        await store.runs.recordCost({
+          runId: loop.id,
+          category: "integration",
+          amountUsd: 2,
+          recordedAt: "2026-08-06T12:00:05.000Z",
+        });
+        await store.runs.recordCost({
+          runId: ordinary.id,
+          category: "model",
+          amountUsd: 1,
+          recordedAt: T0,
+        });
+
+        const rollup = await store.runs.costRollupSince(T0);
+        expect(rollup).toHaveLength(2);
+
+        // Most expensive first: the row that tells a loop from ordinary volume
+        // is the one an operator reads first during a spend alert.
+        const [first, second] = rollup;
+        expect(first?.runId).toBe(loop.id);
+        expect(first?.kind).toBe("rescission.verify");
+        expect(first?.roleId).toBe("rol_verifier");
+        expect(first?.roleVersion).toBe(3);
+        expect(first?.mode).toBe("supervised");
+        expect(first?.totalUsd).toBeCloseTo(6, 10);
+        expect(first?.entries).toBe(2);
+        expect(first?.byCategory["model"]).toBeCloseTo(4, 10);
+        expect(first?.byCategory["integration"]).toBeCloseTo(2, 10);
+        expect(first?.lastRecordedAt).toBe("2026-08-06T12:00:05.000Z");
+        expect(second?.kind).toBe("intake.triage");
+        expect(second?.roleId).toBeUndefined();
+      });
+
+      it("counts the same window the daily ceiling counts, and totals to the same money", async () => {
+        // The report and the meter must be one number. An operator deciding
+        // whether to raise a ceiling is reasoning about the figure that fired
+        // the alert, and a report that quietly counted a different window —
+        // when the run started, rather than when the money was recorded —
+        // would send them to the wrong run.
+        const older = await store.runs.createRun(aRun());
+        const inside = await store.runs.createRun(aRun());
+
+        await store.runs.recordCost({
+          runId: older.id,
+          category: "model",
+          amountUsd: 8,
+          recordedAt: "2026-08-06T11:59:59.999Z",
+        });
+        // Same run, spent inside the window: a long case that started before
+        // the window still belongs in it for every dollar recorded since.
+        await store.runs.recordCost({
+          runId: older.id,
+          category: "model",
+          amountUsd: 3,
+          recordedAt: T0,
+        });
+        await store.runs.recordCost({
+          runId: inside.id,
+          category: "human",
+          amountUsd: 5,
+          recordedAt: "2026-08-06T12:00:00.001Z",
+        });
+
+        const rollup = await store.runs.costRollupSince(T0);
+        const total = rollup.reduce((sum, row) => sum + row.totalUsd, 0);
+        expect(total).toBeCloseTo(await store.runs.costSince(T0), 10);
+        expect(total).toBeCloseTo(8, 10);
+
+        const olderRow = rollup.find((row) => row.runId === older.id);
+        expect(olderRow?.totalUsd).toBeCloseTo(3, 10);
+        expect(olderRow?.entries).toBe(1);
+      });
+
+      it("returns nothing for a window with no spend in it", async () => {
+        const run = await store.runs.createRun(aRun());
+        await store.runs.recordCost({
+          runId: run.id,
+          category: "model",
+          amountUsd: 1,
+          recordedAt: T0,
+        });
+        expect(await store.runs.costRollupSince(T_PLUS_DAY)).toEqual([]);
+      });
     });
 
     // --------------------------------------------------------------- audit

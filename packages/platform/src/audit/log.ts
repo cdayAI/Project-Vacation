@@ -5,7 +5,7 @@ import type { Digest } from "../kernel/hash.js";
 import { isDigest } from "../kernel/hash.js";
 import type { IdGenerator } from "../kernel/ids.js";
 import { GENESIS_PREVIOUS_HASH, verifyChain } from "./chain.js";
-import { containsSecret } from "../kernel/redact.js";
+import { containsSecret, looksLikeCardNumber } from "../kernel/redact.js";
 import type { AuditStore } from "./port.js";
 import { computeEntryHash } from "./chain.js";
 import type { AuditEntry, AuditEventType, AuditFilter, NewAuditEntry } from "./types.js";
@@ -231,6 +231,27 @@ export class AuditLog {
             { field: `decision.${key}`, eventType: content.eventType },
           );
         }
+      }
+      // The same rule, for the other JSON type sixteen digits can arrive in.
+      //
+      // The string branch above ran and the numeric one did not, so
+      // `{ paymentInstrument: 4111111111111111 }` passed the type check and was
+      // written straight into the chain. That is worse than the log-sink case:
+      // the chain is append-only and stated to be retained for years, and its
+      // own retention design prunes a contiguous prefix and never edits a
+      // middle — so a card number landing here could not be taken out again
+      // without breaking verification for every entry after it.
+      //
+      // `looksLikeCardNumber` starts at fourteen digits rather than thirteen,
+      // for the measured reason recorded next to it: at thirteen it would
+      // refuse about one epoch-millisecond value in ten, and a refused audit
+      // write refuses the action it was recording.
+      if (type === "number" && looksLikeCardNumber(value as number)) {
+        throw new DeniedError(
+          "record.unavailable",
+          `Audit decision.${key} is a number shaped like a card number and was refused. The audit log records decisions, not instruments; record a digest or a masked reference instead.`,
+          { field: `decision.${key}`, eventType: content.eventType },
+        );
       }
     }
   }

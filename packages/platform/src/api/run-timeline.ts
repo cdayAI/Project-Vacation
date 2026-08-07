@@ -1,4 +1,5 @@
 import type { Platform } from "../platform.js";
+import { toStoredUsd } from "../record/migrations.js";
 import type { CostEntry, Run, Step, StepKind } from "../record/types.js";
 
 /**
@@ -161,9 +162,27 @@ export interface StepRow {
  *
  * Cost is attributed per step from the cost ledger rather than divided or
  * estimated. A step with no entry costs zero because nothing was recorded
- * against it, which is a different statement from "we did not measure it" —
- * and the run total is the sum of the ledger either way, so the column and the
- * header cannot disagree.
+ * against it, which is a different statement from "we did not measure it".
+ *
+ * The header is the whole ledger and the column is the ledger restricted to
+ * entries naming a step, so the two disagree by exactly the entries that name
+ * none — and `unattributedCostUsd` is that difference, returned rather than
+ * left to be discovered. This comment used to claim the column and the header
+ * "cannot disagree", which was false and was the reason nobody looked: an
+ * ingested external episode recorded one entry for the whole run and showed
+ * every step at $0.00 under a non-zero total, for precisely the work the
+ * external plane exists to make visible.
+ *
+ * The invariant that does hold, and that a screen can be built on:
+ *
+ *     sum(steps[].costUsd) + unattributedCostUsd === totalCostUsd
+ *
+ * A supervisor reading the detail can therefore account for the header from
+ * what is on the page. Unattributed spend is real spend somebody incurred and
+ * did not say where — a live external run reports one figure and no steps, and
+ * an ingested report may attribute only part of its total — so it is shown as
+ * its own line rather than spread across the steps, which would invent a
+ * precision nobody reported.
  */
 export async function runTimeline(
   platform: Platform,
@@ -171,6 +190,11 @@ export async function runTimeline(
 ): Promise<{
   readonly steps: readonly StepRow[];
   readonly totalCostUsd: number;
+  /**
+   * Ledger entries naming no step. Zero for native work, which records its
+   * costs against the step that incurred them as it incurs them.
+   */
+  readonly unattributedCostUsd: number;
   readonly costByCategory: Readonly<Record<string, number>>;
   readonly elapsedMs?: number | undefined;
   readonly citations: readonly CitationRow[];
@@ -182,8 +206,12 @@ export async function runTimeline(
   ]);
 
   const costByStep = new Map<string, number>();
+  let unattributedCostUsd = 0;
   for (const entry of entries as readonly CostEntry[]) {
-    if (!entry.stepId) continue;
+    if (!entry.stepId) {
+      unattributedCostUsd = toStoredUsd(unattributedCostUsd + entry.amountUsd);
+      continue;
+    }
     costByStep.set(entry.stepId, (costByStep.get(entry.stepId) ?? 0) + entry.amountUsd);
   }
 
@@ -198,6 +226,7 @@ export async function runTimeline(
   return {
     steps: rows,
     totalCostUsd: cost.totalUsd,
+    unattributedCostUsd,
     costByCategory: cost.byCategory,
     elapsedMs: elapsedMs !== undefined && Number.isFinite(elapsedMs) ? elapsedMs : undefined,
     citations: dedupeCitations(citations),

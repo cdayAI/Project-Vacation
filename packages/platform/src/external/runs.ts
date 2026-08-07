@@ -17,6 +17,7 @@ import {
   stopReasonFor,
 } from "./enrollment.js";
 import type { EnrollmentStore, ExternalRunStore, SpendStore } from "./port.js";
+import { COST_ATTRIBUTION } from "./types.js";
 import type { EnrolledAgent, ExternalAgentId, ExternalRun, HeartbeatReply } from "./types.js";
 
 /**
@@ -401,7 +402,17 @@ export class LiveRunService {
         category: "compute",
         amountUsd: costUsd,
         recordedAt: now,
-        detail: { principal: "external", externalAgentId: agent.id, externalRunId: finished.id },
+        detail: {
+          principal: "external",
+          externalAgentId: agent.id,
+          externalRunId: finished.id,
+          // Unattributed by construction, and labelled so rather than left to
+          // be inferred from a missing `stepId`. A live run reports one figure
+          // when it finishes and no step trail at all — there is nothing here
+          // to attribute it to — so the run detail shows the whole amount as
+          // unattributed instead of as a header no row accounts for.
+          attribution: COST_ATTRIBUTION.unattributed,
+        },
       });
       await this.spend.addSpend(
         agent.id,

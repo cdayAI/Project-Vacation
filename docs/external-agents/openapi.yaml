@@ -882,7 +882,13 @@ components:
         outcome:
           type: string
           enum: [succeeded, failed, skipped]
-        costUsd: { $ref: "#/components/schemas/MoneyUsd" }
+        costUsd:
+          allOf: [{ $ref: "#/components/schemas/MoneyUsd" }]
+          description: |
+            What this step cost. Recorded against the step, so a supervisor
+            reading the run can see which step spent what — send it wherever you
+            can. See `RunReport.costUsd` for how these are reconciled against
+            the episode total.
         detail:
           type: object
           maxProperties: 24
@@ -928,7 +934,24 @@ components:
           type: array
           maxItems: 500
           items: { $ref: "#/components/schemas/ReportedStep" }
-        costUsd: { $ref: "#/components/schemas/MoneyUsd" }
+        costUsd:
+          allOf: [{ $ref: "#/components/schemas/MoneyUsd" }]
+          description: |
+            What the whole episode cost. **This is the figure of record**: the
+            spend meter moves by it, the ceilings read it, and it is the
+            `costUsd` returned to you.
+
+            Your steps' costs need not add up to it, and the difference is
+            neither hidden nor spread across the steps. Each step's `costUsd` is
+            recorded against that step; whatever is left over is shown to the
+            supervisor as unattributed spend on the same run.
+
+            If your steps sum to *more* than this total you have contradicted
+            yourself, and the report is still accepted — the episode already
+            happened and a missing record helps nobody. But none of your step
+            figures is published in that case: the total stands, the whole
+            amount shows as unattributed, and the discrepancy is recorded
+            against your agent. Send figures that add up.
         subject: { $ref: "#/components/schemas/Subject" }
         correlationId: { $ref: "#/components/schemas/CorrelationId" }
 

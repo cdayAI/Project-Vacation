@@ -52,6 +52,17 @@ export interface EnrollmentStore {
    *
    * A containment decided from a stale read must not clobber a revocation
    * another process has already applied.
+   *
+   * Returns null for two different refusals, both of them null because both
+   * mean "nothing was written and the record still says what it said". The
+   * first is the stale read above. The second is terminality: an agent already
+   * in a status `isTerminalAgentStatus` names never moves again, whatever the
+   * caller expected. That second rule belongs here rather than in
+   * `EnrollmentService` because compare-and-set constrains only *when* a writer
+   * decided, never *what* it may decide, so a caller that re-reads first can
+   * ask for `revoked → active` and be satisfied by a bare compare-and-set —
+   * turning an offboarding into a status flip with no fresh enrollment and no
+   * second approval behind it.
    */
   setAgentStatus(input: {
     readonly id: ExternalAgentId;
@@ -182,6 +193,21 @@ export interface ParkedActionStore {
    * Returns null when the current status is not `expectedStatus`, which is how
    * a duplicate commit is detected. Deciding from a stale read and writing
    * unconditionally would let a second commit overwrite the first one's result.
+   *
+   * Also returns null — with nothing written — when the action's current status
+   * is one `isTerminalParkedStatus` names, even if the caller expected it. That
+   * is a second and stronger rule than the compare-and-set, and it has to live
+   * in the store: compare-and-set says only that the caller was not stale, so a
+   * writer that reads `committed` and then asks for `pending` passes it. The
+   * two transitions that rule refuses are `committed → pending`, which puts an
+   * effect that already landed back in front of an approver, and
+   * `indeterminate → approved`, which makes the one state the platform says it
+   * cannot resolve committable again on the original human decision.
+   *
+   * `committing` is not terminal and must not be treated as such: the commit
+   * path leaves it for `committed` on success, for `pending` on a refusal that
+   * asserts nothing was done, and for `indeterminate` when the outcome is
+   * unknown.
    */
   transitionParkedAction(input: {
     readonly id: Id<"parkedAction">;

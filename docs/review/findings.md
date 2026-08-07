@@ -322,10 +322,11 @@ Severity: MEDIUM — four alerts, including a SEV1 for a possibly missed legal d
 Where:    `docs/ops/runbooks.md` — `... cost report` (SPEND-CEILING-APPROACHING), `... approvals list` (APPROVAL-QUEUE-AGEING), `... models degradation` (MODEL-PROVIDER-DEGRADED), `... engine timers` (STATUTORY-TIMER-LATE); `packages/platform/src/cli/main.ts:28` advertises `db status`, which falls through to "Unknown db subcommand"
 Repro:    `packages/platform/src/review/pass6-runbook-commands.test.ts` — two of three failing, listing all four missing verbs. Each was also run: `Unknown command: cost` / `approvals` / `models` / `engine`, and `Unknown db subcommand: status`.
 Cause:    The runbooks were written against an intended operator surface rather than the built one. Nothing checks the two against each other. The STATUTORY-TIMER-LATE case is doubly broken: the verb does not exist and, per F-01, no timer fires for it to report on.
-Fix:      Either implement the four verbs or rewrite those four runbooks around commands that exist. The test derives both sides from source, so it stays honest either way.
+Fix:      Applied — the verbs were implemented rather than the runbooks weakened. `pv cost report`, `pv approvals list`, `pv models degradation` and `pv engine timers` are in `packages/platform/src/cli/operations.ts`, lazily imported like `agents` and `evaluate`; `db status` is in `commandDb` over a new read-only `migrationStatus`. Each exits non-zero on the condition it checks for, so all four are wireable to a scheduler rather than only readable. `cost report` needed a new store primitive, `costRollupSince`, contract-tested against both adapters and pinned to sum to `costSince` — the report and the meter that raises the alert have to be one number.
+          The runbooks were rewritten around them and the prefix was decided: `pv`, declared as the package's `bin`, stated once at the top of `runbooks.md`. The reproduction's parser now looks for `pv <verb>` instead of the elided form; against the document as it was — where the string `pv ` never appeared — its guard assertion fails outright, so the convention is load-bearing rather than cosmetic.
 Risk:     None to the platform; the test fails until one of the two is done, which is the point.
 Merged:   The `db status` half is Pass 0 gap 17.
-Status:   **Documented** — implementing four CLI verbs is beyond a review pass, and rewriting a runbook to point somewhere weaker is an operations decision.
+Status:   **Fixed**
 
 ---
 
@@ -346,9 +347,9 @@ Severity: MEDIUM — an operator concludes no credential is expiring, and finds 
 Where:    `docs/ops/runbooks.md`, EXTERNAL-CREDENTIAL-EXPIRING → "the health payload carries this — `... health`"; `packages/platform/src/cli/main.ts:311-347`
 Repro:    Manual, recorded. `pv health --json` returns `{auditHeadSeq, containmentEngaged, discoveryEnabled, environment, modelProvider, sandboxIsContained, sandboxMode, sandboxNote, status, store, warnings}` — no external-agent block at all. Confirmed by reading `commandHealth`: it builds its own payload and omits `externalAgents`, which the HTTP handler includes. The rows live behind a different verb, `agents health`, which does print them correctly.
 Cause:    Three implementations of "health" — CLI `health`, HTTP `/health`, CLI `agents health` — carry different content. `server.ts:210` promises "one handler, so the two can never disagree", but that is about the two HTTP paths only; the CLI is a third and divergent one.
-Fix:      Point the runbook at `agents health`, and preferably fold the external rows into the CLI's `health` so the three agree.
+Fix:      Applied, and the preferred half rather than the cheap one. `commandHealth` now computes its external block from `externalAgentHealth(externalHealthPorts(...))` — the same function the HTTP handler calls — so the CLI, `/health`, and `agents health` cannot disagree again. The runbook's original instruction is now true as written. Verified end to end against Postgres: a bearer credential minted with a two-week expiry appears in `pv health` and in `pv health --json | jq '.externalAgents.credentialsNearingExpiry'`.
 Risk:     Low, but it touches the same code as F-16 and should be done with it.
-Status:   **Documented** (a one-line documentation fix entangled with the health-status decision)
+Status:   **Fixed**
 
 ---
 

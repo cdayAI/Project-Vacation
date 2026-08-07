@@ -236,3 +236,38 @@ export interface CostSummary {
   readonly totalUsd: number;
   readonly byCategory: Readonly<Record<string, number>>;
 }
+
+/**
+ * One run's spend inside a window, carrying the attributes a report groups by.
+ *
+ * This shape exists because of the question the SPEND-CEILING-APPROACHING
+ * runbook asks: is this a runaway loop or is it legitimate volume? The two look
+ * identical in a single total and are told apart in one glance by spend per
+ * run — a loop is one run with an anomalous figure, volume is many runs with
+ * ordinary ones. Answering it by listing runs and then asking for each run's
+ * cost would be one query per run at the moment an operator is already
+ * waiting, so the join happens in the store instead.
+ *
+ * `since` is applied to when the money was recorded, not to when the run
+ * started. That is deliberate and it is what makes this report agree with the
+ * daily ceiling that raised the alert: `costSince` counts an entry by
+ * `recordedAt`, so a long-running case that started yesterday and spent today
+ * has to appear in today's window or the two figures would disagree.
+ */
+export interface RunCostRollup {
+  readonly runId: Id<"run">;
+  /** The kind of work — what the runbook calls the workflow. */
+  readonly kind: string;
+  readonly status: RunStatus;
+  readonly mode: OperatingMode;
+  readonly roleId?: Id<"role"> | undefined;
+  readonly roleVersion?: number | undefined;
+  readonly workflowInstanceId?: Id<"workflowInstance"> | undefined;
+  /** Spend recorded inside the window only, not the run's lifetime total. */
+  readonly totalUsd: number;
+  readonly byCategory: Readonly<Record<string, number>>;
+  /** Cost entries inside the window. A loop shows here before it shows in money. */
+  readonly entries: number;
+  /** The most recent instant money was recorded against this run in the window. */
+  readonly lastRecordedAt: IsoTimestamp;
+}

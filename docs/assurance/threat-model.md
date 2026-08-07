@@ -97,7 +97,7 @@ solved problems is marketing.
 | Approval satisfied by one person twice | E | Store rejects a second decision from the same actor atomically; requester cannot approve (`guard/approvals.ts`) | — |
 | SQL injection | T,I | Parameterised queries only; no string-built SQL | — |
 | Credential theft from connection string | I | Secrets from the secret manager; redaction removes connection strings from logs (`kernel/redact.ts`) | — |
-| Data loss | D | Backups with a *tested* restore; drill result recorded (`docs/ops/backup-and-restore.md`) | — |
+| Data loss | D | Backups with a *tested* restore; drill result recorded (`docs/ops/backup-restore-and-dr.md`) | — |
 
 ### Boundary 5 — Platform to model provider
 

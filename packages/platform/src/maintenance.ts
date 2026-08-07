@@ -136,6 +136,32 @@ export class MaintenanceLoop {
         run: async () => (await platform.external.liveRuns.reclaimStale()).length,
       },
       {
+        // The retention policy, discharged.
+        //
+        // Runs under containment? No, and the default is the right answer here
+        // for a stronger reason than usual. Every other pass in this list
+        // closes a record or expires a claim; this one deletes rows, and a
+        // deletion cannot be undone when the incident turns out to have been
+        // the reason the data was needed. An operator who has pressed stop has
+        // said stop.
+        name: "retention.purge",
+        run: async () => {
+          const report = await platform.retention.run();
+          // The job keeps its rules independent and collects their failures
+          // rather than throwing on the first one, so a failed rule would
+          // otherwise be invisible here: the pass would report a count and look
+          // healthy while a retention period went unenforced. Re-raising is
+          // what puts it in the log and in `pv worker --once`'s exit code.
+          const failed = report.results.filter((result) => result.error !== undefined);
+          if (failed.length > 0) {
+            throw new Error(
+              failed.map((result) => `${result.rule}: ${result.error}`).join("; "),
+            );
+          }
+          return report.purged;
+        },
+      },
+      {
         name: "external.purge_nonces",
         run: async () =>
           platform.external.stores.nonces.purgeExpiredNonces(

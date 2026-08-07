@@ -4,7 +4,6 @@ import { SeededIdGenerator } from "../kernel/ids.js";
 import { MemoryDb } from "../store/db.js";
 import { MemoryAuditStore } from "../audit/store.memory.js";
 import { AuditLog, decision } from "../audit/log.js";
-import { verifyChain } from "../audit/chain.js";
 import type { AuditEntry } from "../audit/types.js";
 
 /**

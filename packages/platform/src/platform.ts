@@ -5,7 +5,7 @@ import { createLogger, type Logger } from "./kernel/logger.js";
 import { describeConfig, type Config } from "./kernel/config.js";
 import { createPool, MemoryDb, PgDb, type Db } from "./store/db.js";
 import { ALL_MIGRATIONS } from "./store/registry.js";
-import { runMigrations } from "./store/migrate.js";
+import { migrationStatus, runMigrations, type MigrationStatus } from "./store/migrate.js";
 import { MemoryRunStore } from "./record/store.memory.js";
 import { PgRunStore } from "./record/store.pg.js";
 import type { RunStore } from "./record/port.js";
@@ -30,6 +30,11 @@ import { WorkflowCatalogue } from "./engine/definition.js";
 import { MemoryWorkflowStore } from "./engine/store.memory.js";
 import { PgWorkflowStore } from "./engine/store.pg.js";
 import { StepHandlerRegistry, WorkflowEngine } from "./engine/runner.js";
+import { DiscoveryCollector } from "./discovery/collect.js";
+import { MemoryDiscoveryStore } from "./discovery/store.memory.js";
+import { PgDiscoveryStore } from "./discovery/store.pg.js";
+import { effectiveRetentionDays } from "./discovery/retention.js";
+import { RetentionPurgeJob, buildRetentionRules } from "./retention.js";
 import { PLATFORM_ACTIONS } from "./actions.js";
 
 /**
@@ -88,6 +93,20 @@ export interface Platform {
    * what the platform does. ADR 0011.
    */
   readonly observations: ObservationHarvester;
+  /**
+   * The retention policy, enforced.
+   *
+   * Composed always, and deliberately not behind a flag. `retention.purged` was
+   * a declared audit event type with no producer, `PV_AUDIT_RETENTION_DAYS` was
+   * a configured period nothing read, and the assurance document describing the
+   * purge stated in the present tense that it ran daily. A deployment that
+   * composed the job only when somebody remembered to would reproduce that gap
+   * one environment at a time.
+   *
+   * `pv worker` drives it. Nothing else does: a purge triggered from a request
+   * path would be a deletion an operator could cause by clicking.
+   */
+  readonly retention: RetentionPurgeJob;
   /**
    * Settings every statutory-deadline computation must be given.
    *
@@ -272,6 +291,38 @@ export async function buildPlatform(
     timeline: { requireVerifiedRules: config.requireVerifiedStatutoryRules },
   });
 
+  // Composed for its purge, not for its collector.
+  //
+  // Work discovery ships disabled and stays disabled, but the observations it
+  // may already have written are the most sensitive rows this platform can
+  // hold, and their thirty-day ceiling is a promise made to MVW in writing. The
+  // purge has to be reachable whatever the flag says, because switching the
+  // feature off must not be what preserves the data.
+  //
+  // Settings are built through the clamp rather than through
+  // `discoverySettings`, which refuses an over-long period: startup is the
+  // wrong place to discover that, and a configured value past the ceiling is
+  // supposed to result in a *shorter* purge, not in no purge at all.
+  const discoveryStore =
+    db instanceof PgDb
+      ? new PgDiscoveryStore(db)
+      : new MemoryDiscoveryStore(memoryDb ?? new MemoryDb());
+  const discovery = new DiscoveryCollector(
+    discoveryStore,
+    clock,
+    ids,
+    {
+      enabled: config.discoveryEnabled,
+      retentionDays: effectiveRetentionDays(config.discoveryRetentionDays),
+    },
+  );
+
+  const retention = new RetentionPurgeJob(
+    buildRetentionRules({ config, clock, observations: observationStore, discovery }),
+    auditLog,
+    clock,
+  );
+
   const external = buildExternalPlane({
     config,
     clock,
@@ -320,6 +371,7 @@ export async function buildPlatform(
     handlers,
     catalogue,
     observations,
+    retention,
     db,
     async close() {
       if (pool) await pool.end();
@@ -358,6 +410,19 @@ export async function migrate(platform: Platform): Promise<{ applied: readonly s
   }
   const result = await runMigrations(platform.db, ALL_MIGRATIONS);
   return { applied: result.applied };
+}
+
+/**
+ * What this deployment's schema is, against what this build expects.
+ *
+ * Null when the store has no schema at all, which is a different answer from
+ * "nothing is pending" and has to stay distinguishable: an operator who runs
+ * this against a memory-backed process and reads "up to date" has been told
+ * something false about a database that does not exist.
+ */
+export async function migrationState(platform: Platform): Promise<MigrationStatus | null> {
+  if (!platform.db) return null;
+  return migrationStatus(platform.db, ALL_MIGRATIONS);
 }
 
 export { describeConfig };

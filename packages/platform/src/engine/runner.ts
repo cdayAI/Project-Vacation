@@ -43,6 +43,7 @@ import type {
   HumanTask,
   HumanTaskFilter,
   InstanceDescription,
+  PendingTimer,
   StepHandler,
   StepHandlerContext,
   StepOutcome,
@@ -654,6 +655,69 @@ export class WorkflowEngine {
 
   listTasks(filter: HumanTaskFilter = {}): Promise<readonly HumanTask[]> {
     return this.deps.store.listHumanTasks(filter);
+  }
+
+  /**
+   * Every timer waiting to fire at or before `through`, soonest first.
+   *
+   * This exists for one alert. STATUTORY-TIMER-LATE pages at SEV1 for a
+   * deadline timer that did not fire, and the first thing the runbook asks a
+   * woken responder to do is name the affected contracts — because a statutory
+   * deadline does not wait for the technical fix, and the work has to move to a
+   * human immediately whether or not anybody has found the bug yet.
+   *
+   * Answering that from the console's instance detail would mean knowing which
+   * instances to open, which is precisely what the responder does not know. So
+   * the question is asked of the store the way the sweep asks it: `wakeAt` is
+   * denormalised onto the instance and indexed, and this reads the same index
+   * the sweep reads. A timer that is overdue here is a timer the sweep should
+   * already have picked up, which makes an overdue row evidence about the
+   * scheduler and not only about the case.
+   *
+   * Note what a row does *not* prove: `lateByMs` measures the gap between the
+   * timer's due time and now, so every row is late if nothing is sweeping at
+   * all. That is the intended reading — see `pv worker`.
+   */
+  async pendingTimers(
+    options: { readonly through?: IsoTimestamp; readonly limit?: number } = {},
+  ): Promise<readonly PendingTimer[]> {
+    const now = this.deps.clock.nowIso();
+    const through = options.through ?? now;
+    const nowMs = Date.parse(now);
+
+    const instances = await this.deps.store.dueInstances(through, options.limit ?? 200);
+    const timers: PendingTimer[] = [];
+
+    for (const instance of instances) {
+      for (const token of instance.tokens) {
+        // Only genuine timers. `dueInstances` also returns instances that are
+        // merely runnable, and a retry backoff is not a deadline — reporting
+        // either as an overdue timer would bury the rows that are one under
+        // rows that never were.
+        if (token.state !== "waiting_timer") continue;
+        if (token.wakeAt === undefined || token.wakeAt > through) continue;
+        timers.push({
+          instanceId: instance.id,
+          workflow: instance.definitionName,
+          definitionVersion: instance.definitionVersion,
+          runId: instance.runId,
+          correlationId: instance.correlationId,
+          subject: instance.subject,
+          status: instance.status,
+          step: token.stepName,
+          waitingFor: token.waitingFor ?? "a scheduled wait",
+          firesAt: token.wakeAt,
+          lateByMs: nowMs - Date.parse(token.wakeAt),
+          stuckReason: instance.stuckReason,
+        });
+      }
+    }
+
+    // Soonest — and therefore latest — first. The most overdue deadline is the
+    // one the responder has least time to do anything about.
+    return timers.sort((left, right) =>
+      left.firesAt < right.firesAt ? -1 : left.firesAt > right.firesAt ? 1 : 0,
+    );
   }
 
   /**

@@ -584,7 +584,39 @@ CREATE INDEX IF NOT EXISTS external_parked_action_committing_idx
   WHERE status = 'committing';
 `;
 
+/**
+ * The status the two-phase commit path writes, which the table refused.
+ *
+ * `committing` was added to `ParkedActionStatus` and to the sweeper — 0017
+ * indexes `WHERE status = 'committing'` — but the CHECK constraint enumerating
+ * the statuses was never widened to admit it. On Postgres that made step 5 of
+ * `ExecutionService.commit`, the conditional move into the in-flight state,
+ * violate `external_parked_action_status_known` on every governed write: the
+ * failure surfaced as `record.unavailable` and no approved write could ever be
+ * committed against a real database.
+ *
+ * It was invisible because the memory adapter has no constraint to violate and
+ * the contract suite never asked either store to enter `committing`. That is
+ * the shape of gap this constraint now closes for good — the enumeration here
+ * and `ParkedActionStatus` in `types.ts` are the same list, stated once in SQL
+ * and once in TypeScript, and `store.contract.test.ts` now drives every
+ * transition the commit path performs through both adapters.
+ *
+ * Separate from 0017 rather than folded into it, for the reason 0017 is
+ * separate from 0016: an applied migration is an immutable artifact, and
+ * editing its SQL makes the code lie about what a deployed database contains.
+ */
+const EXTERNAL_PARKED_COMMITTING_SQL = `
+ALTER TABLE external_parked_action
+  DROP CONSTRAINT IF EXISTS external_parked_action_status_known;
+ALTER TABLE external_parked_action
+  ADD CONSTRAINT external_parked_action_status_known CHECK (
+    status IN ('pending','approved','committing','committed','rejected','voided','expired','indeterminate')
+  );
+`;
+
 export const MIGRATIONS: readonly { readonly id: string; readonly sql: string }[] = [
   { id: "0016_external", sql: EXTERNAL_SQL },
   { id: "0017_external_parked_mode", sql: EXTERNAL_PARKED_MODE_SQL },
+  { id: "0018_external_parked_committing", sql: EXTERNAL_PARKED_COMMITTING_SQL },
 ];

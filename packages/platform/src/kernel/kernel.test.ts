@@ -3,7 +3,14 @@ import { canonicalJson, CanonicalisationError } from "./canonical.js";
 import { digestValue, digestBytes, isDigest, digestsEqual } from "./hash.js";
 import { FixedClock, SystemClock, DAY } from "./clock.js";
 import { SeededIdGenerator, RandomIdGenerator, isId, assertId } from "./ids.js";
-import { redactText, redactValue, containsSecret, passesLuhn, REDACTED } from "./redact.js";
+import {
+  redactText,
+  redactValue,
+  containsSecret,
+  looksLikeCardNumber,
+  passesLuhn,
+  REDACTED,
+} from "./redact.js";
 import { loadConfig, describeConfig } from "./config.js";
 import { ConfigError, DeniedError, isDenied } from "./errors.js";
 import { RecordingLogger } from "./logger.js";
@@ -257,6 +264,64 @@ describe("redaction", () => {
   it("reports whether text contains anything secret-shaped", () => {
     expect(containsSecret("nothing interesting here")).toBe(false);
     expect(containsSecret("AKIAIOSFODNN7EXAMPLE")).toBe(true);
+  });
+
+  /**
+   * The numeric card-number check, and the bound it turns on.
+   *
+   * The digit floor is the whole decision here, and it is a measurement rather
+   * than a preference: Luhn accepts one integer in ten, so a thirteen-digit
+   * floor would refuse about ten per cent of raw epoch-millisecond values —
+   * which this platform writes into decisions and log lines. These cases pin
+   * the floor so it cannot be "tightened" back to thirteen by someone reasoning
+   * from the text pattern alone.
+   */
+  describe("card numbers written as numbers", () => {
+    it("catches the fourteen-to-nineteen digit Luhn-valid case", () => {
+      expect(looksLikeCardNumber(4111111111111111)).toBe(true); // 16, Visa
+      expect(looksLikeCardNumber(378282246310005)).toBe(true); // 15, Amex
+      expect(looksLikeCardNumber(6011111111111117)).toBe(true); // 16, Discover
+      expect(redactValue({ accountRef: 4111111111111111 })).toEqual({ accountRef: REDACTED });
+      expect(redactValue([378282246310005])).toEqual([REDACTED]);
+    });
+
+    it("leaves epoch milliseconds alone, including the Luhn-valid ones", () => {
+      // 2026-03-31T23:33:20.006Z passes Luhn and is a perfectly ordinary
+      // reading; at a thirteen-digit floor it would be refused, and a refused
+      // audit write refuses the action it was recording. One consecutive
+      // millisecond in ten looks like this.
+      expect(passesLuhn("1775000000006")).toBe(true);
+      expect(looksLikeCardNumber(1775000000006)).toBe(false);
+      expect(looksLikeCardNumber(Date.parse("2026-03-31T23:33:20.006Z"))).toBe(false);
+      expect(looksLikeCardNumber(1775000000000)).toBe(false);
+    });
+
+    it("leaves the ordinary numeric values the platform writes alone", () => {
+      for (const benign of [0, 3, 4111, 1_234_567, 12.5, 0.42, -7, 20260807090000]) {
+        expect(looksLikeCardNumber(benign), String(benign)).toBe(false);
+      }
+      // Cents, byte counts and sequence numbers are nowhere near the floor.
+      expect(redactValue({ costCents: 42_00, bytes: 1_048_576, seq: 91 })).toEqual({
+        costCents: 4200,
+        bytes: 1_048_576,
+        seq: 91,
+      });
+    });
+
+    it("ignores anything past the safe-integer boundary", () => {
+      // Beyond MAX_SAFE_INTEGER the decimal digits are an artefact of floating
+      // point rather than what the caller wrote, so testing them tests nothing.
+      expect(looksLikeCardNumber(1e21)).toBe(false);
+      expect(looksLikeCardNumber(Number.MAX_SAFE_INTEGER + 2)).toBe(false);
+      expect(looksLikeCardNumber(Number.NaN)).toBe(false);
+      expect(looksLikeCardNumber(Number.POSITIVE_INFINITY)).toBe(false);
+    });
+
+    it("covers bigint, which the logger would otherwise stringify intact", () => {
+      expect(looksLikeCardNumber(4111111111111111n)).toBe(true);
+      expect(redactValue({ pan: 4111111111111111n })).toEqual({ pan: REDACTED });
+      expect(redactValue({ ns: 123456789n })).toEqual({ ns: "123456789n" });
+    });
   });
 });
 

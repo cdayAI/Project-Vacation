@@ -176,24 +176,77 @@ export class DiscoveryCollector {
    * Both cut-offs go through `effectiveRetentionDays`, so a stored value that
    * somehow exceeds the ceiling — a restore, a migration, a psql prompt — still
    * purges at thirty days.
+   *
+   * Note what this method does *not* check: whether the feature is enabled.
+   * Every other entry point on this class refuses when it is off, and this one
+   * must not, because the rows that most need deleting are the ones left behind
+   * by a deployment that switched observation on and then switched it off
+   * again. A purge gated on the flag would preserve exactly the data whose
+   * collection has already been withdrawn.
+   *
+   * `deploymentRetentionDays` overrides the configured period for the
+   * deployment-wide sweep, and exists so the retention pass can hand down a
+   * shorter platform-wide period. It cannot lengthen anything: the value goes
+   * through the same clamp, and each enrollment's own shorter period is still
+   * applied on top.
    */
-  async purgeExpired(): Promise<number> {
+  async purgeExpired(deploymentRetentionDays?: number): Promise<number> {
     const now = this.clock.now();
+    const days = this.deploymentRetentionDays(deploymentRetentionDays);
 
-    let purged = await this.store.purgeObservationsBefore(
-      retentionCutoff(now, this.settings.retentionDays),
-    );
+    let purged = await this.store.purgeObservationsBefore(retentionCutoff(now, days));
 
-    for (const enrollment of await this.store.listEnrollments()) {
-      const days = effectiveRetentionDays(enrollment.retentionDays);
-      if (days >= effectiveRetentionDays(this.settings.retentionDays)) continue;
+    for (const enrollment of await this.shorterEnrollments(days)) {
       purged += await this.store.purgeObservationsBefore(
-        retentionCutoff(now, days),
+        retentionCutoff(now, effectiveRetentionDays(enrollment.retentionDays)),
         enrollment.subjectRef,
       );
     }
 
     return purged;
+  }
+
+  /**
+   * How many observations `purgeExpired` would delete right now.
+   *
+   * Separate from the purge because the retention pass records what it is about
+   * to delete in the audit chain *before* deleting it, and a count taken after
+   * the fact could not be written down without the deletion having already
+   * happened unrecorded. Counted with the same two cut-offs, so the number in
+   * the chain is the number the purge acts on.
+   */
+  async countExpired(deploymentRetentionDays?: number): Promise<number> {
+    const now = this.clock.now();
+    const days = this.deploymentRetentionDays(deploymentRetentionDays);
+
+    let due = await this.store.countObservations({
+      observedBefore: retentionCutoff(now, days),
+    });
+
+    for (const enrollment of await this.shorterEnrollments(days)) {
+      due += await this.store.countObservations({
+        subjectRef: enrollment.subjectRef,
+        observedFrom: retentionCutoff(now, days),
+        observedBefore: retentionCutoff(now, effectiveRetentionDays(enrollment.retentionDays)),
+      });
+    }
+
+    return due;
+  }
+
+  /** The deployment-wide period actually in force, clamped to the ceiling. */
+  private deploymentRetentionDays(override?: number): number {
+    const configured = effectiveRetentionDays(this.settings.retentionDays);
+    if (override === undefined) return configured;
+    return Math.min(configured, effectiveRetentionDays(override));
+  }
+
+  /** Enrollments that chose a period shorter than the deployment's. */
+  private async shorterEnrollments(deploymentDays: number): Promise<readonly Enrollment[]> {
+    const all = await this.store.listEnrollments();
+    return all.filter(
+      (enrollment) => effectiveRetentionDays(enrollment.retentionDays) < deploymentDays,
+    );
   }
 
   private assertFeatureEnabled(): void {

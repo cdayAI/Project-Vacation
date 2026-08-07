@@ -169,8 +169,27 @@ are unimplemented.
 ### S7. Audit archival is specified but not built
 
 The prune-a-prefix-and-anchor procedure is documented and the verifier supports
-it. The archival job is not written. **Until it is, leave audit retention at its
-default and prune nothing.**
+it. The archival job is not written, and **nothing in the platform prunes the
+chain** — there is no deletion operation on the audit store, and the retention
+job refuses at construction to accept a rule targeting the chain. The chain
+therefore grows without bound, which is a capacity problem rather than a
+compliance one. `PV_AUDIT_RETENTION_DAYS` is the period MVW is undertaking to
+keep it *for*; it does not cause anything to be removed from it.
+
+### S8. Twelve of the fourteen retention rules are policy, not code
+
+`retention-and-deletion.md` §1 lists fourteen rules and marks the two the
+platform enforces today: the improvement loop's observations, and work-discovery
+observations. §5 names the other twelve and what each is waiting on — mostly a
+period MVW has not confirmed, or a `run` reference that cannot be deleted while
+four tables that point at it have no period of their own.
+
+Two consequences an operator should know. The rules that *are* enforced are
+applied by the `retention.purge` pass of the maintenance loop, so **a deployment
+that never runs `pv worker` enforces no retention at all**. And the purge does
+not run while the platform is globally paused — deliberately, since a deletion
+cannot be undone when the incident turns out to be the reason the data was
+needed — so a long containment window defers retention until it is released.
 
 ---
 

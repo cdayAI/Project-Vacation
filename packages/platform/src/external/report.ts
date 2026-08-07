@@ -6,6 +6,7 @@ import type { Clock } from "../kernel/clock.js";
 import { DeniedError, InvalidInputError } from "../kernel/errors.js";
 import { digestValue } from "../kernel/hash.js";
 import type { Id, IdGenerator } from "../kernel/ids.js";
+import { toStoredUsd } from "../record/migrations.js";
 import type { RunStore } from "../record/port.js";
 import type { IsoTimestamp, OperatingMode, StepKind, StepStatus } from "../record/types.js";
 import {
@@ -17,6 +18,7 @@ import {
 } from "./enrollment.js";
 import { EXTERNAL_RUN_KIND, externalPrincipal, externalSubject } from "./runs.js";
 import type { EnrollmentStore, ExternalRunStore, SpendStore } from "./port.js";
+import { COST_ATTRIBUTION } from "./types.js";
 import type {
   EnrolledAgent,
   ExternalAgentId,
@@ -474,8 +476,14 @@ export class ReportIngestor {
       }),
     );
 
+    // Step ids are kept as they are written, because the cost ledger below
+    // attributes to them. A step with no reported cost is not carried: it would
+    // only produce a zero entry, and "no entry" and "an entry of zero" say the
+    // same thing to every reader of this ledger.
+    const costedSteps: { readonly stepId: Id<"step">; readonly costUsd: number }[] = [];
+
     for (const [index, step] of report.steps.entries()) {
-      await this.record.appendStep({
+      const appended = await this.record.appendStep({
         runId,
         kind: stepKindFor(step),
         name: step.name,
@@ -490,9 +498,13 @@ export class ReportIngestor {
           ...step.detail,
           principal: "external",
           ...(step.tool ? { tool: step.tool } : {}),
+          // The agent's raw claim, kept beside the ledger entry derived from
+          // it. It stays even when the figure is refused promotion below, so
+          // what the agent said is never destroyed by our disagreeing with it.
           ...(step.costUsd > 0 ? { reportedCostUsd: step.costUsd } : {}),
         },
       });
+      if (step.costUsd > 0) costedSteps.push({ stepId: appended.id, costUsd: step.costUsd });
     }
 
     await this.record.patchRun(runId, {
@@ -504,18 +516,96 @@ export class ReportIngestor {
         : {}),
     });
 
-    if (report.costUsd > 0) {
+    // ---- Cost, reconciled between the two figures the agent reported. ----
+    //
+    // An agent reports a total for the episode and a figure for each step, and
+    // nothing makes the parts sum to the whole. The ledger used to take the
+    // total and discard the step figures into display-only detail, so the run
+    // detail showed every step at $0.00 under a non-zero header with no way to
+    // answer "which step spent this" — for exactly the work this plane exists
+    // to make visible.
+    //
+    // Both figures are now recorded, and the difference is carried explicitly.
+    // Two invariants hold whatever the agent sends:
+    //
+    //   1. The ledger for this run totals **the reported total**, exactly. That
+    //      is the figure of record: it is what `IngestedReport.costUsd` returns
+    //      to the agent, what the meter moves by, and what the ceiling reads,
+    //      and the exactly-once property above is a property of that number.
+    //   2. The per-step entries plus the unattributed entry equal that total,
+    //      so a screen that lists the steps and the remainder derives the
+    //      header from what it is showing.
+    //
+    // Spreading the remainder across the steps was the alternative and is
+    // refused: it would invent a precision the agent never reported, and a
+    // supervisor cannot tell an attributed figure from an apportioned one once
+    // both are rendered in the same column.
+    const stepCostUsd = costedSteps.reduce((sum, step) => toStoredUsd(sum + step.costUsd), 0);
+    const remainderUsd = toStoredUsd(report.costUsd - stepCostUsd);
+
+    // The steps summing to MORE than the total is an agent contradicting
+    // itself, and there is no reading of it under which both its numbers are
+    // true. Trusting the steps is refused: the total is the figure of record,
+    // and raising the run above it would make the ledger disagree with the
+    // meter, with the ceiling, and with the figure the agent was told it was
+    // charged. Trusting the steps *quietly* — recording them anyway — is worse
+    // still: it recreates the disagreement between column and header that this
+    // whole change removes, this time with the column too high.
+    //
+    // Refusing the report outright was the other candidate and is not what
+    // happens, deliberately. The episode describes work that already ran in
+    // somebody else's system; discarding it would leave that work invisible and
+    // its spend unmetered, which is precisely the blind spot this plane exists
+    // to close. A record with a contradiction named in it is worth more to a
+    // supervisor than no record at all.
+    //
+    // So neither number is silently trusted. The total stands because it is the
+    // figure of record by contract; the step figures are refused promotion to
+    // the ledger, and the refusal is written down — on the entry, in the audit
+    // event below, and beside the agent's own claim which stays on each step.
+    const reconciles = remainderUsd >= 0;
+
+    if (reconciles) {
+      for (const step of costedSteps) {
+        await this.record.recordCost({
+          runId,
+          stepId: step.stepId,
+          category: "compute",
+          amountUsd: step.costUsd,
+          recordedAt: report.endedAt,
+          detail: {
+            principal: "external",
+            externalAgentId: agent.id,
+            attribution: COST_ATTRIBUTION.reportedStep,
+          },
+        });
+      }
+    }
+
+    const unattributedUsd = reconciles ? remainderUsd : report.costUsd;
+    if (unattributedUsd > 0) {
       await this.record.recordCost({
         runId,
         category: "compute",
-        amountUsd: report.costUsd,
+        amountUsd: unattributedUsd,
         recordedAt: report.endedAt,
-        detail: { principal: "external", externalAgentId: agent.id },
+        detail: {
+          principal: "external",
+          externalAgentId: agent.id,
+          attribution: reconciles
+            ? COST_ATTRIBUTION.unattributed
+            : COST_ATTRIBUTION.unreconciled,
+          // Both claims, on the entry that exists because they disagreed.
+          reportedStepCostUsd: stepCostUsd,
+          reportedTotalCostUsd: report.costUsd,
+        },
       });
-      // One cost entry for the episode, not one per step. The per-step figures
-      // are kept on the steps as detail: recording both would double the run's
-      // total whenever an agent's step costs happen to sum to its report total,
-      // which is exactly when they are correct.
+    }
+
+    if (report.costUsd > 0) {
+      // The meter moves by the reported total and by nothing else, once per
+      // episode. Moving it from the ledger instead would make it depend on how
+      // the attribution above happened to split, which is a display concern.
       await this.spend.addSpend(
         agent.id,
         budgetPeriodKey(agent.budgetPeriod, report.endedAt),
@@ -538,6 +628,13 @@ export class ReportIngestor {
           reported: true,
           outcome: report.outcome,
           costUsd: report.costUsd,
+          // Both reported figures and how they were reconciled, on the
+          // tamper-evident record. An agent whose step accounting contradicts
+          // its totals is a fact about the vendor's integration, and finding
+          // that out needs a durable trail rather than one run's screen.
+          reportedStepCostUsd: stepCostUsd,
+          unattributedCostUsd: unattributedUsd,
+          costReconciled: reconciles,
           steps: report.steps.length,
           agentStatus: agent.status,
         },

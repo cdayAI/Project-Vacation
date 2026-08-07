@@ -3,11 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Project Vacation platform: operating record, governance spine, workflow engine, knowledge layer",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": "./dist/index.js"
+  "description": "Project Vacation platform: operating record, governance spine, workflow engine, knowledge layer. Consumed as the `pv` command line and the HTTP API it serves, not as a library — there is no src/index.ts and therefore no dist/index.js, so this package declares no main, types, or exports. Adding a library entry point means choosing a public API surface deliberately; declaring one that cannot be built is how `import \"@pv/platform\"` came to fail with ERR_MODULE_NOT_FOUND on a build that succeeded.",
+  "bin": {
+    "pv": "dist/cli/main.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -18,7 +16,8 @@
     "db:migrate": "tsx src/cli/main.ts db migrate",
     "audit:verify": "tsx src/cli/main.ts audit verify",
     "demo": "tsx src/cli/main.ts demo run",
-    "api": "tsx src/cli/main.ts serve"
+    "api": "tsx src/cli/main.ts serve",
+    "worker": "tsx src/cli/main.ts worker"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

@@ -50,20 +50,23 @@ secret manager. They are never logged and never enter an audit record.
 Four scopes, all effective within about a second, none requiring a deploy:
 
 ```bash
-CLI=packages/platform/src/cli/main.ts
-
 # everything
-pnpm --filter @pv/platform exec tsx $CLI containment engage --scope global \
-  --reason "why"
+pv containment engage --scope global --reason "why"
 
 # one workflow, one role, one integration
-... containment engage --scope workflow    --target rescission.verify --reason "why"
-... containment engage --scope role        --target rol_xxx           --reason "why"
-... containment engage --scope integration --target contract-records  --reason "why"
+pv containment engage --scope workflow    --target rescission.verify --reason "why"
+pv containment engage --scope role        --target rol_xxx           --reason "why"
+pv containment engage --scope integration --target contract-records  --reason "why"
 
-... containment list
-... containment release --scope global --reason "resolved"
+pv containment list
+pv containment release --scope global --reason "resolved"
 ```
+
+`pv` is the platform's command line. In a built deployment it is on PATH; from
+a checkout, run `npx tsx src/cli/main.ts <verb>` inside `packages/platform`, or
+`pnpm --filter @pv/platform exec tsx src/cli/main.ts <verb>` from the root.
+`docs/ops/runbooks.md` § "Running these commands" says the same thing once, for
+whoever is reading that at three in the morning instead of this.
 
 Two properties worth knowing:
 
@@ -195,7 +198,11 @@ Reports every break it finds, not just the first, so you get the extent of the
 damage rather than its starting point. Break kinds: `hash_mismatch` (content
 altered), `sequence_gap` (entries deleted), `previous_hash_mismatch` (chain
 re-linked), `sequence_duplicate` (a fork), `timestamp_regression` (back-dating
-or a clock problem).
+or a clock problem), `genesis_mismatch` (the first entry does not link to the
+genesis constant), and `chain_truncated` (the chain is shorter than it has ever
+been — the newest entries were deleted). The last is the one to read first:
+deleting from the end leaves an internally consistent prefix, so every other
+check passes and only the durable high-water mark catches it.
 
 Run it daily on a schedule. On failure, follow the incident process — and **do
 not repair the chain.** A repaired chain is an unverifiable chain.
@@ -205,9 +212,14 @@ not repair the chain.** A repaired chain is an unverifiable chain.
 ## 8. Cost
 
 ```bash
-... cost report --since <ISO> --group-by workflow
-... cost per-case --workflow rescission.verify --since <ISO>
+pv cost report --since <ISO> --group-by workflow
+pv cost report --since <ISO> --group-by workflow,role,category --top 20
 ```
+
+The report counts spend by when it was *recorded*, which is the window the
+daily ceiling counts, so it and the meter that raised an alert cannot disagree.
+It leads with the largest single run and its share of the window, because that
+is the figure that separates a loop from volume.
 
 Ceilings are enforced at consumption, not only pre-flight, so a runaway loop is
 bounded by one step's cost. Alerts fire at 80% of the daily ceiling.

@@ -29,10 +29,18 @@ import { fileURLToPath } from "node:url";
  * Two problems are systemic rather than per-runbook, and this file pins the
  * second of them.
  *
- * **The command prefix is never defined.** Every command is written as
- * `... <verb>`. There is no `pv` binary — `packages/platform/package.json`
- * declares no `bin` — and the document never says what to substitute. A reader
- * who did not write it has to find `cli/main.ts` to discover the entry point.
+ * **The command prefix is never defined.** Every command was written as
+ * `... <verb>`. There was no `pv` binary — `packages/platform/package.json`
+ * declared no `bin` — and the document never said what to substitute. A reader
+ * who did not write it had to find `cli/main.ts` to discover the entry point.
+ *
+ * *Decided.* The prefix is `pv`: the package declares it as its `bin`, the
+ * runbooks state once at the top what to run when it is not on PATH, and every
+ * command in the document is written out in full. The parser below therefore
+ * looks for `pv <verb>` rather than for the elided form, which is what makes it
+ * keep working as a check rather than matching nothing. Against the document as
+ * it was — where the string `pv ` never appeared — the first assertion fails
+ * outright, which is the point: the convention is now load-bearing.
  *
  * **Five documented commands do not exist.** Confirmed by running each one.
  * `cost`, `approvals`, `models` and `engine` are not commands at all, and
@@ -72,15 +80,17 @@ function implementedCommands(): Set<string> {
 /**
  * Verbs the runbooks tell an operator to run.
  *
- * Every command in that document is written as `... <verb> <subcommand>`, so
- * the elided prefix is what identifies a command line rather than prose.
+ * Every command in that document is written as `pv <verb> <subcommand>`, so the
+ * prefix is what identifies a command line rather than prose. The verb must
+ * start with a letter: `pv --help` is a command, but `--help` is a flag on
+ * every verb rather than one of its own.
  */
 function documentedCommands(): { verb: string; line: string }[] {
   const found: { verb: string; line: string }[] = [];
   for (const line of read("docs/ops/runbooks.md").split("\n")) {
     // Both shapes the document uses: a fenced block, and a backticked command
     // inside a sentence. Missing the second shape hides three of the five.
-    for (const match of line.matchAll(/\.\.\.\s+([a-z-]+)\b/g)) {
+    for (const match of line.matchAll(/\bpv\s+([a-z][a-z-]*)\b/g)) {
       if (match[1]) found.push({ verb: match[1], line: line.trim() });
     }
   }

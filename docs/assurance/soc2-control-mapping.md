@@ -73,7 +73,7 @@ Confidentiality, Processing Integrity. Privacy is mapped separately in
 | CC6.2 Registration and authorisation | Shared | Directory-group provisioning; access follows the HR lifecycle |
 | CC6.3 Access modification and removal | Shared | Group removal removes access; service accounts individually revocable |
 | CC6.4 Physical access | MVW | Cloud provider and MVW facilities |
-| CC6.5 Asset disposal | Shared | Retention job with recorded purges (`retention-and-deletion.md`) |
+| CC6.5 Asset disposal | Shared | Retention job with recorded purges, covering two of the fourteen rules — `retention-and-deletion.md` §1 marks which, §5 says what the rest wait on |
 | CC6.6 External threat protection | Shared | Egress allowlist, boundary screen, sandbox defaulting to disabled; network controls are MVW's |
 | CC6.7 Transmission restriction | Shared | TLS in transit; redaction before egress; no card data (ADR 0009) |
 | CC6.8 Malicious software | **Gap** | No container image scanning yet — see not-production-grade list |

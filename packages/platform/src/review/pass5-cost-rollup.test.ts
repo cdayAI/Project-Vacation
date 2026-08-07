@@ -49,6 +49,13 @@ import type { EnrolledAgent, ExternalAgentId, RunReport } from "../external/type
  * looked. Whether the fix is to attribute the ledger per step or to surface the
  * unattributed remainder as its own row is a product decision, not a bug fix —
  * see the report.
+ *
+ * **Resolved.** The owner chose both halves of that: the step figures are
+ * attributed to their steps, and whatever the agent did not attribute is
+ * carried as its own figure rather than spread across them. The analysis above
+ * is left as written, because it is the evidence for the decision; the second
+ * suite in this file is the decided behaviour, including the case where an
+ * agent's steps and its total contradict each other.
  */
 
 const START = "2026-08-06T12:00:00.000Z";
@@ -105,7 +112,7 @@ const REPORT: RunReport = {
   subject: { cohort: "2026-08" },
 };
 
-async function ingestOneEpisode() {
+async function ingestOneEpisode(report: RunReport = REPORT) {
   const clock = new FixedClock(START);
   const ids = new SeededIdGenerator("pass5-rollup");
   const db = new MemoryDb();
@@ -126,7 +133,7 @@ async function ingestOneEpisode() {
     { limits: DEFAULT_REPORT_LIMITS, operatingMode: "supervised" },
   );
 
-  const ingested = await ingestor.ingest(REPORT);
+  const ingested = await ingestor.ingest(report);
   const run = await record.requireRun(ingested.runId);
   // `runTimeline` reads only the operating record.
   const timeline = await runTimeline({ runs: record } as unknown as Platform, run);
@@ -156,5 +163,68 @@ describe("cost attribution for an ingested external episode", () => {
     // told us what each step cost — it is in `detail.reportedCostUsd` — and
     // the column that would show it reads a ledger those figures never reach.
     expect(summed).toBeCloseTo(timeline.totalCostUsd, 6);
+    // These steps account for the whole episode, so there is nothing left over.
+    expect(timeline.unattributedCostUsd).toBe(0);
+  });
+});
+
+/**
+ * The rest of the finding, once the owner decided it.
+ *
+ * The steps and the total are two separate claims by a system this platform did
+ * not run, and they need not agree. The decision recorded here is to show the
+ * difference rather than redistribute it: attributing an agent's total across
+ * its steps would invent a precision the agent never reported, and the
+ * exactly-once meter property depends on the total staying the figure of
+ * record. So the screen gets an invariant it can be built on —
+ *
+ *     sum(steps) + unattributed === total
+ *
+ * — which holds for every report an agent can send, including the one where its
+ * own numbers contradict each other.
+ */
+describe("what the screen can say about a total it did not attribute", () => {
+  it("accounts for the header when the agent attributed only part of it", async () => {
+    const { timeline } = await ingestOneEpisode({
+      ...REPORT,
+      steps: [
+        { ...REPORT.steps[0]!, costUsd: 0 },
+        { ...REPORT.steps[1]!, costUsd: 0.4 },
+      ],
+      costUsd: 1.25,
+    });
+
+    const summed = timeline.steps.reduce((total, row) => total + row.costUsd, 0);
+    expect(summed).toBeCloseTo(0.4, 10);
+    // The $0.85 the agent did not place is spend that happened. It is shown as
+    // its own figure, so a supervisor reading the detail can still derive the
+    // header from what is on the page — which is the difference between a
+    // total with a derivation and a total without one.
+    expect(timeline.unattributedCostUsd).toBeCloseTo(0.85, 10);
+    expect(summed + timeline.unattributedCostUsd).toBeCloseTo(timeline.totalCostUsd, 10);
+  });
+
+  it("accounts for the header when the agent's own figures contradict each other", async () => {
+    const { timeline } = await ingestOneEpisode({
+      ...REPORT,
+      // $1.40 of steps inside a $1.25 episode.
+      steps: [
+        { ...REPORT.steps[0]!, costUsd: 0.9 },
+        { ...REPORT.steps[1]!, costUsd: 0.5 },
+      ],
+      costUsd: 1.25,
+    });
+
+    // No step figure is promoted, because publishing them would make the
+    // column exceed the header — the same disagreement, inverted. The whole
+    // total shows as unattributed instead, and the invariant still holds, so
+    // the screen never has to render a header its rows cannot account for.
+    expect(timeline.steps.every((row) => row.costUsd === 0)).toBe(true);
+    expect(timeline.totalCostUsd).toBe(1.25);
+    expect(timeline.unattributedCostUsd).toBe(1.25);
+
+    // What the agent claimed is still on the steps for a person to read.
+    expect(timeline.steps[0]?.detail["reportedCostUsd"]).toBe(0.9);
+    expect(timeline.steps[1]?.detail["reportedCostUsd"]).toBe(0.5);
   });
 });

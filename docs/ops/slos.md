@@ -62,9 +62,17 @@ degraded-but-responsive provider look healthy.
 
 Every indicator derives from the operating record and structured logs, so the
 numbers come from the same place as the evidence. The dashboards are specified
-in `observability.md`.
+in `docs/ops/observability-and-cost.md`.
+
+Two of the nine cannot be measured from what exists today, and saying which is
+part of stating the target honestly. **S1 has no source**: there is no HTTP
+access log, so successful page loads over attempts is not derivable —
+`api/server.ts` sets `logger: false` and writes only on an unhandled failure.
+**S3 has no source for the same reason**: nothing records per-request latency.
+Both need the access log before the indicator exists, let alone the target.
 
 **Nothing here has been measured.** Load testing at realistic volume has not
-been performed, and MVW's seasonal peaks are not sized. Until that work is done
-(`load-testing.md`), these targets are estimates and the capacity ceiling is
-unknown.
+been performed, and MVW's seasonal peaks are not sized. There is no load-testing
+document and no load-testing harness in this repository; the gap is recorded as
+B5 in `docs/handover/not-production-grade.md`. Until that work is done these
+targets are estimates and the capacity ceiling is unknown.
