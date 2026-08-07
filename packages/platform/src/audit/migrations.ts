@@ -98,6 +98,55 @@ CREATE OR REPLACE TRIGGER audit_entry_no_truncate
   FOR EACH STATEMENT EXECUTE FUNCTION audit_entry_append_only();
 `;
 
+/**
+ * A high-water mark the chain cannot be shortened past unnoticed.
+ *
+ * `verifyChain` reports alteration and mid-chain deletion correctly, and is
+ * blind to the cheapest tampering of all: deleting the newest entries, or the
+ * whole table. It is deliberately storage-independent so an auditor can verify
+ * an exported archive, and a function handed only the surviving entries cannot
+ * know how many it was not handed. Nothing persisted how far the chain had
+ * reached, so nothing could notice it had got shorter — an emptied table
+ * verified as INTACT and the verifier exited zero.
+ *
+ * One row, updated on every append, with a constraint that it may only ever go
+ * up. A truncation then contradicts a durable fact rather than leaving no trace.
+ *
+ * **This raises the bar; it is not proof.** A watermark in the same database is
+ * defeated by anyone who can write to that database — it detects accident,
+ * ordinary tampering, and a restore from the wrong backup, and it does not
+ * detect a determined administrator. Making that claim would need an anchor
+ * outside this system, such as a periodically published head hash. The
+ * assurance documentation must describe it as what it is.
+ */
+const AUDIT_WATERMARK_SQL = `
+CREATE TABLE IF NOT EXISTS audit_watermark (
+  id          text PRIMARY KEY DEFAULT 'chain',
+  max_seq     bigint NOT NULL,
+  head_hash   text NOT NULL,
+  updated_at  text NOT NULL,
+  CONSTRAINT audit_watermark_single_row CHECK (id = 'chain'),
+  CONSTRAINT audit_watermark_seq_positive CHECK (max_seq >= 1)
+);
+
+-- The mark only ever rises. An UPDATE that would lower it is refused by the
+-- database rather than by whoever remembered to write the guard in code.
+CREATE OR REPLACE FUNCTION audit_watermark_never_decreases() RETURNS trigger AS $$
+BEGIN
+  IF NEW.max_seq < OLD.max_seq THEN
+    RAISE EXCEPTION 'audit watermark cannot decrease: % -> %', OLD.max_seq, NEW.max_seq;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS audit_watermark_monotonic ON audit_watermark;
+CREATE TRIGGER audit_watermark_monotonic
+  BEFORE UPDATE ON audit_watermark
+  FOR EACH ROW EXECUTE FUNCTION audit_watermark_never_decreases();
+`;
+
 export const MIGRATIONS: readonly { readonly id: string; readonly sql: string }[] = [
   { id: "0002_audit", sql: AUDIT_SQL },
+  { id: "0018_audit_watermark", sql: AUDIT_WATERMARK_SQL },
 ];

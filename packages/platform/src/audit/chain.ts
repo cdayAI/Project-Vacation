@@ -69,20 +69,51 @@ export function computeEntryHash(entry: HashableEntry): string {
  * operator responding to a verification failure needs the extent of the damage,
  * not just its starting point.
  */
+/**
+ * What the chain is known to have reached, from a source outside the entries.
+ *
+ * Passing it is what turns verification from "are these entries consistent"
+ * into "are these the entries there were". Optional because the function is
+ * deliberately storage-independent — an auditor verifying an exported archive
+ * has entries and no database — but every caller that *has* a store must
+ * supply it, or head truncation stays invisible.
+ */
+export interface ChainWatermark {
+  readonly maxSeq: number;
+  readonly headHash: string;
+}
+
 export function verifyChain(
   entries: readonly AuditEntry[],
   expectedFirstPreviousHash: string = GENESIS_PREVIOUS_HASH,
+  watermark?: ChainWatermark | null,
 ): VerificationResult {
   const breaks: ChainBreak[] = [];
 
+  // Before anything else, because a truncated chain is internally consistent
+  // and every other check will pass on it. This is the cheapest tampering
+  // there is and it was the one the verifier could not see.
+  const highest = entries.length === 0 ? 0 : Math.max(...entries.map((entry) => entry.seq));
+  if (watermark && highest < watermark.maxSeq) {
+    breaks.push({
+      kind: "chain_truncated",
+      seq: highest,
+      detail:
+        entries.length === 0
+          ? `The chain is empty, and it is recorded as having reached sequence ${watermark.maxSeq}. Every entry has been deleted.`
+          : `The chain ends at sequence ${highest}, and it is recorded as having reached ${watermark.maxSeq}. ${watermark.maxSeq - highest} entr${watermark.maxSeq - highest === 1 ? "y has" : "ies have"} been deleted from the end.`,
+    });
+  }
+
   if (entries.length === 0) {
     return {
-      intact: true,
+      // An empty chain is intact only when nothing says it should not be.
+      intact: breaks.length === 0,
       entriesChecked: 0,
       firstSeq: null,
       lastSeq: null,
       headHash: null,
-      breaks: [],
+      breaks,
     };
   }
 

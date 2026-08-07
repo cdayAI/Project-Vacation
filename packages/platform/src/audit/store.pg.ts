@@ -105,6 +105,24 @@ export class PgAuditStore implements AuditStore {
           throw new InvariantError(`Audit entry ${entry.seq} was not written.`);
         }
 
+        // Raise the high-water mark in the same transaction as the append, so
+        // no reader can observe an entry the mark does not cover. GREATEST
+        // rather than an assignment, backed by a trigger that refuses any
+        // decrease: the mark is what a truncation has to contradict, so it must
+        // not be lowerable by an out-of-order write or by a careless caller.
+        await tx.query(
+          `INSERT INTO audit_watermark (id, max_seq, head_hash, updated_at)
+           VALUES ('chain', $1, $2, $3)
+           ON CONFLICT (id) DO UPDATE
+             SET max_seq = GREATEST(audit_watermark.max_seq, EXCLUDED.max_seq),
+                 head_hash = CASE
+                   WHEN EXCLUDED.max_seq >= audit_watermark.max_seq THEN EXCLUDED.head_hash
+                   ELSE audit_watermark.head_hash
+                 END,
+                 updated_at = EXCLUDED.updated_at`,
+          [entry.seq, entry.entryHash, entry.recordedAt],
+        );
+
         // Rolls the transaction back if storage changed anything the hash
         // covers. An entry that would fail verification must never commit.
         const stored = toAuditEntry(inserted);
@@ -169,6 +187,16 @@ export class PgAuditStore implements AuditStore {
     );
     const row = rows[0];
     return row ? toAuditEntry(row) : null;
+  }
+
+  async auditWatermark(): Promise<{ readonly maxSeq: number; readonly headHash: string } | null> {
+    const rows = await this.guard("auditWatermark", () =>
+      this.db.query<{ max_seq: string; head_hash: string }>(
+        `SELECT max_seq, head_hash FROM audit_watermark WHERE id = 'chain'`,
+      ),
+    );
+    const row = rows[0];
+    return row ? { maxSeq: Number(row.max_seq), headHash: row.head_hash } : null;
   }
 
   private async guard<T>(operation: string, fn: () => Promise<T>): Promise<T> {

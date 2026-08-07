@@ -39,4 +39,18 @@ export interface AuditStore {
   readAuditChain(fromSeq?: number, toSeq?: number): Promise<readonly AuditEntry[]>;
   /** The current head, or null when the chain is empty. */
   auditHead(): Promise<AuditEntry | null>;
+
+  /**
+   * The furthest this chain has ever reached, whatever it holds now.
+   *
+   * Separate from `auditHead` because that answers "what is here" and this
+   * answers "what was here" — and the difference between them is the only
+   * evidence that entries have been deleted from the end. Verification is
+   * blind to head truncation without it: a function handed the surviving
+   * entries cannot know how many it was not handed.
+   *
+   * Written on every append and constrained to rise only. Null before the
+   * first append.
+   */
+  auditWatermark(): Promise<{ readonly maxSeq: number; readonly headHash: string } | null>;
 }

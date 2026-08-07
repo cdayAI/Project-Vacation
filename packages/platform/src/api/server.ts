@@ -219,8 +219,28 @@ export function createServer(options: ServerOptions): FastifyInstance {
   // console's client looks, because everything it calls is under one base URL.
   // One handler, so the two can never disagree.
   const healthHandler = async () => {
-    const head = await platform.audit.head();
-    const switches = await platform.containment.list();
+    // Every dependency read is allowed to fail without taking the endpoint with
+    // it. The handler used to read the audit head first, so an unreachable
+    // database escaped as a DeniedError and the error translator answered 409
+    // with no health payload at all — during the one outage where an operator
+    // most needs this endpoint to say what is wrong. A health check that
+    // refuses is not a health check.
+    const unreachable: string[] = [];
+
+    const head = await platform.audit.head().catch((error: unknown) => {
+      // allow-swallow: an unreadable dependency is the answer this endpoint
+      // exists to give, not a reason to withhold it. It is reported below as
+      // an unhealthy status naming what could not be read.
+      unreachable.push(`audit chain (${error instanceof Error ? error.message : String(error)})`);
+      return null;
+    });
+    const switches = await platform.containment.list().catch((error: unknown) => {
+      // allow-swallow: as above.
+      unreachable.push(
+        `containment switches (${error instanceof Error ? error.message : String(error)})`,
+      );
+      return [];
+    });
     // The four external-agent conditions an operator needs without asking. They
     // ride on the health payload rather than living behind their own endpoint
     // because the whole point of them is to be seen by somebody who did not
@@ -229,10 +249,40 @@ export function createServer(options: ServerOptions): FastifyInstance {
       ? await externalAgentHealth(
           externalHealthPorts(platform.external.stores),
           platform.clock.nowIso(),
-        )
+        ).catch((error: unknown) => {
+          // allow-swallow: reported as unreachable, not hidden.
+          unreachable.push(
+            `external agent plane (${error instanceof Error ? error.message : String(error)})`,
+          );
+          return EXTERNAL_PLANE_DISABLED;
+        })
       : EXTERNAL_PLANE_DISABLED;
+
+    const paused = switches.some((entry) => entry.scope === "global" && entry.engaged);
+
     return {
-      status: "ok",
+      /**
+       * Derived, not asserted.
+       *
+       * `status` was the literal "ok" in every state this platform can reach,
+       * which meant everything that reads only this field — a probe, a
+       * dashboard tile, an uptime check — was told the platform was fine while
+       * it refused every request.
+       *
+       * Two conditions, and the line between them is what a load balancer
+       * should do. **Unavailable**: a dependency cannot be read, so this
+       * instance cannot serve and should be taken out of rotation.
+       * **Degraded**: the platform is deliberately paused by an operator — it
+       * is refusing on purpose, and pulling it out of rotation would remove
+       * the console the operator needs to un-pause it, which is the opposite
+       * of helpful. Configuration warnings are deliberately *not* a condition:
+       * a default development start emits three, so treating them as ill
+       * health would make "unhealthy" the normal state and train everyone to
+       * ignore it.
+       */
+      status: unreachable.length > 0 ? "unavailable" : paused ? "degraded" : "ok",
+      /** What could not be read, named rather than implied. */
+      unreachable,
       environment: platform.config.environment,
       store: platform.config.store,
       sandboxMode: platform.sandbox.mode,
@@ -556,7 +606,7 @@ export function createServer(options: ServerOptions): FastifyInstance {
   app.get("/api/audit/verification", async (request) => {
     return authorized(request, "audit.read", async () => {
       const chain = await platform.audit.readChain();
-      const result = verifyChain(chain);
+      const result = verifyChain(chain, undefined, await platform.audit.watermark());
       return { ...result, verifiedAt: platform.clock.nowIso() };
     });
   });

@@ -67,7 +67,7 @@ function deleteEntries(db: MemoryDb, predicate: (seq: number) => boolean): void 
 
 describe("audit chain verification on a populated system", () => {
   it("reports the first break and where when one entry is altered", async () => {
-    const { db, store } = await populatedChain();
+    const { db, audit: log } = await populatedChain();
 
     // The tamper: change one field of one entry, leaving its recorded hash.
     const table = db.table<AuditEntry>("audit_entry");
@@ -75,7 +75,7 @@ describe("audit chain verification on a populated system", () => {
     if (!target) throw new Error("expected an entry at sequence 3");
     table.set("3", { ...target, decision: { ...target.decision, granted: false } });
 
-    const result = verifyChain(await store.readAuditChain());
+    const result = await log.verify();
 
     expect(result.intact).toBe(false);
     expect(result.breaks[0]?.kind).toBe("hash_mismatch");
@@ -83,10 +83,10 @@ describe("audit chain verification on a populated system", () => {
   });
 
   it("reports the gap and the broken link when an entry is removed from the middle", async () => {
-    const { db, store } = await populatedChain();
+    const { db, audit: log } = await populatedChain();
     deleteEntries(db, (seq) => seq === 4);
 
-    const result = verifyChain(await store.readAuditChain());
+    const result = await log.verify();
 
     expect(result.intact).toBe(false);
     expect(result.breaks.map((problem) => problem.kind)).toContain("sequence_gap");
@@ -94,16 +94,16 @@ describe("audit chain verification on a populated system", () => {
   });
 
   it("reports a break when the newest entries are deleted", async () => {
-    const { db, store } = await populatedChain();
+    const { db, audit: log } = await populatedChain();
 
-    const before = verifyChain(await store.readAuditChain());
+    const before = await log.verify();
     expect(before.intact).toBe(true);
     expect(before.lastSeq).toBe(6);
 
     // Erase the two most recent decisions. Nothing else is touched.
     deleteEntries(db, (seq) => seq >= 5);
 
-    const after = verifyChain(await store.readAuditChain());
+    const after = await log.verify();
 
     // What the chain claims is that history cannot be silently removed. A run
     // of entries that stops two short of where it stopped before is history
@@ -113,10 +113,10 @@ describe("audit chain verification on a populated system", () => {
   });
 
   it("reports a break when the whole chain is deleted", async () => {
-    const { db, store } = await populatedChain();
+    const { db, audit: log } = await populatedChain();
     deleteEntries(db, () => true);
 
-    const result = verifyChain(await store.readAuditChain());
+    const result = await log.verify();
 
     // The complete erasure is the one the verifier is least able to see, and
     // the one that matters most: it is also the cheapest to perform.

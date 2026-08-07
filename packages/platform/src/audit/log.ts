@@ -4,6 +4,7 @@ import { DeniedError } from "../kernel/errors.js";
 import type { Digest } from "../kernel/hash.js";
 import { isDigest } from "../kernel/hash.js";
 import type { IdGenerator } from "../kernel/ids.js";
+import { GENESIS_PREVIOUS_HASH, verifyChain } from "./chain.js";
 import { containsSecret } from "../kernel/redact.js";
 import type { AuditStore } from "./port.js";
 import { computeEntryHash } from "./chain.js";
@@ -248,6 +249,40 @@ export class AuditLog {
 
   head(): Promise<AuditEntry | null> {
     return this.store.auditHead();
+  }
+
+  /**
+   * The furthest this chain has ever reached.
+   *
+   * Every verifier that has a store must pass this in. `head()` describes what
+   * survives; this describes what there was, and the gap between them is the
+   * only evidence that entries were deleted from the end.
+   */
+  watermark(): Promise<{ readonly maxSeq: number; readonly headHash: string } | null> {
+    return this.store.auditWatermark();
+  }
+
+  /**
+   * Verify the whole chain against what this store knows it should hold.
+   *
+   * The supported way to verify a live deployment, and the reason it exists is
+   * that the alternative is a trap: `verifyChain(entries)` is
+   * storage-independent by design — an auditor verifying an exported archive
+   * has entries and nothing else — so a caller who reaches for it directly gets
+   * a verifier that cannot see head truncation and says INTACT about an emptied
+   * table. Reading the entries and the watermark together is the only way to
+   * ask the question that matters on a running system, so it is the method the
+   * CLI, the API and the tests use.
+   */
+  async verify(options: { readonly fromSeq?: number; readonly toSeq?: number } = {}) {
+    const [chain, mark] = await Promise.all([
+      this.store.readAuditChain(options.fromSeq, options.toSeq),
+      this.store.auditWatermark(),
+    ]);
+    // A partial read is not evidence of truncation: an operator asking for
+    // entries 5..10 has deliberately excluded the rest.
+    const bounded = options.fromSeq !== undefined || options.toSeq !== undefined;
+    return verifyChain(chain, GENESIS_PREVIOUS_HASH, bounded ? null : mark);
   }
 }
 

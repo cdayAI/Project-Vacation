@@ -177,7 +177,13 @@ async function commandAudit(args: Args, platform: Platform): Promise<number> {
       }
     }
 
-    const result = anchor ? verifyChain(chain, anchor) : verifyChain(chain);
+    // The watermark is what makes head truncation visible. Without it an
+    // emptied table verifies as intact and this command exits zero, which is
+    // the single most likely tampering going entirely unreported.
+    const watermark = await platform.audit.watermark();
+    const result = anchor
+      ? verifyChain(chain, anchor, watermark)
+      : verifyChain(chain, undefined, watermark);
 
     if (args.json) {
       emit(result, args);
@@ -310,12 +316,31 @@ function commandActions(args: Args, platform: Platform): number {
 }
 
 async function commandHealth(args: Args, platform: Platform): Promise<number> {
-  const head = await platform.audit.head();
-  const switches = await platform.containment.list();
+  // Same posture as the HTTP endpoint: an unreadable dependency is the answer,
+  // not a reason to refuse to answer. An operator running this during an outage
+  // needs to be told what is unreachable, and a command that raises instead
+  // tells them only that something is wrong somewhere.
+  const unreachable: string[] = [];
+  const head = await platform.audit.head().catch((error: unknown) => {
+    // allow-swallow: reported as an unhealthy status naming the dependency.
+    unreachable.push(`audit chain (${error instanceof Error ? error.message : String(error)})`);
+    return null;
+  });
+  const switches = await platform.containment.list().catch((error: unknown) => {
+    // allow-swallow: as above.
+    unreachable.push(
+      `containment switches (${error instanceof Error ? error.message : String(error)})`,
+    );
+    return [];
+  });
   const engaged = switches.filter((entry) => entry.engaged);
+  const paused = engaged.some((entry) => entry.scope === "global");
+
+  const status = unreachable.length > 0 ? "unavailable" : paused ? "degraded" : "ok";
 
   const health = {
-    status: "ok" as const,
+    status,
+    unreachable,
     environment: platform.config.environment,
     store: platform.config.store,
     sandboxMode: platform.sandbox.mode,
@@ -330,10 +355,14 @@ async function commandHealth(args: Args, platform: Platform): Promise<number> {
 
   if (args.json) {
     emit(health, args);
-    return 0;
+    // Non-zero when the platform cannot serve, so this command is usable as a
+    // probe rather than only as something a person reads.
+    return status === "unavailable" ? 1 : 0;
   }
 
-  console.log(`status            ok`);
+  console.log(`status            ${status}`);
+  for (const item of unreachable) console.log(`unreachable       ${item}`);
+  if (paused) console.log(`                  globally paused by an operator — refusing on purpose`);
   console.log(`environment       ${health.environment}`);
   console.log(`operating record  ${health.store}`);
   console.log(`sandbox           ${health.sandboxMode} (${health.sandboxIsContained ? "contained" : "NOT CONTAINED"})`);
@@ -344,7 +373,7 @@ async function commandHealth(args: Args, platform: Platform): Promise<number> {
     `containment       ${engaged.length === 0 ? "clear" : engaged.map((e) => `${e.scope}:${e.target}`).join(", ")}`,
   );
   for (const warning of health.warnings) console.log(`WARNING  ${warning}`);
-  return 0;
+  return status === "unavailable" ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
