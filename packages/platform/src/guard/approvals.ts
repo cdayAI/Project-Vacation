@@ -184,10 +184,18 @@ export class ApprovalService {
       input.stepUpMaxAgeSeconds !== undefined &&
       input.secondsSinceAuthentication <= input.stepUpMaxAgeSeconds;
 
-    if (input.requiresStepUp && !steppedUp) {
+    // Step-up gates granting, not rejecting.
+    //
+    // A rejection is the safe direction — it stops the action — and requiring
+    // re-authentication to stop something has the shape of a control while
+    // acting as an obstacle: the work stays pending, which is the outcome the
+    // requirement was trying to prevent. Whoever is refusing is still
+    // authenticated and still role-checked above; what they are not being asked
+    // for is a second proof in order to say no.
+    if (input.decision === "granted" && input.requiresStepUp && !steppedUp) {
       throw new DeniedError(
         "authorization.step_up_required",
-        `Approving "${request.action}" requires re-authentication within the last ${input.stepUpMaxAgeSeconds ?? 0}s.`,
+        `Approving "${request.action}" requires re-authentication within the last ${input.stepUpMaxAgeSeconds ?? 0}s, and this platform has not observed one. A high-consequence approval is refused rather than recorded as if a re-authentication happened.`,
         { approvalId: request.id, actorId: input.actor.actorId },
       );
     }

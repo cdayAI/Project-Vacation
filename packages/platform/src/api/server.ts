@@ -162,6 +162,20 @@ export function createServer(options: ServerOptions): FastifyInstance {
     void reply.status(500).send({ error: "internal_error" });
   });
 
+  /**
+   * How long ago this caller authenticated, or undefined when nobody knows.
+   *
+   * `SessionService.resolve` computes a real figure and clamps an unparseable
+   * stamp to `+Infinity` so it fails closed — the value exists and this route
+   * simply did not read it. Until session resolution is wired into the request
+   * path there is no session to ask, and the honest answer is "unknown", which
+   * the approval service treats as "no step-up". Returning a number here would
+   * be inventing an observation.
+   */
+  function secondsSinceAuthenticationFor(_request: FastifyRequest): number | undefined {
+    return undefined;
+  }
+
   function actorFor(request: FastifyRequest): ActorRef {
     if (platform.config.oidcIssuer) {
       // Session resolution against the identity provider is handled by the
@@ -327,7 +341,7 @@ export function createServer(options: ServerOptions): FastifyInstance {
         displayName: actor.actorId,
         roles: actor.roles,
       },
-      secondsSinceAuthentication: 0,
+      secondsSinceAuthentication: secondsSinceAuthenticationFor(request) ?? null,
       // A rendering hint for the console. The server re-checks every action.
       capabilities: platform.registry
         .list()
@@ -519,7 +533,23 @@ export function createServer(options: ServerOptions): FastifyInstance {
       decision,
       note: body?.note,
       requiresStepUp: descriptor?.requiresStepUp ?? true,
-      secondsSinceAuthentication: 0,
+      // Whatever the session actually says, and `undefined` when nothing does.
+      //
+      // This was the literal `0`, which made `0 <= stepUpMaxAgeSeconds` true on
+      // every call: the step-up requirement that `actions.ts` promises for
+      // every high-consequence action could not fail on the only approval path
+      // a person can reach. The bypass is the smaller half. The larger half is
+      // that `steppedUp: true` was then written into the `approval.granted`
+      // audit entry and onto the stored decision — the governance record
+      // asserting a control was satisfied when nothing had observed it, which
+      // in a product whose whole claim is that the record is true is the worst
+      // class of defect there is.
+      //
+      // Passing `undefined` fails closed: a high-consequence approval is now
+      // refused until identity is wired, rather than granted on a fiction. That
+      // refusal is loud and correct, and it is the same posture the CLI already
+      // took by requiring an explicit `--reauthenticated`.
+      secondsSinceAuthentication: secondsSinceAuthenticationFor(request),
       stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
     });
 

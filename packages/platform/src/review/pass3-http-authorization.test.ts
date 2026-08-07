@@ -177,13 +177,18 @@ describe("approving a step-up action through the HTTP API", () => {
       url: `/api/approvals/${approval.id}/decisions`,
       payload: { decision: "granted", note: "looks right" },
     });
-    expect(response.statusCode).toBe(200);
+    // The open design question in the note above is now decided: the route
+    // refuses. Passing a real age is not possible until session resolution is
+    // wired into the request path, and the alternative — granting on a fiction —
+    // is the thing this test exists to prevent. So the assertion is now both
+    // halves: the decision is refused, AND nothing claims a step-up happened.
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ reason: "authorization.step_up_required" });
 
     const entries = await platform.audit.list({ eventType: ["approval.granted"] as never });
-    expect(entries).toHaveLength(1);
     expect(
-      entries[0]?.decision?.["steppedUp"],
+      entries.filter((entry) => entry.decision?.["steppedUp"] === true),
       "the audit chain claims a step-up re-authentication that never happened",
-    ).not.toBe(true);
+    ).toEqual([]);
   });
 });

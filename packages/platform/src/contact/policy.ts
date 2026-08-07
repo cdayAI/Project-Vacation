@@ -207,8 +207,25 @@ export function resolveQuietHours(
 
   const forChannel = policy.quietHours.filter((entry) => entry.channels.includes(channel));
   const local = forChannel.find((entry) => entry.jurisdiction === jurisdiction);
-  if (local) return local;
   const federal = forChannel.find((entry) => entry.jurisdiction === FEDERAL_JURISDICTION);
+
+  // The federal window is a FLOOR, not a fallback.
+  //
+  // This is the opposite of how frequency caps resolve, and the difference is
+  // deliberate. A state may set a stricter calling-hours restriction than
+  // 47 C.F.R. § 64.1200(c)(1), and a state that did so would bind; what a state
+  // cannot do is authorise a call the federal rule prohibits. So the two
+  // windows are combined by taking the *union of the quiet hours* — equivalently
+  // the intersection of the permitted hours — rather than letting the state row
+  // replace the federal one.
+  //
+  // The shipped policy carries only a narrower state row (Florida closes at
+  // 20:00 against the federal 21:00), so this changes no answer today. It
+  // decides every answer the moment MVW compliance adds a state whose window is
+  // wider, and the old resolution would have cleared a call the federal rule
+  // forbids — silently, because the wider row would simply have won.
+  if (local && federal) return unionOfQuietWindows(local, federal);
+  if (local) return local;
   if (federal) return federal;
 
   throw new DeniedError(
@@ -216,6 +233,75 @@ export function resolveQuietHours(
     `Contact policy ${policy.version} declares neither a quiet-hours window nor an exemption for ${channel} in ${jurisdiction}, so whether this hour is permitted cannot be answered. Refusing rather than assuming it is.`,
     { policyVersion: policy.version, jurisdiction, channel },
   );
+}
+
+/**
+ * Combine two quiet windows into the one that forbids the most.
+ *
+ * Windows are local wall-clock and may wrap midnight, so this works in minutes
+ * from midnight and treats a wrapping window as covering the day's end and its
+ * beginning. The result is the union of the two quiet periods.
+ *
+ * When the union covers the whole day the answer is a window that permits
+ * nothing, and that is reported honestly rather than collapsed to "no window" —
+ * a policy pair that forbids every hour is a policy error somebody must see,
+ * and returning null would render it as "call whenever you like".
+ */
+function unionOfQuietWindows(
+  local: QuietHoursPolicy,
+  federal: QuietHoursPolicy,
+): QuietHoursPolicy {
+  const permitted = intersectPermitted(
+    permittedMinutes(local.localStart, local.localEnd),
+    permittedMinutes(federal.localStart, federal.localEnd),
+  );
+
+  const start = permitted === null ? "00:00" : formatMinutes(permitted.end);
+  const end = permitted === null ? "24:00" : formatMinutes(permitted.start);
+
+  return {
+    jurisdiction: `${local.jurisdiction}+${federal.jurisdiction}`,
+    channels: local.channels,
+    localStart: start,
+    localEnd: end,
+    // Both citations, because a refusal has to say which rule it rests on and
+    // after an intersection the answer may rest on either.
+    citation: `${local.citation}; and the federal floor, ${federal.citation}`,
+    verified: local.verified && federal.verified,
+  };
+}
+
+/** The permitted span, as minutes from midnight, or null when none is. */
+function permittedMinutes(
+  quietStart: string,
+  quietEnd: string,
+): { readonly start: number; readonly end: number } | null {
+  const start = toMinutes(quietEnd);
+  const end = toMinutes(quietStart);
+  if (start === end) return null;
+  return { start, end };
+}
+
+function intersectPermitted(
+  left: { readonly start: number; readonly end: number } | null,
+  right: { readonly start: number; readonly end: number } | null,
+): { readonly start: number; readonly end: number } | null {
+  if (!left || !right) return null;
+  const start = Math.max(left.start, right.start);
+  const end = Math.min(left.end, right.end);
+  return start < end ? { start, end } : null;
+}
+
+function toMinutes(value: string): number {
+  const [hours, minutes] = value.split(":");
+  return Number(hours) * 60 + Number(minutes);
+}
+
+function formatMinutes(value: number): string {
+  const wrapped = ((value % 1440) + 1440) % 1440;
+  const hours = Math.floor(wrapped / 60);
+  const minutes = wrapped % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 /**
