@@ -583,7 +583,12 @@ async function main(): Promise<number> {
     }
 
     const { runDemoKeepingPlatform } = await import("../demo/run.js");
-    const { platform: seeded } = await runDemoKeepingPlatform();
+    // The ambient port, not the demonstration's default: the console's dev
+    // proxy reads PV_HTTP_PORT, so the two have to agree or the console
+    // reports a healthy platform unreachable.
+    const { platform: seeded } = await runDemoKeepingPlatform(undefined, {
+      PV_HTTP_PORT: String(config.httpPort),
+    });
 
     const { startServer } = await import("../api/server.js");
     await startServer(seeded);

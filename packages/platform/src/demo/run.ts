@@ -127,8 +127,18 @@ export interface DemoRun {
  */
 export async function runDemoKeepingPlatform(
   out: Output = createOutput(),
+  overrides: Readonly<Record<string, string>> = {},
 ): Promise<DemoRun> {
-  const config = loadConfig({ PV_ENV: "development", PV_STORE: "memory" });
+  // Hermetic by default: an explicit environment, not `process.env`, so the
+  // demonstration produces the same bytes on a laptop with a dozen PV_ keys
+  // exported as it does in CI. That is what the determinism gate checks.
+  //
+  // `overrides` is the narrow exception, and `pv serve --seed` is its only
+  // caller: a server has to listen on the port the operator asked for. Without
+  // it the seeded API listened on 8080 while the console's dev proxy — which
+  // does read PV_HTTP_PORT — pointed somewhere else, and the console reported
+  // the platform unreachable while a perfectly healthy platform was running.
+  const config = loadConfig({ ...overrides, PV_ENV: "development", PV_STORE: "memory" });
   const clock = new FixedClock(DEMO_NOW);
   const ids = new SeededIdGenerator(config.demoSeed);
   const memoryDb = new MemoryDb();
@@ -227,10 +237,12 @@ export async function runDemoKeepingPlatform(
   // product reporting that its evidence is fine when it has none is the worst
   // sentence it can produce, and the demonstration is where that impression
   // was formed. It ends by saying where its record went.
-  out.line("This demonstration ran entirely in memory. The record above was verified");
-  out.line("in this process and is gone now — there is nothing left on disk for");
-  out.line("`pv audit verify` to read. To verify a chain after the fact, point the");
-  out.line("platform at Postgres (PV_STORE=postgres) and run work through it.");
+  // Where the record went is said by the caller, not here, because the two
+  // callers send it to different places. `runDemo` closes the platform and the
+  // record is gone; `pv serve --seed` keeps it and serves it. Printing "gone
+  // now" from inside would make the sentence false on the path that keeps it —
+  // which is the same defect as the verifier that called an erased chain empty,
+  // committed by the narration instead of by the code.
 
   return {
     platform,
@@ -254,6 +266,15 @@ export async function runDemoKeepingPlatform(
 export async function runDemo(out: Output = createOutput()): Promise<DemoResult> {
   const { platform, result } = await runDemoKeepingPlatform(out);
   await platform.close();
+
+  // Said after the close, so it is true when it is read. `pv audit verify`
+  // building a fresh platform and reporting an empty chain, moments after this
+  // printed a verified one, is the impression this paragraph exists to prevent.
+  out.line("This demonstration ran entirely in memory. The record above was verified");
+  out.line("in this process and is gone now — there is nothing left on disk for");
+  out.line("`pv audit verify` to read. To verify a chain after the fact, point the");
+  out.line("platform at Postgres (PV_STORE=postgres) and run work through it.");
+
   return result;
 }
 

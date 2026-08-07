@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runDemo } from "./run.js";
+import { runDemo, runDemoKeepingPlatform } from "./run.js";
 import { SEED_CONTRACTS, SEED_CORPORA, SEED_DOCUMENTS, SYNTHETIC_MARKER } from "./corpus.js";
 
 /**
@@ -131,5 +131,76 @@ describe("seed data", () => {
       // Machine names, because the knowledge layer requires them.
       expect(corpus.name).toMatch(/^[a-z][a-z0-9_]*$/);
     }
+  });
+});
+
+/**
+ * The seeded server's half of the contract.
+ *
+ * `pv serve --seed` runs the demonstration and then serves HTTP from the same
+ * in-memory record, which is the only reason the console has anything to show
+ * without a database. Two things that path needs, and that the plain demo does
+ * not, are checked here because running a live server in a unit test is not.
+ */
+describe("the platform the seeded server serves", () => {
+  it("hands back a platform still open enough to read the record it wrote", async () => {
+    const { out } = capture();
+    const { platform, result } = await runDemoKeepingPlatform(out);
+    try {
+      // The failure this catches is the one that makes the whole feature
+      // pointless: a demonstration that closes behind itself, leaving the API
+      // serving an empty store and every screen rendering its empty state.
+      const runs = await platform.runs.listRuns({ limit: 100, offset: 0 });
+      expect(runs.length).toBe(result.runsCreated);
+      expect(runs.length).toBeGreaterThan(0);
+
+      const chain = await platform.audit.readChain();
+      expect(chain.length).toBe(result.auditEntries);
+    } finally {
+      await platform.close();
+    }
+  });
+
+  it("listens on the port the operator asked for, not the demonstration's default", async () => {
+    // The console's dev proxy reads PV_HTTP_PORT. When this ignored it, the
+    // seeded API listened on 8080 while the proxy pointed elsewhere, and the
+    // console reported a perfectly healthy platform unreachable.
+    const { out } = capture();
+    const { platform } = await runDemoKeepingPlatform(out, { PV_HTTP_PORT: "8137" });
+    try {
+      expect(platform.config.httpPort).toBe(8137);
+    } finally {
+      await platform.close();
+    }
+  });
+
+  it("stays hermetic otherwise, so the determinism gate still means something", async () => {
+    // Overrides are a narrow door, not an open one: the demonstration must not
+    // start reading the ambient environment, or its output stops being a
+    // function of its own seed and CI's twice-and-diff check goes soft.
+    const first = capture();
+    await runDemoKeepingPlatform(first.out, { PV_HTTP_PORT: "8138" }).then((run) =>
+      run.platform.close(),
+    );
+    const second = capture();
+    await runDemoKeepingPlatform(second.out, { PV_HTTP_PORT: "9999" }).then((run) =>
+      run.platform.close(),
+    );
+    expect(second.lines).toEqual(first.lines);
+  });
+
+  it("says the record is gone only where it is", async () => {
+    // `runDemo` closes the platform, so "gone now" is true. The seeded server
+    // keeps it and serves it, so the same sentence there would be false — the
+    // same defect as a verifier calling an erased chain empty, committed by
+    // the narration instead of by the code.
+    const closed = capture();
+    await runDemo(closed.out);
+    expect(closed.lines.join("\n")).toContain("is gone now");
+
+    const kept = capture();
+    const { platform } = await runDemoKeepingPlatform(kept.out);
+    await platform.close();
+    expect(kept.lines.join("\n")).not.toContain("is gone now");
   });
 });
