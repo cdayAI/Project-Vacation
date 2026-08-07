@@ -381,6 +381,33 @@ query string and refuses unknown values rather than ignoring them. The console
 does not use it: the work queue's filters are component state, so a filtered
 view cannot be shared and the browser's back button does not undo a filter.
 
+### L4d. Five of the six performance budgets are not measured
+
+`docs/design/design-spec.md` §7 asks for six budgets "enforced in CI": route
+change under 100ms, interaction-to-next-paint under 200ms at p95, zero
+cumulative layout shift on the hot paths, skeletons only past 300ms, typing
+never blocked past 120ms, and ten thousand rows without jank.
+
+**One is enforced.** `tools/check-bundle-budget.mjs` holds the console's
+transfer size to 190KB of gzipped JavaScript and 24KB of CSS, and fails the
+build over either. It currently measures 159.4KB and 17.7KB. That number bounds
+the other five from below and substitutes for none of them.
+
+The other five need a running browser under a throttled network, and there is
+no harness for that. Two things are worth knowing before building one:
+
+- **The shipped table does not virtualise.** `components/DataTable` renders one
+  `<tr>` per row, so the ten-thousand-row budget is not met — it is not close.
+  The virtualised grid exists in `ui/surfaces/Table` and is the one the design
+  gallery demonstrates; this is the same L4b migration seen from the
+  performance side rather than the appearance side.
+- **The design gallery ships in the operator's bundle.** `routes.tsx` imports
+  `DesignGallery` statically, and it is the single largest module in the build.
+  It is a developer surface an operator never opens. A `React.lazy` boundary
+  around that one route is the cheapest performance win available here and is
+  not taken in this change because it touches routing, which is well covered by
+  tests that would need reading first rather than adjusting.
+
 ### L5. Accessibility automation covers about half of WCAG
 
 Automated axe assertions run on every console view and fail CI. They do not
