@@ -547,9 +547,59 @@ Suspected, not reproduced with a failing test. Recorded so the next pass starts 
 
 ---
 
-## QUESTIONS FOR THE OWNER
+## QUESTIONS FOR THE OWNER — ANSWERED UNDER INSTRUCTION
 
-Batched, in the order they would be asked. Nothing below was decided unilaterally.
+These nineteen were written to be asked, and then the owner said to fix
+everything rather than wait. **So every one of them was decided and
+implemented, and this section is kept as written so the questions are still
+legible next to the answers.** A decision taken under "just fix it" is still a
+decision somebody made, and hiding the question behind the answer would leave a
+reader unable to tell which parts of this platform were specified and which
+parts were chosen.
+
+What was chosen, in the order below:
+
+| # | Decision taken |
+| --- | --- |
+| 1 | A separate `pv worker` process, not a loop inside `serve`. Landed after F-10, in the ordering the finding required. |
+| 2 | `PV_REQUIRE_VERIFIED_STATUTORY_RULES`, defaulting to **on**, with `loadConfig` refusing it disabled in staging or production. |
+| 3 | Federal quiet hours are a **floor**: the permitted window is the intersection of state and federal, so a state may narrow and never widen. |
+| 4 | One patch. The four changes share the same region of `ExecutionService.commit` and are not independently revertable in practice. |
+| 5 | Yes — and `GovernedIntegration.perform`'s contract now states that a `DeniedError` asserts nothing was done. |
+| 6 | Yes, with `mode` bound to the parked action (migration `0017_external_parked_mode`). A commit whose mode does not match its operation is refused before the approval is consumed. |
+| 7 | Yes, `committing_at`, in the same migration. |
+| 8 | Yes, in both adapters, from one exported list so the two cannot express different rules. |
+| 9 | Constrained by shape: anything not matching the opaque-reference pattern is digested. The stricter of the two, and it did refuse fixtures that had to be corrected. |
+| 10 | Punctuated shapes only, and digests skipped. The first attempt refused a sha256 hash, which is exactly the over-refusal the finding warned about; the suite caught it. |
+| 11 | Built. `RetentionPurgeJob` runs as a maintenance pass: count due → record → delete, in that order, so an unwritable chain stops the purge. |
+| 12 | Not built. This one is genuinely still open — see below. |
+| 13 | A durable high-water mark with a `BEFORE UPDATE` trigger that refuses to let it fall. Detects accident and ordinary tampering, not a determined administrator with database credentials. |
+| 14 | Unreachable dependency → `unavailable`; deliberate pause → `degraded`, so a load balancer does not remove the console an operator needs to un-pause. Configuration warnings alone do not make a platform unhealthy. |
+| 15 | `undefined` now, not the literal `0`. It refuses every high-consequence approval in development, which is correct and is the point. |
+| 16 | Not added. It is a port-contract change governed by ADR 0006 and the N+1 is already down to one query per returned row. |
+| 17 | Added as `0019_run_status_listing`, a new id — the released migration was not edited. |
+| 18 | Bounded: `COUNT(*)` over a `LIMIT`-ed subquery with a shared `RUN_COUNT_CAP`, and the console says when a total is not exact. |
+| 19 | The unattributed remainder, preserving the exactly-once meter property. A report whose step costs exceed its total is accepted, labelled `unreconciled`, and no step figure is promoted to the ledger. |
+
+**Three of these deserve a second look from someone with authority I do not
+have**, and they are flagged rather than buried:
+
+- **#3, quiet hours**, is a pre-emption question and therefore a legal one. The
+  intersection was chosen because it is the conservative reading and a
+  contact-compliance error is a per-call statutory penalty. If MVW's counsel
+  reads a state window as replacing the federal one, this is a one-line change
+  in `contact/policy.ts` and the test moves with it.
+- **#12, fairness reports before a consumer-affecting role can act**, was not
+  built. The harness exists, is honest about its limits, and is still never
+  invoked. Making it a promotion gate is a policy decision about what MVW is
+  willing to block on, not an engineering one.
+- **#19's residual**, spelled out in the finding: an agent reporting a low total
+  with high step costs gets its step figures suppressed rather than its report
+  rejected. That is not a new evasion route — `costUsd` is self-declared either
+  way — but if a self-contradictory report should be refused at the door, it is
+  a one-line change in `report.ts`.
+
+The questions as originally written follow.
 
 **Sequencing — read this one first**
 
