@@ -250,6 +250,16 @@ export class ApprovalService {
     readonly expectedProposalDigest: Digest;
     readonly runId?: Id<"run">;
     readonly actor: ActorRef;
+    /**
+     * The action this approval is about to be spent on.
+     *
+     * Optional only because not every caller has a registered action name to
+     * check against. When supplied it is verified *here*, before the
+     * compare-and-set, because consuming is destructive: an approval presented
+     * against the wrong action must be refused without costing the approver
+     * their decision.
+     */
+    readonly expectedAction?: string;
   }): Promise<ApprovalRequest> {
     const request = await this.store.getApproval(input.approvalId);
     if (!request) {
@@ -266,6 +276,20 @@ export class ApprovalService {
         "approval.digest_mismatch",
         `Approval ${request.id} authorised a different proposal. What was approved is not what is about to be done.`,
         { approvalId: request.id, action: request.action },
+      );
+    }
+
+    // A granted approval for a cheap action must not be redeemable against an
+    // expensive one. A proposal digest is not a secret — it is on the approval
+    // record the console renders and in `inputDigests.proposal` on every audit
+    // entry about it — so a caller holding a digest can present it against a
+    // different registered action. Refusing here rather than after consumption
+    // is what stops that refusal from destroying the approval on its way past.
+    if (input.expectedAction !== undefined && request.action !== input.expectedAction) {
+      throw new DeniedError(
+        "approval.digest_mismatch",
+        `Approval ${request.id} was raised for "${request.action}", not "${input.expectedAction}".`,
+        { approvalId: request.id, action: input.expectedAction },
       );
     }
 

@@ -3,7 +3,12 @@ import { DeniedError, InvalidInputError } from "../kernel/errors.js";
 import type { Id, IdGenerator } from "../kernel/ids.js";
 import { canonicalJson } from "../kernel/canonical.js";
 import type { MemoryDb } from "../store/db.js";
-import { assertIsoUtc, assertOptionalIsoUtc, isTerminalStepStatus } from "./migrations.js";
+import {
+  assertIsoUtc,
+  assertOptionalIsoUtc,
+  isTerminalStepStatus,
+  toStoredUsd,
+} from "./migrations.js";
 import type { RunStore } from "./port.js";
 import type {
   CostEntry,
@@ -301,8 +306,13 @@ export class MemoryRunStore implements RunStore {
     let totalUsd = 0;
     for (const entry of this.db.rows<CostEntry>(COSTS)) {
       if (entry.runId !== runId) continue;
-      totalUsd += entry.amountUsd;
-      byCategory[entry.category] = (byCategory[entry.category] ?? 0) + entry.amountUsd;
+      // Snapped to the column's scale after each addition, so this total is
+      // the one Postgres's exact decimal SUM produces rather than a binary
+      // approximation of it. See `toStoredUsd`.
+      totalUsd = toStoredUsd(totalUsd + entry.amountUsd);
+      byCategory[entry.category] = toStoredUsd(
+        (byCategory[entry.category] ?? 0) + entry.amountUsd,
+      );
     }
     return { totalUsd, byCategory };
   }
@@ -315,7 +325,7 @@ export class MemoryRunStore implements RunStore {
     return this.db
       .rows<CostEntry>(COSTS)
       .filter((entry) => entry.recordedAt >= since)
-      .reduce((total, entry) => total + entry.amountUsd, 0);
+      .reduce((total, entry) => toStoredUsd(total + entry.amountUsd), 0);
   }
 
   async listCostEntries(runId: Id<"run">): Promise<readonly CostEntry[]> {

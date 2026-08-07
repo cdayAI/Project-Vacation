@@ -133,6 +133,12 @@ export class FetchOidcTransport implements OidcTransport {
         method: "GET",
         headers: { accept: "application/json" },
         signal: controller.signal,
+        // No automatic redirect following, for the same reason
+        // `integrations/egress.ts` refuses it: a redirect sends this request to
+        // a host nothing here vetted, and the body that comes back is parsed as
+        // the discovery document or the key set. A redirect is surfaced as a
+        // non-ok status below rather than followed.
+        redirect: "manual",
       });
       if (!response.ok) {
         throw new Error(`${url} returned HTTP ${response.status}`);
@@ -161,6 +167,10 @@ export class FetchOidcTransport implements OidcTransport {
         },
         body: new URLSearchParams(form).toString(),
         signal: controller.signal,
+        // This body carries the client secret. A 307 or 308 is re-sent verbatim
+        // to the redirect target, so following one would hand the secret to
+        // whatever host the provider's response named.
+        redirect: "manual",
       });
       if (!response.ok) {
         // The provider's error body can contain the code and the client id.

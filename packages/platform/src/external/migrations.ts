@@ -86,6 +86,24 @@ export function assertSpendAmount(amountUsd: number): void {
   }
 }
 
+/**
+ * Snap a running spend total onto the scale `external_spend_meter.spent_usd`
+ * stores, which is `numeric(20, 10)`.
+ *
+ * Stated here beside the column for the same reason as the assertions above.
+ * Postgres accumulates the meter as exact decimal, inside the row it has
+ * locked. The in-memory adapter has only binary doubles, whose error
+ * accumulates: three hundred reports of one cent leave the meter reading
+ * 2.99999999999998, and `spent >= ceiling` in the admission chain then lets an
+ * agent that has spent its entire $3.00 ceiling carry on spending. Snapping
+ * each running total back onto the column's grid puts it where exact decimal
+ * arithmetic would have left it, so the two adapters return the same figure
+ * and the meter no longer depends on the order the reports arrived in.
+ */
+export function toStoredUsd(amountUsd: number): number {
+  return Number(amountUsd.toFixed(10));
+}
+
 /** The digest form the platform uses everywhere, `sha256:<64 hex>`. */
 export function assertDigestForm(field: string, value: string): void {
   if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) {

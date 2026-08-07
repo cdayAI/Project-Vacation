@@ -250,6 +250,18 @@ export interface WorkQueuePage {
   readonly highValueFloorUsd: number;
 }
 
+/**
+ * A queue row before its cost is known.
+ *
+ * Cost is the only field on a row that needs a second read of the operating
+ * record, and it is the only one no filter and only one sort consults. So the
+ * rows are assembled without it, narrowed, sorted and sliced, and the cost
+ * lookups are paid for on the page that is actually returned — see the note on
+ * {@link POST_FILTER_WINDOW} for why the difference is five hundred reads
+ * rather than fifty.
+ */
+type QueueDraft = Omit<WorkQueueRow, "costUsd">;
+
 export async function workQueuePage(
   platform: Platform,
   filter: WorkQueueFilter,
@@ -278,12 +290,9 @@ export async function workQueuePage(
   ]);
 
   const now = platform.clock.nowIso();
-  const rows: WorkQueueRow[] = [];
-  for (const run of runs) {
-    rows.push(await workQueueRow(platform, run, now));
-  }
+  const rows: readonly QueueDraft[] = runs.map((run) => draftRow(run, now));
 
-  let narrowed = rows;
+  let narrowed: readonly QueueDraft[] = rows;
   if (filter.kind && filter.kind.length > 1) {
     const kinds = new Set(filter.kind);
     narrowed = narrowed.filter((row) => kinds.has(row.kind));
@@ -314,15 +323,25 @@ export async function workQueuePage(
     );
   }
 
-  const sorted = sortRows(narrowed, filter.sort);
-  const postFiltered = sorted.length !== rows.length || storeFilter.limit === POST_FILTER_WINDOW;
-  const items = postFiltered
-    ? sorted.slice(filter.offset, filter.offset + filter.limit)
-    : sorted.slice(0, filter.limit);
+  const postFiltered = narrowed.length !== rows.length || storeFilter.limit === POST_FILTER_WINDOW;
+  const page = <T>(sorted: readonly T[]): readonly T[] =>
+    postFiltered
+      ? sorted.slice(filter.offset, filter.offset + filter.limit)
+      : sorted.slice(0, filter.limit);
+
+  let items: readonly WorkQueueRow[];
+  if (filter.sort === "cost_desc") {
+    // The one sort that genuinely needs every candidate's cost: a ranking
+    // cannot be computed from a page of itself. It pays for the whole window,
+    // and it is the only thing that does.
+    items = page(byCostDescending(await attachCosts(platform, narrowed)));
+  } else {
+    items = await attachCosts(platform, page(sortRows(narrowed, filter.sort)));
+  }
 
   return {
     items,
-    total: postFiltered ? sorted.length : storeTotal,
+    total: postFiltered ? narrowed.length : storeTotal,
     limit: filter.limit,
     offset: filter.offset,
     totalIsExact: !postFiltered || runs.length < POST_FILTER_WINDOW,
@@ -332,12 +351,35 @@ export async function workQueuePage(
   };
 }
 
+/**
+ * Read each row's cost, one lookup per row.
+ *
+ * Called on the page rather than on the window, which is the difference
+ * between fifty reads and five hundred. It is still one read per row: the
+ * operating record has no batched cost lookup, and adding one is a change to
+ * a port contract rather than to this screen.
+ */
+async function attachCosts(
+  platform: Platform,
+  drafts: readonly QueueDraft[],
+): Promise<readonly WorkQueueRow[]> {
+  const costs = await Promise.all(
+    drafts.map((draft) => platform.runs.costForRun(asRunId(draft.runId))),
+  );
+  return drafts.map((draft, index) => ({ ...draft, costUsd: costs[index]?.totalUsd ?? 0 }));
+}
+
 export async function workQueueRow(
   platform: Platform,
   run: Run,
   nowIso: string,
 ): Promise<WorkQueueRow> {
   const cost = await platform.runs.costForRun(run.id);
+  return { ...draftRow(run, nowIso), costUsd: cost.totalUsd };
+}
+
+/** Everything a queue row says about a run except what it cost. */
+function draftRow(run: Run, nowIso: string): QueueDraft {
   const target = SLA_BY_KIND.get(run.kind);
   const slaStartedAt = run.startedAt ?? run.createdAt;
   const dueAt = target ? new Date(Date.parse(slaStartedAt) + target.targetMs).toISOString() : undefined;
@@ -386,7 +428,6 @@ export async function workQueueRow(
     assignedRole: run.roleId,
     nextAction: next.text,
     nextActionApprovalId: next.approvalId,
-    costUsd: cost.totalUsd,
     waitingOn: waitingOn(run),
   };
 }
@@ -459,7 +500,16 @@ export function subjectReference(
   );
 }
 
-function sortRows(rows: readonly WorkQueueRow[], sort: WorkQueueSort): readonly WorkQueueRow[] {
+/**
+ * Order the rows by everything except cost.
+ *
+ * `cost_desc` is handled by its caller, because it is the one ordering that
+ * cannot be decided without reading the operating record a second time.
+ */
+function sortRows(
+  rows: readonly QueueDraft[],
+  sort: Exclude<WorkQueueSort, "cost_desc">,
+): readonly QueueDraft[] {
   const copy = [...rows];
   switch (sort) {
     case "age_asc":
@@ -470,8 +520,6 @@ function sortRows(rows: readonly WorkQueueRow[], sort: WorkQueueSort): readonly 
       return copy.sort((a, b) => (a.dueAt ?? "￿").localeCompare(b.dueAt ?? "￿"));
     case "value_desc":
       return copy.sort((a, b) => (b.valueUsd ?? -1) - (a.valueUsd ?? -1));
-    case "cost_desc":
-      return copy.sort((a, b) => b.costUsd - a.costUsd);
     case "status":
       return copy.sort(
         (a, b) => RUN_STATUSES.indexOf(a.status) - RUN_STATUSES.indexOf(b.status),
@@ -480,6 +528,10 @@ function sortRows(rows: readonly WorkQueueRow[], sort: WorkQueueSort): readonly 
     default:
       return copy.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
+}
+
+function byCostDescending(rows: readonly WorkQueueRow[]): readonly WorkQueueRow[] {
+  return [...rows].sort((a, b) => b.costUsd - a.costUsd);
 }
 
 // ---------------------------------------------------------------------------

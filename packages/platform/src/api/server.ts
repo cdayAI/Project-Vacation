@@ -144,10 +144,20 @@ export function createServer(options: ServerOptions): FastifyInstance {
       void reply.status(400).send({ error: "invalid_input", message: error.message, field: error.field });
       return;
     }
+    // The correlation id is the only key joining this line to the audit
+    // entries, the run, and whatever other component handled the same case.
+    // Without it the log stream and the chain describe one incident in two
+    // vocabularies and have to be reconciled by timestamp.
+    //
+    // The error is flattened here rather than passed as an object: an `Error`
+    // has no enumerable own properties, so a structured logger serialises it to
+    // `{}` and the one line written about a failure says nothing about it.
     platform.logger.error("unhandled request failure", {
       path: request.url,
       method: request.method,
-      error,
+      correlationId: (request as FastifyRequest & { correlationId?: string }).correlationId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
     });
     void reply.status(500).send({ error: "internal_error" });
   });
@@ -254,7 +264,13 @@ export function createServer(options: ServerOptions): FastifyInstance {
 
   app.get("/api/session", async (request) => {
     const actor = actorFor(request);
-    const isAuditor = actor.roles.includes("auditor") && actor.roles.length === 1;
+    // Data-scope entitlements ride in the same array as roles
+    // (`identity/types.ts:410`), so they are excluded before counting. An
+    // auditor entitled to read one association is still an auditor; counting
+    // `scope:` strings as second roles would silently un-flag every real
+    // auditor the identity provider produces and draw them every write control.
+    const heldRoles = actor.roles.filter((role) => !role.startsWith("scope:"));
+    const isAuditor = heldRoles.includes("auditor") && heldRoles.length === 1;
     return {
       actor: {
         actorId: actor.actorId,

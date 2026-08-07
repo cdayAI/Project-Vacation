@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 
 /**
  * Identifier generation.
@@ -56,6 +56,18 @@ export interface IdGenerator {
 
 const SUFFIX_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"; // Crockford-style, no i/l/o/u
 
+/** Characters in an identifier's suffix. */
+const SUFFIX_LENGTH = 22;
+
+/**
+ * Encode one byte per character.
+ *
+ * The alphabet has thirty-two symbols and a byte has two hundred and fifty-six
+ * values, so `byte % 32` is exactly uniform — no modulo bias. Callers must
+ * supply at least `length` bytes: the index wraps, so a shorter buffer would
+ * silently repeat itself and produce an identifier whose tail is a copy of its
+ * head, worth fewer bits than its length suggests.
+ */
 function encodeSuffix(bytes: Uint8Array, length: number): string {
   let out = "";
   for (let i = 0; i < length; i += 1) {
@@ -67,9 +79,13 @@ function encodeSuffix(bytes: Uint8Array, length: number): string {
 
 export class RandomIdGenerator implements IdGenerator {
   next<K extends EntityKind>(kind: K): Id<K> {
-    const uuid = randomUUID().replace(/-/g, "");
-    const bytes = Buffer.from(uuid, "hex");
-    return `${ID_PREFIXES[kind]}_${encodeSuffix(bytes, 22)}` as Id<K>;
+    // One random byte per character. A UUID carries sixteen bytes and the
+    // suffix is twenty-two characters long, so deriving the suffix from one
+    // would wrap the index and repeat the first six characters at the end —
+    // costing thirty of the hundred and ten bits the length implies. Parked
+    // actions and sessions are reached by presenting their identifier, so the
+    // strength has to be the strength it looks like.
+    return `${ID_PREFIXES[kind]}_${encodeSuffix(randomBytes(SUFFIX_LENGTH), SUFFIX_LENGTH)}` as Id<K>;
   }
 }
 

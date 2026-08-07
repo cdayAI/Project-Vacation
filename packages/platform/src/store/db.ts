@@ -68,8 +68,12 @@ export class PgDb implements Db {
   }
 }
 
-export function createPool(connectionString: string, max: number): pg.Pool {
-  return new pg.Pool({
+export function createPool(
+  connectionString: string,
+  max: number,
+  onIdleClientError?: (error: Error) => void,
+): pg.Pool {
+  const pool = new pg.Pool({
     connectionString,
     max,
     // Fail fast rather than hanging a request behind an exhausted pool. A
@@ -78,6 +82,35 @@ export function createPool(connectionString: string, max: number): pg.Pool {
     connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: 30_000,
   });
+
+  // An idle client's connection can die with nobody waiting on it: a failover,
+  // a Postgres restart, an administrator terminating backends, a network reset.
+  // `pg.Pool` reports that on the pool's own `error` event, and an EventEmitter
+  // with no `error` listener does not merely drop the event — Node rethrows it
+  // as an uncaught exception and the process exits.
+  //
+  // That is the worst available failure for this platform. Every query path
+  // already converts a database failure into a `DeniedError` and refuses (see
+  // `storeUnavailable` below), so a database outage is supposed to stop work
+  // while the process stays up to say why. Without this listener the governance
+  // plane instead disappears mid-request during exactly the event the DR plan
+  // describes as routine — and it does not come back when the database does.
+  //
+  // The handler deliberately does nothing but report. The pool discards the
+  // broken client itself and the next caller opens a fresh one, so recovery is
+  // automatic once the database returns; rethrowing here would reinstate the
+  // crash this listener exists to prevent.
+  pool.on("error", (error: Error) => {
+    try {
+      onIdleClientError?.(error);
+    } catch {
+      // A reporter that fails during a database outage must not become the
+      // crash this listener exists to absorb. There is nowhere left to report
+      // that to, so it is dropped deliberately.
+    }
+  });
+
+  return pool;
 }
 
 /**

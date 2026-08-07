@@ -163,7 +163,15 @@ export type Config = z.infer<typeof schema> & {
   readonly warnings: readonly string[];
 };
 
-const ENV_KEYS: Record<keyof z.input<typeof schema>, string> = {
+/**
+ * The environment variable behind each setting.
+ *
+ * Exported so the documented surface — `.env.example`, which this file and the
+ * CLI both point operators at — can be checked against it rather than kept in
+ * step by hand. A control an operator cannot find in that file is a control
+ * they do not know they have.
+ */
+export const ENV_KEYS: Record<keyof z.input<typeof schema>, string> = {
   environment: "PV_ENV",
   serviceName: "PV_SERVICE_NAME",
   httpPort: "PV_HTTP_PORT",

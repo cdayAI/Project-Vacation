@@ -146,7 +146,14 @@ export async function buildPlatform(
       // because "unreachable" and "unchecked" are different things.
       throw new Error("PV_STORE=postgres requires PV_DATABASE_URL");
     }
-    pool = createPool(config.databaseUrl, config.databasePoolSize);
+    // The logger is handed in so a lost idle connection is reported rather than
+    // swallowed. It must never be fatal: see `createPool`.
+    pool = createPool(config.databaseUrl, config.databasePoolSize, (error) => {
+      logger.error("database connection lost while idle", {
+        error,
+        note: "Actions will refuse until the database is reachable. The pool reconnects on the next query.",
+      });
+    });
     db = new PgDb(pool);
 
     runs = new PgRunStore(db, clock, ids);

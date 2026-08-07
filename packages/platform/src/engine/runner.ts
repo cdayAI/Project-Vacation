@@ -1690,10 +1690,18 @@ export class WorkflowEngine {
     // A due timer token means the wait is over.
     if (token.state === "waiting_timer") {
       if (token.stepId) {
+        // `patchStep` replaces `detail` rather than merging it, so the scheduled
+        // detail is carried forward explicitly. For a statutory timer that
+        // detail is the derivation of a legal deadline — which rule version
+        // governed, whether it was verified, the citation, the offset in force
+        // — and it is wanted most at exactly the moment the window closes and
+        // the case becomes the evidence. Overwriting it here left a closed
+        // rescission case reporting nothing but "fired: true".
+        const scheduledDetail = (await this.deps.runs.getStep(token.stepId))?.detail ?? {};
         await this.deps.runs.patchStep(token.stepId, {
           status: "succeeded",
           endedAt: now,
-          detail: { workflowInstanceId: instance.id, fired: true },
+          detail: { ...scheduledDetail, workflowInstanceId: instance.id, fired: true },
         });
       }
       const applied = await this.mutate(instance.id, (current) => {
@@ -1836,6 +1844,14 @@ export class WorkflowEngine {
         basis: "statutory_rescission",
         jurisdiction: computation.jurisdiction,
         ruleVersion: computation.ruleVersion,
+        // The version identifier is what an engineer re-derives from; the
+        // citation is what a compliance reviewer reads, and on this build it
+        // is also what says "PLACEHOLDER — UNVERIFIED" out loud. Recording one
+        // without the other leaves the record answering only half the question
+        // "on what authority did we tell an owner their window had closed".
+        // `api/run-timeline.ts` already reads this key as the derivation
+        // behind a computed deadline.
+        citation: computation.citation,
         ruleVerified: computation.ruleVerified,
         deadlineInstant: computation.deadlineInstant,
         deadlineLocalDate: computation.deadlineLocalDate,

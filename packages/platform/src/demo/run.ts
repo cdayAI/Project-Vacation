@@ -454,7 +454,12 @@ async function deadlineStep(
   platform: Platform,
   runId: string,
   contract: SeedContract,
-  computation: { readonly citation: string; readonly deadlineInstant: string },
+  computation: {
+    readonly citation: string;
+    readonly deadlineInstant: string;
+    readonly ruleVersion: string;
+    readonly ruleVerified: boolean;
+  },
 ): Promise<void> {
   await platform.runs.appendStep({
     runId: runId as never,
@@ -467,7 +472,16 @@ async function deadlineStep(
       disclosureDeliveredAt: contract.disclosureDeliveredAt,
     }),
     outputDigest: digestValue({ deadline: computation.deadlineInstant }),
-    detail: { state: contract.state, citation: computation.citation.slice(0, 120) },
+    // Version and citation together. The version is what an engineer
+    // re-derives from and the citation is what counsel reads; either one alone
+    // leaves half of "on what authority" unanswered.
+    detail: {
+      state: contract.state,
+      deadlineInstant: computation.deadlineInstant,
+      ruleVersion: computation.ruleVersion,
+      ruleVerified: computation.ruleVerified,
+      citation: computation.citation.slice(0, 120),
+    },
   });
 }
 

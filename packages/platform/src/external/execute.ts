@@ -338,6 +338,31 @@ export class ExecutionService {
       });
     }
 
+    // 0. Ownership, before the record is read for any other purpose.
+    //
+    // `runs.ts:291` and `runs.ts:348` already refuse a heartbeat or a finish
+    // for another agent's run, and `api/external.ts:471` refuses to say whether
+    // another agent's approval exists. This is the same boundary at the one
+    // place that produces an effect, and it has to come first for two reasons.
+    //
+    // The digest comparison below *voids* the record on a mismatch, and rightly
+    // so — a caller substituting a payload after sign-off is misbehaviour. But
+    // `digestOf` folds `agentId` into the digest, so a commit naming another
+    // agent's action can never match, and running that check first turned
+    // "somebody else guessed my id" into "this agent tampered with its own
+    // request": the victim's approved action was destroyed, the human's
+    // decision became unspendable, and the record accused an agent that had
+    // submitted nothing. One enrolled agent could cancel every other agent's
+    // approved work by naming its id.
+    //
+    // The refusal is deliberately the same one an unknown id gets, so this
+    // endpoint cannot be used to discover which ids exist.
+    if (action.agentId !== request.agentId) {
+      throw new DeniedError("approval.required", `No parked action ${id}.`, {
+        parkedActionId: id,
+      });
+    }
+
     // 1. Terminal status outlives expiry.
     if (action.status === "committed") {
       return {

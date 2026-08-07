@@ -12,6 +12,7 @@ import {
   assertSpendAmount,
   assertTokenHash,
   isExpirableParkedStatus,
+  toStoredUsd,
 } from "./migrations.js";
 import type {
   CredentialStore,
@@ -317,7 +318,11 @@ export class MemorySpendStore implements SpendStore {
       // Read, add, write, all inside the lock. A read-modify-write across the
       // lock loses concurrent reports, and every lost report is spend that
       // happened and does not count against the ceiling.
-      const spentUsd = (current?.spentUsd ?? 0) + amountUsd;
+      // Snapped to the column's scale, so this meter is the one Postgres's
+      // exact decimal addition produces rather than a binary approximation of
+      // it — and so the ceiling check answers the same either side. See
+      // `toStoredUsd`.
+      const spentUsd = toStoredUsd((current?.spentUsd ?? 0) + amountUsd);
       const next: SpendMeter = { agentId, periodKey, spentUsd, updatedAt: at };
       table.set(key, structuredClone(next));
       return spentUsd;

@@ -231,8 +231,37 @@ function formatterFor(timeZone: string): Intl.DateTimeFormat {
   return formatter;
 }
 
-/** True if the runtime can resolve this IANA zone. */
+/**
+ * A bare UTC offset, in any of the forms `Intl` accepts as a "time zone".
+ *
+ * `+05:00`, `-0500`, and `-05` are all resolvable by `Intl.DateTimeFormat`, and
+ * every one of them is a fixed offset with no daylight-saving rule. No IANA
+ * zone identifier begins with `+` or `-`, so this pattern cannot reject a real
+ * one.
+ */
+const OFFSET_LIKE_ZONE = /^[+-]/;
+
+/**
+ * True if the runtime can resolve this as a *named* IANA zone.
+ *
+ * `Intl.DateTimeFormat` also accepts a bare UTC offset — `new
+ * Intl.DateTimeFormat("en-US", { timeZone: "-05:00" })` constructs happily —
+ * and that is refused here rather than treated as a zone. A fixed offset is
+ * right for half the year and an hour wrong for the other half, which for the
+ * two things that ask this question is the difference between a lawful call and
+ * an unlawful one:
+ *
+ *   - `rules.ts` validates that a rescission rule "must name a zone, never a
+ *     fixed offset", and said so in its error message while accepting one.
+ *   - `contact/policy.ts` validates a recipient's timezone before quiet hours
+ *     are measured at the called party's location, and its own refusal text
+ *     reads "A fixed offset is not acceptable: it is wrong twice a year".
+ *
+ * With `-05:00` accepted, an owner in New York in August reads as 11:00 when it
+ * is 12:00 — so a 21:30 call clears a 21:00 quiet-hours check.
+ */
 export function isKnownTimeZone(timeZone: string): boolean {
+  if (typeof timeZone !== "string" || OFFSET_LIKE_ZONE.test(timeZone.trim())) return false;
   try {
     formatterFor(timeZone);
     return true;

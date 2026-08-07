@@ -180,10 +180,16 @@ export class Authorizer {
           expectedProposalDigest: request.proposalDigest,
           runId: request.runId,
           actor: request.actor,
+          // The approval must have been raised for this action, not merely for
+          // some action. Passed in so the check runs *before* the consumption:
+          // refusing after it would burn the approver's decision on a request
+          // that was never going to be permitted, which is the thing the
+          // ordering at the top of this file exists to avoid.
+          expectedAction: request.action,
         });
-        // Defence in depth: the approval must have been raised for this action,
-        // not merely for some action. A granted approval for a cheap action
-        // must not be redeemable against an expensive one.
+        // Defence in depth for a caller that supplied no expected action. Not
+        // reachable from here, and deliberately kept: the invariant belongs to
+        // the chokepoint, not to one argument being remembered.
         if (consumed.action !== request.action) {
           throw new DeniedError(
             "approval.digest_mismatch",

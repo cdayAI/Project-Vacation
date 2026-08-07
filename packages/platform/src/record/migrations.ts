@@ -63,6 +63,29 @@ export function assertOptionalIsoUtc(field: string, value: string | undefined | 
   assertIsoUtc(field, value);
 }
 
+/** Decimal places `run_cost.amount_usd` stores: it is `numeric(20, 10)`. */
+export const USD_SCALE = 10;
+
+/**
+ * Snap a JavaScript number back onto the scale the money column stores.
+ *
+ * Here for the same reason `assertIsoUtc` is: the rule is stated once in SQL,
+ * as `numeric(20, 10)`, and once in TypeScript, and keeping the two in one
+ * file is what stops them drifting.
+ *
+ * Postgres adds those values as exact decimals. The in-memory adapter has only
+ * binary doubles, and their error accumulates — three hundred entries of one
+ * cent sum to 2.99999999999998, not 3 — so a spend ceiling compared against
+ * the in-memory total answers differently from the same ceiling compared
+ * against the database's. Snapping each running total back onto the column's
+ * grid puts it where exact decimal arithmetic would have left it. Every input
+ * and every partial sum then sits on the grid, so nothing drifts off it and
+ * the result no longer depends on the order the entries arrived in.
+ */
+export function toStoredUsd(amount: number): number {
+  return Number(amount.toFixed(USD_SCALE));
+}
+
 /**
  * Step states that are the end of the story.
  *
