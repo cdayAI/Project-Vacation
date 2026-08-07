@@ -193,3 +193,58 @@ checked against the same thresholds, which is the actual work.
 Rejected: it puts a build step between a designer's value and the stylesheet,
 and the test already parses the CSS the application ships, which is the artifact
 that matters.
+
+---
+
+## Amendment, 2026-08-07: glass widened from chrome to every container
+
+**Status of the original decision: still in force, with one clause replaced.**
+
+The specification confined glass to chrome and overlays — the rail, the top bar,
+the context panel, popovers, sheets, modals, toasts, and summary cards — and
+said explicitly: never behind a table, a chart, a form, or long-form reading.
+The owner asked for the maximum glass the console can carry. That clause is now
+replaced by a different line, drawn between **containers and contents** rather
+than between chrome and content:
+
+> Every container is glass. Nothing that repeats is.
+
+Panels, toolbars, callouts, dialogs, metric tiles, step and citation cards, and
+the scroll container a table sits in all carry the recipe. Rows, cells, badges,
+chips and tokens carry a tint and never a `backdrop-filter`.
+
+**Why the new line is the defensible one.** The original rule was a proxy for
+two real constraints, and naming the constraints directly turns out to permit
+much more glass than the proxy did.
+
+The first is cost. A `backdrop-filter` is a full-surface repaint. The rule that
+mattered was never "not behind a table" — it was "not once per row", because the
+work queue renders a row per open case and the audit screen renders one per chain
+entry. A blurred *container* is one repaint regardless of how many rows are
+inside it. `screens.test.ts` parses the stylesheet and fails if a
+`backdrop-filter` reaches a `tr`, `td`, `th`, `li`, `.pv-badge` or a row-state
+class, and nested glass drops its own filter rather than blurring twice.
+
+The second is legibility, and it did not move at all. The panel tint went from
+72% to 58% in light and 64% to 50% in dark; **the scrim stayed at 92%.** The
+scrim is the solid child that text sits on, and it is the reason the measured
+contrast number means anything — spending it to make the glass prettier would
+have left `tokens.test.ts` passing against a surface nothing is drawn on. Every
+composite assertion still passes at the new opacity, still measured as glass
+over the page background rather than against the glass token.
+
+**What was added.** A lens: a rim gradient masked into a one-pixel ring, and a
+specular band across the upper third. Both are `::before`/`::after` with
+`pointer-events: none`, both come off under reduced transparency and under
+`@supports not (backdrop-filter)`, and the only motion is a hover opacity
+transition inside a `prefers-reduced-motion: no-preference` guard. Nothing
+animates on load, on data arrival, or on a timer. A governance console that
+shimmers while somebody reads a refusal is a console that makes people distrust
+it, and that is the one part of §1.5 no amount of glass gets to override.
+
+**What was rejected.** Adding a third value to the transparency preference — a
+`liquid` tier above the default — so the heavier recipe was opt-in. It would
+have left the shipped default untested by the composite assertions, which read
+the base `:root` block. The heavier recipe *is* the base block now, so the
+contrast tests measure exactly what ships. That was the whole point of writing
+them against the CSS rather than against a TypeScript source of truth.

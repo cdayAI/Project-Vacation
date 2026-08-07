@@ -344,6 +344,43 @@ and clearly commented as requiring confirmation. **They are almost certainly
 wrong in detail.** Do not treat them as a specification MVW must meet; treat
 them as a starting point for a conversation with each system's owner.
 
+### L4b. The screens have not been migrated onto the design system
+
+The design system in `packages/console/src/ui/` — primitives, surfaces, domain
+components, the command palette — was built to `docs/design/design-spec.md`
+from scratch, is demonstrated at `/design`, and is exercised by that gallery
+and its tests. **The seventeen screens an operator actually reaches do not use
+it.** They use the older `src/components/` set and are styled by
+`src/screens.css`, which takes its values from the same tokens and therefore
+gets theme, density, and transparency right, but is a second implementation of
+button, badge, callout, field, dialog, and table.
+
+Two consequences worth knowing before planning the work:
+
+- The two layers share one CSS namespace. Three names had already collided
+  (`pv-table`, `pv-table-numeric`, `pv-table-sort`) and, with both stylesheets
+  loaded, `display: flex` from the library's virtualised grid was landing on
+  the shipped tables' `<table>` elements. The shipped table was renamed to
+  `pv-dt-*`. Nothing enforces that the next collision gets caught, and a
+  collision presents as a broken layout rather than as a failure.
+- Screen behaviour is well covered by tests and screen *appearance* is not.
+  What `screens.test.ts` checks is that the stylesheet obeys its own rules —
+  tokens only, no blur on a repeating element, decorative layers removed under
+  reduced transparency. Nothing asserts that a panel looks like the panel in
+  the specification. There are no visual-regression snapshots.
+
+Migrating view by view is the work, and it is the largest single item on this
+list. Doing it removes `src/components/` and `src/screens.css` entirely.
+
+### L4c. Filter state is not in the URL
+
+`docs/design/design-spec.md` §3.1 requires that every filter state encode into
+the URL, so a view can be pasted into a ticket. The server side is built for
+it — `parseWorkQueueQuery` reads every filter, saved view, and sort from the
+query string and refuses unknown values rather than ignoring them. The console
+does not use it: the work queue's filters are component state, so a filtered
+view cannot be shared and the browser's back button does not undo a filter.
+
 ### L5. Accessibility automation covers about half of WCAG
 
 Automated axe assertions run on every console view and fail CI. They do not

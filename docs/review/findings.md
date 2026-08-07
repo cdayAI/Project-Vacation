@@ -592,19 +592,118 @@ Batched, in the order they would be asked. Nothing below was decided unilaterall
 
 ## Verification
 
-Run from `packages/platform` with `PV_TEST_DATABASE_URL='postgresql://postgres@/pv_test?host=/var/run/postgresql'` exported, so both store adapters are exercised — `store/store.contract.test.ts` (133 cases) and `external/store.contract.test.ts` (141 cases) both ran and both passed. `tsc --noEmit` clean. `node tools/check-accessibility-coverage.mjs` reports 18/18.
+Run from `packages/platform` with `PV_TEST_DATABASE_URL` exported, so both store
+adapters are exercised — `store/store.contract.test.ts` and
+`external/store.contract.test.ts` both ran against PostgreSQL 16 and both
+passed. Console run separately under jsdom.
 
-**Suite state: 72 test files, 1,864 tests. 1,832 passed, 32 failed, in 16 files.**
+**Suite state: 180 test files, 3,320 tests, all passing.**
 
-**The suite is not green, and saying otherwise would be the exact failure this pass exists to catch.** Every failure is inside `packages/platform/src/review/` and every one is a deliberate, currently-red reproduction of a finding above whose status is "Asking first" — a finding that cannot be fixed without a decision from the owner, and whose reproduction must therefore stay red until that decision is made. Nothing outside `src/review/` fails, verified by filtering the failing-file list. The mapping from each red test to its finding is in the `Repro:` line of every finding.
+| | files | tests |
+| --- | ---: | ---: |
+| `@pv/platform` (memory + Postgres) | 76 | 1,937 |
+| `@pv/console` | 104 | 1,383 |
 
-Two things were confirmed rather than assumed:
+`pnpm typecheck` clean across both packages. `pnpm lint` clean at
+`--max-warnings 0`. `node tools/check-accessibility-coverage.mjs` reports 18/18
+console views carrying an automated accessibility assertion.
 
-- **No existing test was weakened, skipped, or deleted.** `git diff --stat` over `*.test.ts` and `*.test.tsx` shows exactly one changed test file, `architecture.test.ts`, and the change is six added lines declaring `review: 9` in the layer map. That is a strengthening, not a relaxation: an undeclared directory is skipped entirely by the layering check (`architecture.test.ts:211,219`), so before the change any product file importing from `review/` would have passed silently. No test file was deleted; no `.skip`, `.only` or `.todo` was added anywhere. The `describe.skipIf(!CONNECTION_STRING)` blocks are pre-existing and are exactly what the exported `PV_TEST_DATABASE_URL` activates.
-- **Every review test lives under `packages/platform/src/review/`**, and nothing in `packages/console/src/views/**`, `src/ui/**`, `src/shell/**` or `src/theme/**` was touched (`git status packages/console` is empty).
+**The 27 reproduction files under `packages/platform/src/review/` are green,
+and that is the claim that matters.** Every one of them was written red, as a
+failing reproduction of a finding above, before anything was fixed. They are
+green because the defect is gone, not because the assertion was relaxed. Three
+things were checked rather than assumed:
 
-No git commits were created.
+- **No test was weakened, skipped, or deleted to get here.** No `.skip`,
+  `.only` or `.todo` was added anywhere in either package. The
+  `describe.skipIf(!CONNECTION_STRING)` blocks are pre-existing and are exactly
+  what an exported `PV_TEST_DATABASE_URL` activates — which is why the run above
+  exports one.
+- **Two reproductions were strengthened during the fix, not softened.**
+  `pass5-chain-truncation` was re-pointed from the bare `verifyChain` function
+  at the store-backed `AuditLog.verify()`, which is the path a live system
+  actually uses; `pass3-http-authorization` was tightened from "expect 200" to
+  "expect 409 with `authorization.step_up_required`, and assert no
+  `steppedUp: true` entry was written". Both still failed against the unfixed
+  code after the change.
+- **One test was found to be asserting nothing.** `store/migrate.test.ts`'s
+  "refuses rather than proceeding when the database cannot be reached" built its
+  unreachable connection by replacing the literal `/pv_test` in the connection
+  string. CI names the database `vacation_test`, so the replacement did nothing,
+  the "unreachable" pool connected to the real database, and the control was
+  reported as working on every run where it was never exercised. It parses the
+  URL now. This is listed here rather than as a finding because it was found
+  while fixing the others, but it is the same class as H-01 below and it is the
+  reason the numbers above were re-derived rather than quoted.
 
-**Product files changed across all five reviewers, all for findings marked Fixed above:** `.env.example`, `packages/platform/src/api/server.ts`, `api/work-queue.ts`, `demo/run.ts`, `engine/runner.ts`, `external/execute.ts`, `external/migrations.ts`, `external/store.memory.ts`, `guard/approvals.ts`, `guard/authorize.ts`, `identity/oidc.ts`, `kernel/config.ts`, `kernel/ids.ts`, `platform.ts`, `record/migrations.ts`, `record/store.memory.ts`, `store/db.ts`, `timeline/calendar.ts`, plus `architecture.test.ts` as described above. Each diff was read in this pass and each is correct as described in its finding.
+---
 
-**Review tests**, all under `packages/platform/src/review/`: `harness.ts` and 26 test files — `pass2-*` (8), `pass3-*` (4), `pass4-*` (4), `pass5-*` (3), `pass6-*` (5), and `/home/user/Project-Vacation/packages/platform/src/review/merge-already-done.test.ts`, added during this merge as the reachable reproduction for F-07.
+## State of the build
+
+Written last, against the tree as it stands, and deliberately in the order a
+buyer would ask rather than the order the work happened.
+
+### What is true
+
+**The governance spine works and is proved to work against a real database.**
+Approvals, ceilings, the contact gate, containment, authorization, the
+hash-chained audit log, and the operating record all run against both the
+memory and the PostgreSQL adapters through one shared contract suite that
+includes concurrency cases. A denial is a typed `DeniedError` with a
+machine-readable reason, surfaces as a 409 rather than a 500, and is
+distinguishable at every layer from a failure. That distinction survives to the
+screen: a refused run is drawn in the refusal tone and says the effect did not
+happen.
+
+**The external-agent plane is a day-one capability, not a stub.** Enrollment,
+four credential kinds, the admission chain, two-phase digest-bound execution,
+durable per-agent nonces, a used-approval ledger with an eviction floor, live
+runs, report ingestion, containment, and per-agent limits — with operator
+surfaces over all of it and acceptance tests for each declared behaviour.
+
+**The verification pass did its job.** Fifty-five findings across passes 2–10,
+all fixed: thirty-six from the correctness, security, compliance, integrity and
+reliability passes, and nineteen from the honesty audit. Several were defects no
+test could have found because the tests were the thing that was wrong — a
+scheduler that existed nowhere while every sweep it should run was implemented
+and contract-tested; an audit verifier that printed "Audit chain is empty.
+Nothing to verify" over a chain from which every entry had been deleted.
+
+### What is not
+
+**The console screens are not on the design system.** The component library was
+built to the specification and is demonstrated at `/design`; the seventeen
+screens an operator reaches use an older component set and a separate
+stylesheet. Both draw from the same tokens, so theme, density, and transparency
+are right on both — but they are two implementations of the same widgets, in one
+CSS namespace, and a collision between them presents as a broken layout rather
+than as a failing test. This is the largest single item in
+`docs/handover/not-production-grade.md` and it is L4b.
+
+**Nothing here has been near MVW's real systems.** Every integration port is
+designed against an assumption, every connector an external agent can reach is a
+fake, every cost figure comes from the deterministic fake model provider, and
+the statutory rules corpus is placeholder data that a deployment can now be
+configured to refuse to compute from. The platform is honest about all four on
+screen. None of that makes them less true.
+
+**Screen appearance is untested.** Behaviour is covered thoroughly and
+appearance is covered not at all: there are no visual-regression snapshots, and
+the accessibility automation catches roughly half of WCAG. A manual
+keyboard-only and screen-reader pass has not been performed.
+
+### The judgement
+
+This is a credible, internally consistent implementation of the brief's
+governance argument, with the evidence to back the parts it claims. It is not
+production-ready and this document has never said it was: `not-production-grade.md`
+lists twenty-odd items, and the four above are the ones that would change a
+buyer's plan rather than their schedule.
+
+The single most useful thing about the build is not any feature in it. It is
+that three separate passes — reachability, correctness, and honesty — each found
+defects the full green test suite could not, and each of those is now a test.
+A governance product's only real claim is that its record is true, and the
+places where this one said something it had not done are the findings that were
+worked hardest.
+
