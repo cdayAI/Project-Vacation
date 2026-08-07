@@ -84,10 +84,25 @@ export interface Platform {
    * what the platform does. ADR 0011.
    */
   readonly observations: ObservationHarvester;
+  /**
+   * Settings every statutory-deadline computation must be given.
+   *
+   * Composed here rather than passed at each call site, because the one that
+   * matters — refusing to derive a deadline from an unverified rule — was a
+   * documented production control that nothing could set. A caller that has to
+   * remember to pass it is a caller that will one day forget, and forgetting
+   * produces a plausible legal date rather than a refusal.
+   */
+  readonly timeline: TimelineSettings;
   /** Present only when the Postgres store is in use. */
   readonly db?: Db;
   /** Release connections. Safe to call more than once. */
   close(): Promise<void>;
+}
+
+export interface TimelineSettings {
+  /** When true, an unverified rule denies instead of answering. */
+  readonly requireVerifiedRules: boolean;
 }
 
 export interface BuildOptions {
@@ -237,6 +252,7 @@ export async function buildPlatform(
     discoveryEnabled: config.discoveryEnabled,
     modelProvider: config.modelProvider,
     externalAgentsEnabled: config.externalAgentsEnabled,
+    requireVerifiedStatutoryRules: config.requireVerifiedStatutoryRules,
   });
   for (const warning of config.warnings) logger.warn(warning);
 
@@ -254,6 +270,7 @@ export async function buildPlatform(
     authorizer,
     sandbox,
     external,
+    timeline: { requireVerifiedRules: config.requireVerifiedStatutoryRules },
     observations,
     db,
     async close() {
