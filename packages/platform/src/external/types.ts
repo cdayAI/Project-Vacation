@@ -397,6 +397,16 @@ export interface ParkedAction {
   readonly agentId: ExternalAgentId;
   readonly integration: string;
   readonly operation: string;
+  /**
+   * Which path this action takes, decided when it was parked.
+   *
+   * Carried on the record rather than re-asserted at commit. The commit used to
+   * assume `write`, which meant an operation the operator rated
+   * high-consequence but registered as a read was parked, approved by a human,
+   * and then refused at the last step for a mode mismatch — the approval spent
+   * on something that could never happen.
+   */
+  readonly mode: "read" | "write";
   /** Digest of the canonical request. The approval binds to this. */
   readonly requestDigest: Digest;
   /** Human-readable rendering of what will happen. Shown to the approver. */
@@ -406,6 +416,15 @@ export interface ParkedAction {
   readonly createdAt: IsoTimestamp;
   readonly expiresAt: IsoTimestamp;
   readonly committedAt?: IsoTimestamp | undefined;
+  /**
+   * When the commit went in flight, which is not when it was parked.
+   *
+   * The interval the stale-commit sweeper is trying to measure is "how long has
+   * this been running", and `createdAt` answers "how long ago was a human
+   * asked" — normally hours earlier. Measuring the wrong one declares every
+   * live commit abandoned on the first sweep.
+   */
+  readonly committingAt?: IsoTimestamp | undefined;
   /** The outcome of the committed action, replayed to a duplicate commit. */
   readonly resultDigest?: Digest | undefined;
   readonly resultSummary?: string | undefined;

@@ -139,7 +139,15 @@ export class ConnectorRouter implements GovernedIntegration {
     return this.switchboard.isEnabled(integration);
   }
 
-  /** The registered mode for an operation, or null when there is no such operation. */
+  /**
+   * The registered mode for an operation, or null when there is no such
+   * operation.
+   *
+   * Part of `GovernedIntegration` so the commit path can refuse an unknown
+   * operation or a mode mismatch *before* it consumes an approval, rather than
+   * discovering it inside `perform` and having to report an effect that never
+   * happened.
+   */
   modeOf(integration: string, operation: string): "read" | "write" | null {
     return this.byIntegration.get(integration)?.get(operation)?.mode ?? null;
   }

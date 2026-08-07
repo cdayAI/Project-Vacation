@@ -207,6 +207,7 @@ function aParkedAction(id: string, agentId: string, overrides: Partial<ParkedAct
     id: id as Id<"parkedAction">,
     agentId: agentId as ExternalAgentId,
     integration: "letters",
+    mode: "write",
     operation: "send",
     requestDigest: digestValue({ letter: "rescission-acknowledgement", contractId: "ctr_0001" }),
     preview: [{ label: "Recipient", value: "owner of ctr_0001" }],

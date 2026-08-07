@@ -214,10 +214,21 @@ class FakeRateLimiter implements RateLimiterLike {
 
 class FakeIntegration implements GovernedIntegration {
   enabled = true;
+  readOperations = new Set<string>();
+  unknownOperations = new Set<string>();
   calls: { operation: string; idempotencyKey: string }[] = [];
   failWith: Error | null = null;
   async isEnabled() {
     return this.enabled;
+  }
+  /**
+   * The registry is the mode authority, and this fake registers everything as
+   * a write unless a test says otherwise — matching the real router, which
+   * refuses an operation it does not know rather than guessing one.
+   */
+  modeOf(_integration: string, operation: string): "read" | "write" | null {
+    if (this.unknownOperations.has(operation)) return null;
+    return this.readOperations.has(operation) ? "read" : "write";
   }
   async perform(input: { operation: string; idempotencyKey: string }) {
     this.calls.push({ operation: input.operation, idempotencyKey: input.idempotencyKey });

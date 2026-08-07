@@ -137,6 +137,7 @@ type ParkedRow = {
   agent_id: string;
   integration: string;
   operation: string;
+  mode: string;
   request_digest: string;
   preview: { label: string; value: string }[];
   approval_id: string | null;
@@ -144,6 +145,7 @@ type ParkedRow = {
   created_at: string;
   expires_at: string;
   committed_at: string | null;
+  committing_at: string | null;
   result_digest: string | null;
   result_summary: string | null;
   void_reason: string | null;
@@ -176,9 +178,9 @@ const CREDENTIAL_COLUMNS = `id, agent_id, kind, label, token_hash, issuer, audie
   secret_ref, public_key, created_by, created_at, expires_at, revoked_at, revoked_by,
   revoked_reason, last_used_at`;
 
-const PARKED_COLUMNS = `id, agent_id, integration, operation, request_digest, preview,
-  approval_id, status, created_at, expires_at, committed_at, result_digest, result_summary,
-  void_reason, run_id, correlation_id`;
+const PARKED_COLUMNS = `id, agent_id, integration, operation, mode, request_digest, preview,
+  approval_id, status, created_at, expires_at, committed_at, committing_at, result_digest,
+  result_summary, void_reason, run_id, correlation_id`;
 
 const EXTERNAL_RUN_COLUMNS = `id, agent_id, run_id, goal, status, started_at, last_heartbeat_at,
   ended_at, outcome, cost_usd, correlation_id`;
@@ -875,7 +877,7 @@ export class PgParkedActionStore implements ParkedActionStore {
     const rows = await runGuarded("createParkedAction", () =>
       this.db.query<ParkedRow>(
         `INSERT INTO external_parked_action (${PARKED_COLUMNS})
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (id) DO NOTHING
          RETURNING ${PARKED_COLUMNS}`,
         [
@@ -883,6 +885,7 @@ export class PgParkedActionStore implements ParkedActionStore {
           action.agentId,
           action.integration,
           action.operation,
+          action.mode,
           action.requestDigest,
           JSON.stringify([...action.preview]),
           action.approvalId ?? null,
@@ -890,6 +893,7 @@ export class PgParkedActionStore implements ParkedActionStore {
           action.createdAt,
           action.expiresAt,
           action.committedAt ?? null,
+          action.committingAt ?? null,
           action.resultDigest ?? null,
           action.resultSummary ?? null,
           action.voidReason ?? null,
@@ -1009,6 +1013,13 @@ export class PgParkedActionStore implements ParkedActionStore {
              -- rejection would make the console read as though the action
              -- had landed.
              committed_at = CASE WHEN $3::text = 'committed' THEN $4::text ELSE committed_at END,
+             -- Stamped by the store, because the sweeper's question is "how
+             -- long has this row been in flight" and the row is the only thing
+             -- that knows when it entered that state. Measuring from
+             -- created_at instead measures how long ago a human was asked,
+             -- which is normally hours earlier and declares every live commit
+             -- abandoned on the first sweep.
+             committing_at = CASE WHEN $3::text = 'committing' THEN $4::text ELSE committing_at END,
              result_digest = COALESCE($5::text, result_digest),
              result_summary = COALESCE($6::text, result_summary),
              void_reason = COALESCE($7::text, void_reason)
@@ -1433,6 +1444,7 @@ function toParkedAction(row: ParkedRow): ParkedAction {
     agentId: row.agent_id,
     integration: row.integration,
     operation: row.operation,
+    mode: row.mode === "read" ? "read" : "write",
     requestDigest: row.request_digest as Digest,
     preview: row.preview,
     approvalId: row.approval_id ?? undefined,
@@ -1440,6 +1452,7 @@ function toParkedAction(row: ParkedRow): ParkedAction {
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     committedAt: row.committed_at ?? undefined,
+    committingAt: row.committing_at ?? undefined,
     resultDigest: (row.result_digest ?? undefined) as Digest | undefined,
     resultSummary: row.result_summary ?? undefined,
     voidReason: row.void_reason ?? undefined,

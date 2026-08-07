@@ -532,6 +532,59 @@ CREATE INDEX IF NOT EXISTS external_rate_denial_window_idx
   ON external_rate_denial (agent_id, denial_class, at);
 `;
 
+/**
+ * Two columns a parked action needed and did not have.
+ *
+ * Additive and separate from `0016_external`, because a released migration is
+ * an immutable artifact: the runner checksums applied SQL and refuses the whole
+ * run if it changed, which is the control that stops two deployments believing
+ * they share a schema when they do not.
+ *
+ * **`mode`** — the commit path asserted `write` unconditionally, so an
+ * operation the operator rated high-consequence but registered as a *read* was
+ * parked, approved by a human, and then refused at the last step by the
+ * connector router for a mode mismatch. Binding the mode to the record at
+ * parking time is what makes the commit perform the thing that was approved
+ * rather than a thing the code assumed. Existing rows are all writes, because
+ * that is the only mode the old commit path could reach, so the backfill is
+ * correct rather than merely convenient.
+ *
+ * **`committing_at`** — the stale-commit sweeper measured staleness from
+ * `created_at`, which is when a human was *asked*, not when the work began. A
+ * commit normally starts hours after parking, so every real in-flight action
+ * looked stale the moment it started and would have been declared indeterminate
+ * by the first sweep. Nothing called the sweeper, so the defect was latent; it
+ * becomes live the moment a scheduler exists, which is why this lands first.
+ * The sweep reads `COALESCE(committing_at, created_at)` so rows written before
+ * this migration keep exactly today's behaviour instead of becoming invisible.
+ */
+const EXTERNAL_PARKED_MODE_SQL = `
+ALTER TABLE external_parked_action
+  ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'write';
+
+ALTER TABLE external_parked_action
+  ADD COLUMN IF NOT EXISTS committing_at text;
+
+ALTER TABLE external_parked_action
+  DROP CONSTRAINT IF EXISTS external_parked_action_mode_known;
+ALTER TABLE external_parked_action
+  ADD CONSTRAINT external_parked_action_mode_known CHECK (mode IN ('read','write'));
+
+ALTER TABLE external_parked_action
+  DROP CONSTRAINT IF EXISTS external_parked_action_committing_at_utc;
+ALTER TABLE external_parked_action
+  ADD CONSTRAINT external_parked_action_committing_at_utc CHECK (
+    committing_at IS NULL OR committing_at ~ '${ISO_UTC_SQL}'
+  );
+
+-- The sweep's query. Partial on the one status it can move, because there will
+-- eventually be far more settled actions than in-flight ones.
+CREATE INDEX IF NOT EXISTS external_parked_action_committing_idx
+  ON external_parked_action (committing_at)
+  WHERE status = 'committing';
+`;
+
 export const MIGRATIONS: readonly { readonly id: string; readonly sql: string }[] = [
   { id: "0016_external", sql: EXTERNAL_SQL },
+  { id: "0017_external_parked_mode", sql: EXTERNAL_PARKED_MODE_SQL },
 ];

@@ -722,6 +722,10 @@ export class MemoryParkedActionStore implements ParkedActionStore {
       const next: ParkedAction = {
         ...current,
         status: input.status,
+        // Stamped here rather than by the caller, because the sweeper's whole
+        // question is "how long has this row been in flight" and the row is the
+        // only thing that knows when it entered that state.
+        ...(input.status === "committing" ? { committingAt: input.at } : {}),
         // Only a commit carries a completion time. Setting it on a rejection
         // would make the console read as though the action had landed.
         ...(input.status === "committed" ? { committedAt: input.at } : {}),
