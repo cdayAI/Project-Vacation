@@ -56,6 +56,7 @@ Project Vacation — operator commands
   config show                     Show effective configuration and warnings
   health                          Report platform health
   serve                           Run the HTTP API
+  worker [--once]                 Run maintenance: expiries, sweeps, reclaims
   demo run                        Run the seeded demonstration
 
 Global:
@@ -443,8 +444,46 @@ async function main(): Promise<number> {
         const { startServer } = await import("../api/server.js");
         await startServer(platform);
         note(`API listening on port ${config.httpPort}. Press Ctrl-C to stop.`);
+        note(
+          "This process serves requests only. Run `pv worker` somewhere as well, or approvals never expire, statutory timers never fire, and a commit abandoned by a dead worker is never surfaced to anyone.",
+        );
         // Deliberately never resolves: the process stays up serving requests,
         // and the `finally` below must not close the pool underneath it.
+        await new Promise<never>(() => {});
+        return 0;
+      }
+      case "worker": {
+        // A separate process from `serve`, deliberately.
+        //
+        // Folding the loop into the API would make every instance a scheduler,
+        // and two instances sweeping the same tables need leader election
+        // before anyone can scale the API horizontally — a decision that would
+        // then be forced by an unrelated capacity change, at the worst possible
+        // moment. Separating them makes the deployment shape state the answer:
+        // run one worker.
+        const { MaintenanceLoop } = await import("../maintenance.js");
+        const loop = new MaintenanceLoop(platform, platform.logger, platform.clock);
+
+        if (first(args, "once") !== undefined) {
+          const report = await loop.runOnce();
+          if (args.json) emit(report, args);
+          else {
+            for (const result of report.results) {
+              const state = result.error
+                ? `FAILED — ${result.error}`
+                : result.skipped
+                  ? "skipped (platform paused)"
+                  : `${result.affected}`;
+              console.log(`${result.name.padEnd(34)} ${state}`);
+            }
+          }
+          // Non-zero when a pass failed, so a scheduled invocation is visible
+          // to whatever ran it rather than quietly returning success.
+          return report.results.some((result) => result.error) ? 1 : 0;
+        }
+
+        loop.start();
+        note(`Maintenance running every 60s: ${loop.describe().join(", ")}. Press Ctrl-C to stop.`);
         await new Promise<never>(() => {});
         return 0;
       }

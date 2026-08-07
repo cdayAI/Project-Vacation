@@ -705,6 +705,17 @@ async function listParked(args: CommandArgs, context: AgentsCommandContext): Pro
   const status = csv(args, "status") as readonly ParkedActionStatus[] | undefined;
   const limitRaw = first(args, "limit");
 
+  // Sweep before listing, so this verb answers about the world rather than
+  // about whatever the last sweep happened to leave behind.
+  //
+  // A commit abandoned by a dead worker sits in `committing` until something
+  // moves it, and `committing` is indistinguishable from healthy in-flight work
+  // in a listing. Without this, the verb reported "all clear" over a refund
+  // that may or may not have been issued — the exact case it exists to catch.
+  // `pv worker` runs the same sweep on a loop; doing it here too costs one
+  // query and makes the verb true when run on its own.
+  await context.plane.execution.sweepStaleCommits();
+
   const actions = await plane.stores.parked.listParkedActions({
     ...(agent ? { agentId: agent.id } : {}),
     ...(status ? { status } : {}),

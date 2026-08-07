@@ -26,6 +26,10 @@ import type { SecretResolver } from "./external/credentials.js";
 import { MemoryObservationStore } from "./improve/store.memory.js";
 import { PgObservationStore } from "./improve/store.pg.js";
 import { ObservationHarvester } from "./improve/harvest.js";
+import { WorkflowCatalogue } from "./engine/definition.js";
+import { MemoryWorkflowStore } from "./engine/store.memory.js";
+import { PgWorkflowStore } from "./engine/store.pg.js";
+import { StepHandlerRegistry, WorkflowEngine } from "./engine/runner.js";
 import { PLATFORM_ACTIONS } from "./actions.js";
 
 /**
@@ -94,6 +98,25 @@ export interface Platform {
    * produces a plausible legal date rather than a refusal.
    */
   readonly timeline: TimelineSettings;
+  /**
+   * The workflow engine, composed rather than merely available.
+   *
+   * It was written, tested, and never built by any composition root — so
+   * `serve`, the CLI and the console all ran on a platform with no engine
+   * object at all, and the sweep that fires statutory deadline timers had
+   * nothing to call it. A capability nothing can reach is not a capability.
+   *
+   * It starts with an empty catalogue and an empty handler registry: a
+   * deployment publishes the definitions it has agreed and registers the
+   * handlers it has implemented. Empty is the honest state for a platform whose
+   * first business workflow has not been signed off, and it is very different
+   * from absent.
+   */
+  readonly engine: WorkflowEngine;
+  /** Step implementations. A deployment registers what it has built. */
+  readonly handlers: StepHandlerRegistry;
+  /** Published workflow definitions. */
+  readonly catalogue: WorkflowCatalogue;
   /** Present only when the Postgres store is in use. */
   readonly db?: Db;
   /** Release connections. Safe to call more than once. */
@@ -210,6 +233,11 @@ export async function buildPlatform(
     config.stepUpMaxAgeSeconds,
   );
 
+  const catalogue = new WorkflowCatalogue();
+  const handlers = new StepHandlerRegistry();
+  const workflowStore =
+    db instanceof PgDb ? new PgWorkflowStore(db) : new MemoryWorkflowStore(memoryDb ?? new MemoryDb());
+
   const sandbox = createSandbox(config.sandboxMode, {
     timeoutMs: config.sandboxTimeoutMs,
     clock,
@@ -225,6 +253,23 @@ export async function buildPlatform(
     audit: auditLog,
     clock,
     ids,
+  });
+
+  const engine = new WorkflowEngine({
+    catalogue,
+    store: workflowStore,
+    runs,
+    audit: auditLog,
+    registry,
+    authorizer,
+    containment,
+    approvals,
+    ceilings,
+    handlers,
+    clock,
+    ids,
+    logger,
+    timeline: { requireVerifiedRules: config.requireVerifiedStatutoryRules },
   });
 
   const external = buildExternalPlane({
@@ -271,6 +316,9 @@ export async function buildPlatform(
     sandbox,
     external,
     timeline: { requireVerifiedRules: config.requireVerifiedStatutoryRules },
+    engine,
+    handlers,
+    catalogue,
     observations,
     db,
     async close() {
