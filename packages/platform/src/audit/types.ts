@@ -139,7 +139,16 @@ export type ChainBreakKind =
   | "sequence_gap"
   | "sequence_duplicate"
   | "genesis_mismatch"
-  | "timestamp_regression";
+  | "timestamp_regression"
+  /**
+   * The chain is shorter than it has ever been.
+   *
+   * Detected by comparing what is here against a durable high-water mark,
+   * because the entries themselves cannot report the ones that are gone: an
+   * internally consistent prefix is exactly what deleting the newest entries
+   * leaves behind, and an empty table is a consistent prefix of everything.
+   */
+  | "chain_truncated";
 
 export interface ChainBreak {
   readonly kind: ChainBreakKind;

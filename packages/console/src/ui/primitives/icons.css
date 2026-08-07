@@ -1,0 +1,16 @@
+/* Icons.
+   Sized from the spacing scale rather than from a font size, so an icon beside
+   a label is the same height whatever type step the label uses. `flex: none`
+   because the one thing an icon must never do is get squeezed by a long label
+   next to it in a flex row. */
+
+.pv-ui-icon {
+  width: var(--pv-space-16);
+  height: var(--pv-space-16);
+  flex: none;
+}
+
+.pv-ui-icon-sm {
+  width: var(--pv-space-12);
+  height: var(--pv-space-12);
+}

@@ -9,9 +9,22 @@ Everything is JSON, through `kernel/logger.ts`, and **every payload passes
 remember — it is applied inside the logger, because "no secrets in logs" cannot
 depend on each author's care at each call site.
 
-Every line carries `correlationId`, plus `runId` and `actorId` where they exist,
-so one unit of work is reconstructable across the API, the engine, and its model
-calls.
+A line carries `correlationId`, plus `runId` and `actorId`, when its caller
+supplies them — the logger stamps whatever context it is given and invents
+nothing, and `child()` is how a caller makes that automatic for everything below
+it.
+
+**What is actually written today is much less than this section implies.**
+Fastify's own request logging is switched off, deliberately (two loggers with
+different redaction rules is how a secret reaches a log), and nothing replaced
+it. So a running API writes two lines at startup and one line per *unhandled
+failure* — that failure line does carry the correlation id, the flattened error
+message and the stack. A request that succeeds, or that is refused with a
+`DeniedError`, writes nothing at all. One unit of work is reconstructable
+through the audit chain and the operating record, both of which carry the
+caller's correlation id; it is not reconstructable through the log stream,
+because there is almost no log stream. See S9 in
+`docs/handover/not-production-grade.md`.
 
 Levels: `error` for something needing a human; `warn` for degraded-but-working;
 `info` for state transitions; `debug` and `trace` off in production.
@@ -20,7 +33,23 @@ Levels: `error` for something needing a human; `warn` for degraded-but-working;
 correctly. Logging denials as errors would train operators to ignore errors,
 which is the opposite of useful. Denial *rate* is what alerts.
 
-## Metrics
+## Metrics — specified, none emitted
+
+**Nothing in this repository emits a metric.** There is no metrics client, no
+exporter, and no instrumentation: the platform's runtime dependencies are
+Fastify, `jose`, `pg`, `pino` and `zod`, and none of the names below appears in
+the source. This table used to be presented as a description of the
+instrumentation and it is a specification of it — which is a materially
+different thing to hand an SRE who is planning a dashboard.
+
+It is kept because it is the right list, derived from the SLOs it serves, and
+because deciding what to measure is most of the work. Building it is recorded as
+a gap in `docs/handover/not-production-grade.md`. Until then, everything an
+operator can actually observe comes from the CLI — `pv health`, `pv cost
+report`, `pv approvals list --ageing`, `pv models degradation`, `pv engine
+timers`, `pv audit verify` — each of which exits non-zero on the condition it
+checks for, which is what makes them schedulable in place of alerts on metrics
+that do not exist.
 
 | Metric | Type | Labels | Why |
 | --- | --- | --- | --- |
@@ -97,14 +126,27 @@ tasks. Because cost is attached to the run, aggregation by workflow, role,
 department, or case falls out without a second accounting path.
 
 ```bash
-... cost report --since <ISO> --group-by workflow
-... cost report --since <ISO> --group-by role --format csv
-... cost per-case --workflow rescission.verify --since <ISO>
+pv cost report --since <ISO> --group-by workflow
+pv cost report --since <ISO> --group-by role,category --top 20
+
+# Per run, into a spreadsheet. There is no --format flag: --json plus jq is the
+# one output convention across every verb, and it composes into anything.
+pv cost report --since <ISO> --json \
+  | jq -r '.runsByCost[] | [.runId, .kind, .roleId, .totalUsd, .entries] | @csv'
 ```
 
-`cost per-case` divides total spend by completed runs — the number to bring to
-a business-case conversation, alongside the human time the workflow displaced,
-which is measured in shadow and assisted modes rather than assumed.
+The window is applied to when spend was *recorded*, which is the window the
+daily ceiling counts, so this report and the meter that raises a ceiling alert
+cannot disagree about the same day. The report leads with the largest single run
+and its share of the window: one run holding most of a window is a loop, spend
+spread across many is volume, and that distinction is the whole reason to run it
+during an alert.
+
+**Cost per resolved case is not yet a command.** The figures it needs are all in
+the operating record — spend is attached to the run, and a run carries its
+workflow, role, and outcome — but nothing divides one by the other today, and
+the number that reaches a business-case conversation should not come from a
+report nobody has built. Compute it from `--json` until it is.
 
 Budget alerts fire at 80% of the daily ceiling. **The ceiling is enforced at
 consumption**, not only pre-flight, so a runaway loop is bounded by one step's

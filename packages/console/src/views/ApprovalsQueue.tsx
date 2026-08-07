@@ -44,10 +44,15 @@ export function ApprovalsQueue({ approvals, total }: ApprovalsQueueProps) {
       key: "action",
       header: "Action awaiting a decision",
       rowHeader: true,
-      sortValue: (approval) => approval.actionDescription,
+      sortValue: (approval) => approval.ask,
+      // The ask, in plain language, is the row (design spec §3.2). The action
+      // registry's description of the *class* of action goes underneath: it is
+      // the same sentence on every row of that kind, so leading with it makes
+      // four different decisions look like one repeated four times.
       render: (approval) => (
         <span className="pv-stack-tight">
-          <Link to={`/approvals/${approval.approvalId}`}>{approval.actionDescription}</Link>
+          <Link to={`/approvals/${approval.approvalId}`}>{approval.ask}</Link>
+          <span className="pv-caption">{approval.actionDescription}</span>
           <span className="pv-meta pv-mono">{approval.action}</span>
         </span>
       ),

@@ -22,6 +22,7 @@ Modules may import from their own layer or below, and never above. An
 architecture test enforces this; a violation fails the build.
 
 ```
+layer 9   review                      (the verification pass's own tests)
 layer 8   cli
 layer 7   api
 layer 6   demo
@@ -34,6 +35,18 @@ layer 0   record, audit, timeline
 layer -   kernel                      (everything may import kernel)
           store/db                    (adapters only)
 ```
+
+`review` is outermost so that a review test may compose anything it needs to
+attack, up to and including the CLI, while nothing in the product may import
+from it. It is declared rather than left out because an undeclared directory is
+skipped by the check entirely, which would have made an import *out of* `review`
+pass silently — the layering test cannot police a directory it does not know
+about.
+
+`maintenance.ts` and `retention.ts` sit at the package root rather than in a
+module, because both compose the whole platform: the maintenance loop drives
+every module's sweeps and the retention pass deletes across several modules'
+tables. Neither is imported by anything below them.
 
 **Why the layering is worth enforcing.** The governance controls live in `guard`.
 If `guard` could import `engine`, a future change could route an authorization
@@ -90,6 +103,21 @@ approval consumption runs last, because consuming an approval is destructive and
 burning a human's decision to then fail a role check would be rude and would
 force them to approve again.
 
+**One step of that chain is inert on this path.** The scope check only runs when
+a caller supplies `requiredScopes`, and the console read routes in `api/server.ts`
+supply none — they pass an action and an actor and nothing else. Workflow steps,
+knowledge ingestion, freshness review and the external plane do supply them, so
+the check is live there. It is not live for `/api/runs`, `/api/approvals` or
+`/api/audit`, and it cannot be until a `Run` carries a scope for it to compare
+against; today there is no second party's record to reach for through those
+routes. Stated here rather than left implied by the diagram, because a reader
+counting seven controls on a console read is counting one that did not run.
+
+**The external plane has its own chain.** An agent running on somebody else's
+infrastructure is admitted by `external/admission.ts` before there is an actor
+to authorize, and that chain re-applies the same controls in the same order for
+the same reasons — see ADR 0016 and §2 above.
+
 ---
 
 ## 4. The seven ideas that carry the design
@@ -105,10 +133,20 @@ and continues is a bug.
 ### 4.2 The audit log holds fingerprints
 
 Entries record digests of inputs, opaque subject references, and a structured
-decision. `AuditLog.record` refuses anything that looks like a payload. This is
-what lets the platform satisfy a compliance reviewer and a privacy officer at
-the same time, and what lets a deletion request be honoured without breaking the
-evidence trail.
+decision. This is what lets the platform satisfy a compliance reviewer and a
+privacy officer at the same time, and what lets a deletion request be honoured
+without breaking the evidence trail.
+
+`AuditLog.record` enforces as much of that as a single function can: every
+`inputDigests` value must be a sha256 digest, subject values must be short
+strings, key counts and total content size are bounded, and anything matching
+the credential, card-number or direct-identifier detectors is refused outright.
+What it cannot do is decide whether an arbitrary short string is a reference or
+a fact about a person — so the caller reducing an untrusted subject to opaque
+references is the primary control, and the checks in `record` are the backstop
+that catches a careless new caller. The distinction matters because this chain
+is append-only and kept for seven years: a value written by mistake cannot be
+taken out again.
 
 ### 4.3 Canonical JSON exists for two callers
 
@@ -181,7 +219,12 @@ run concurrent callers against it.
 
 **`timeline/rules.ts` ships every rule marked `verified: false`.** The engine is
 correct; the data is placeholder, and saying so is better than shipping
-plausible-looking citations someone later relies on.
+plausible-looking citations someone later relies on. Saying so is no longer the
+whole of it: `PV_REQUIRE_VERIFIED_STATUTORY_RULES` defaults to on and cannot be
+disabled in staging or production, so a deployment refuses to produce a
+rescission deadline at all until counsel has verified the table. The seeded
+demonstration passes `requireVerifiedRules: false` explicitly, and says on screen
+that it is doing so.
 
 **There is no way to auto-apply an improvement.** Not a missing feature. See
 ADR 0011.
@@ -190,7 +233,9 @@ ADR 0011.
 
 ## 7. What is deliberately absent
 
-No autonomous self-modification. No agent marketplace. No offline reflection
-subsystem. No plugin marketplace. No multi-tenancy. No card data. Each has an
-ADR explaining the refusal, so that a future request meets a recorded decision
-rather than an oversight.
+No autonomous self-modification (ADR 0011). No multi-tenancy (ADR 0010). No card
+data (ADR 0009). No agent marketplace, no offline reflection subsystem, and no
+plugin marketplace — these three are recorded in the README's list of deliberate
+absences and nowhere else. They are decisions, but they are not argued anywhere,
+so a future request for one meets a sentence rather than a rationale. Writing the
+missing ADRs is the cheap way to close that.

@@ -1,0 +1,13 @@
+/* The line itself.
+
+   Round joins because a series with a sharp reversal in it otherwise grows a
+   spike at the corner that reads as a data point. No fill, ever: a filled line
+   is an area chart, and an area chart makes a claim about accumulation that a
+   rate does not support. */
+
+.pv-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

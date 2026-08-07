@@ -47,9 +47,12 @@
  *   ExecutiveView.tsx       the executive tiles, each carrying its source note
  *   Health.tsx              configuration, containment, and startup warnings
  *
- * And one outcome that is not a surface of its own:
+ * And two things that are not operating surfaces:
  *
  *   Denial.tsx              a refusal, rendered as a first-class outcome
+ *   DesignGallery.tsx       every component in src/ui, in every state, in both
+ *                           themes and with transparency on and off — the
+ *                           review surface and the regression check (spec §4)
  *
  * Every surface has a route in src/routes.tsx, a navigation entry there if it
  * is top-level, a client method in src/api/client.ts, and a test carrying an
@@ -71,6 +74,8 @@ export {
   type ContainmentChangeRequest,
 } from "./ContainmentControls";
 export { Denial } from "./Denial";
+export { DesignGallery, GALLERY_ENTRIES, GALLERY_FAMILIES } from "./DesignGallery";
+export type { GalleryEntry, GalleryFamily, GalleryState } from "./DesignGallery";
 export { DiscoveryBacklog, DiscoveryBacklogRoute } from "./DiscoveryBacklog";
 export { ExecutiveView, ExecutiveViewRoute } from "./ExecutiveView";
 export {

@@ -1,0 +1,161 @@
+/* Radio — one of several, and exactly one.
+
+   Same construction as Checkbox: the real input, transparent, over a drawn
+   circle. Native inputs sharing a `name` are what give the group its arrow-key
+   navigation, its single tab stop, and its "2 of 5" announcement — all of which
+   have to be written by hand the moment the input is replaced by a div, and all
+   of which are then subtly wrong. */
+
+.pv-ui-radio-group {
+  display: flex;
+  gap: var(--pv-space-12);
+}
+
+.pv-ui-radio-group[data-orientation="vertical"] {
+  flex-direction: column;
+}
+
+.pv-ui-radio-group[data-orientation="horizontal"] {
+  flex-wrap: wrap;
+  column-gap: var(--pv-space-24);
+}
+
+.pv-ui-radio {
+  display: grid;
+  grid-template-columns: var(--pv-space-16) 1fr;
+  column-gap: var(--pv-space-8);
+  align-items: start;
+}
+
+.pv-ui-radio-control {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--pv-space-16);
+  height: var(--pv-space-16);
+  margin-block-start: calc((var(--pv-type-body-line) - var(--pv-space-16)) / 2);
+}
+
+.pv-ui-radio-input {
+  position: absolute;
+  inset: calc((var(--pv-space-16) - var(--pv-target-min)) / 2);
+  width: var(--pv-target-min);
+  height: var(--pv-target-min);
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.pv-ui-radio-input:disabled {
+  cursor: not-allowed;
+}
+
+.pv-ui-radio-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-surface);
+  pointer-events: none;
+  transition:
+    border-color var(--pv-motion-micro) var(--pv-ease-entry),
+    background-color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-ui-radio-dot {
+  width: var(--pv-space-8);
+  height: var(--pv-space-8);
+  border-radius: var(--pv-radius-pill);
+  background-color: currentColor;
+  color: var(--pv-accent-contrast);
+  opacity: 0;
+  transition: opacity var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-ui-radio-input:hover + .pv-ui-radio-box {
+  border-color: var(--pv-content-tertiary);
+}
+
+.pv-ui-radio-input:focus-visible + .pv-ui-radio-box {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+}
+
+.pv-ui-radio-input:checked + .pv-ui-radio-box {
+  border-color: var(--pv-accent);
+  background-color: var(--pv-accent);
+}
+
+.pv-ui-radio-input:checked + .pv-ui-radio-box .pv-ui-radio-dot {
+  opacity: 1;
+}
+
+.pv-ui-radio-input:disabled + .pv-ui-radio-box {
+  border-color: var(--pv-border-subtle);
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-ui-radio-input:disabled:checked + .pv-ui-radio-box {
+  background-color: var(--pv-content-tertiary);
+}
+
+.pv-ui-radio-body {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.pv-ui-radio-label {
+  display: block;
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+  cursor: pointer;
+}
+
+.pv-ui-radio[data-disabled="true"] .pv-ui-radio-label {
+  color: var(--pv-content-tertiary);
+  cursor: not-allowed;
+}
+
+.pv-ui-radio-description {
+  display: block;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  max-width: var(--pv-reading-measure);
+}
+
+/* -----------------------------------------------------------------------------
+   Read-only
+   -------------------------------------------------------------------------- */
+
+/* Every option stays on screen — a read-only form that shows only the chosen
+   answer hides what the alternatives were, and an auditor reading a decision
+   needs to see what else was on offer. The unchosen ones drop to tertiary and
+   the chosen one is named in words. */
+.pv-ui-radio[data-readonly="true"] .pv-ui-radio-box {
+  border-color: var(--pv-border-subtle);
+  background-color: transparent;
+}
+
+.pv-ui-radio[data-readonly="true"][data-selected="true"] .pv-ui-radio-dot {
+  color: var(--pv-content-primary);
+  opacity: 1;
+}
+
+.pv-ui-radio[data-readonly="true"]:not([data-selected="true"]) .pv-ui-radio-label {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-ui-radio-state {
+  display: inline-block;
+  margin-inline-start: var(--pv-space-8);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

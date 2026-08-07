@@ -140,6 +140,32 @@ export class MemoryObservationStore implements ObservationStore {
       .rows<Observation>(OBSERVATIONS)
       .filter((row) => matchesObservationFilter(row, filter)).length;
   }
+
+  async purgeObservationsBefore(cutoff: IsoTimestamp, limit: number): Promise<number> {
+    assertIsoUtc("cutoff", cutoff);
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new InvalidInputError(
+        `Purge limit must be a positive whole number, not ${String(limit)}. An unbounded purge is what the batch cap exists to prevent.`,
+        "limit",
+      );
+    }
+    // The same lock the appends take. A purge running against the table while
+    // an observation is being deduplicated would let the same correction be
+    // recorded twice: the append scans for a matching idempotency key, and a
+    // row deleted between the scan and the write is a key that no longer
+    // matches.
+    return this.db.withLock("improve:observations", async () => {
+      const table = this.db.table<Observation>(OBSERVATIONS);
+      const due = [...table.entries()]
+        .filter(([, row]) => row.recordedAt < cutoff)
+        // Oldest first, so a capped batch always removes the oldest rows and a
+        // partial purge converges instead of circling.
+        .sort(([, left], [, right]) => (left.recordedAt < right.recordedAt ? -1 : 1))
+        .slice(0, limit);
+      for (const [id] of due) table.delete(id);
+      return due.length;
+    });
+  }
 }
 
 export class MemoryArtifactStore implements ArtifactStore {

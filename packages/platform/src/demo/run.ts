@@ -157,6 +157,12 @@ export async function runDemo(out: Output = createOutput()): Promise<DemoResult>
   out.line("Each contract becomes a run in the operating record. The deadline is");
   out.line("computed from effective-dated rules, never from date arithmetic in a");
   out.line("workflow, and the derivation travels with the answer.");
+  out.line();
+  out.line("This deployment's configuration requires verified statutory rules, and");
+  out.line("every rule shipped is an unverified placeholder — so a real deployment");
+  out.line("refuses all four dates below. The demonstration overrides that switch");
+  out.line("deliberately, because the engine is what it exists to show. No date");
+  out.line("below may be acted on.");
 
   for (const contract of SEED_CONTRACTS) {
     const outcome = await checkContract(platform, retriever, contract, out);
@@ -174,7 +180,11 @@ export async function runDemo(out: Output = createOutput()): Promise<DemoResult>
   out.heading("6. The record");
 
   const chain = await platform.audit.readChain();
-  const verification = verifyChain(chain);
+  // Verified with the watermark, which is the verification the operator command
+  // performs. Without it a chain that had been emptied would verify as intact,
+  // and a demonstration of tamper-evidence that demonstrates the weaker check is
+  // showing a control the product does not ship.
+  const verification = verifyChain(chain, undefined, await platform.audit.watermark());
   const runs = await platform.runs.listRuns({ limit: 100 });
 
   out.line();
@@ -188,6 +198,17 @@ export async function runDemo(out: Output = createOutput()): Promise<DemoResult>
   out.line("Every line above is reconstructable from the operating record and the");
   out.line("audit chain. The chain verifies from the entries alone, so an auditor");
   out.line("given an export can check it without access to this system.");
+  out.line();
+  // Said here because the README used to send readers from this command
+  // straight to `pnpm audit:verify`, which built a second platform against an
+  // empty store, printed "nothing to verify", and exited zero. A governance
+  // product reporting that its evidence is fine when it has none is the worst
+  // sentence it can produce, and the demonstration is where that impression
+  // was formed. It ends by saying where its record went.
+  out.line("This demonstration ran entirely in memory. The record above was verified");
+  out.line("in this process and is gone now — there is nothing left on disk for");
+  out.line("`pv audit verify` to read. To verify a chain after the fact, point the");
+  out.line("platform at Postgres (PV_STORE=postgres) and run work through it.");
 
   await platform.close();
 
@@ -401,7 +422,12 @@ async function checkContract(
         contractExecutedAt: contract.executedAt,
         documentsDeliveredAt: contract.disclosureDeliveredAt,
       },
-      { clock: platform.clock },
+      // The override is written down rather than left to the default. This
+      // process loaded a configuration whose `requireVerifiedStatutoryRules` is
+      // on, and a demonstration that silently ignored its own configuration
+      // would be showing behaviour no deployment has. Section 3's narration says
+      // the same thing to the reader; this says it to the next engineer.
+      { clock: platform.clock, requireVerifiedRules: false },
     );
 
     await deadlineStep(platform, run.id, contract, computation);
@@ -454,7 +480,12 @@ async function deadlineStep(
   platform: Platform,
   runId: string,
   contract: SeedContract,
-  computation: { readonly citation: string; readonly deadlineInstant: string },
+  computation: {
+    readonly citation: string;
+    readonly deadlineInstant: string;
+    readonly ruleVersion: string;
+    readonly ruleVerified: boolean;
+  },
 ): Promise<void> {
   await platform.runs.appendStep({
     runId: runId as never,
@@ -467,7 +498,16 @@ async function deadlineStep(
       disclosureDeliveredAt: contract.disclosureDeliveredAt,
     }),
     outputDigest: digestValue({ deadline: computation.deadlineInstant }),
-    detail: { state: contract.state, citation: computation.citation.slice(0, 120) },
+    // Version and citation together. The version is what an engineer
+    // re-derives from and the citation is what counsel reads; either one alone
+    // leaves half of "on what authority" unanswered.
+    detail: {
+      state: contract.state,
+      deadlineInstant: computation.deadlineInstant,
+      ruleVersion: computation.ruleVersion,
+      ruleVerified: computation.ruleVerified,
+      citation: computation.citation.slice(0, 120),
+    },
   });
 }
 

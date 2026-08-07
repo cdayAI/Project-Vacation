@@ -24,6 +24,14 @@ import type { AuditEntry, AuditFilter, NewAuditEntry } from "./types.js";
  */
 
 const ENTRIES = "audit_entry";
+const WATERMARK = "audit_watermark";
+const WATERMARK_ROW = "chain";
+
+interface WatermarkRow {
+  readonly maxSeq: number;
+  readonly headHash: string;
+}
+
 const APPEND_LOCK = "audit:append";
 
 export class MemoryAuditStore implements AuditStore {
@@ -49,6 +57,16 @@ export class MemoryAuditStore implements AuditStore {
         );
       }
       table.set(String(entry.seq), structuredClone(entry));
+
+      // Raise the mark in the same locked section as the append, so a reader
+      // can never observe an entry the watermark does not cover. Only upward:
+      // the Postgres adapter enforces the same rule with a trigger, and a fake
+      // that were more forgiving would make the suite lie about the control.
+      const marks = this.db.table<WatermarkRow>(WATERMARK);
+      const current = marks.get(WATERMARK_ROW);
+      if (!current || entry.seq > current.maxSeq) {
+        marks.set(WATERMARK_ROW, { maxSeq: entry.seq, headHash: entry.entryHash });
+      }
 
       // Read it back and re-hash it. The same check the Postgres adapter runs,
       // for the same reason: whatever storage does to a value, it must not
@@ -81,6 +99,11 @@ export class MemoryAuditStore implements AuditStore {
   async auditHead(): Promise<AuditEntry | null> {
     const head = lastOf(this.db.table<AuditEntry>(ENTRIES));
     return head ? structuredClone(head) : null;
+  }
+
+  async auditWatermark(): Promise<{ readonly maxSeq: number; readonly headHash: string } | null> {
+    const row = this.db.table<WatermarkRow>(WATERMARK).get(WATERMARK_ROW);
+    return row ? { maxSeq: row.maxSeq, headHash: row.headHash } : null;
   }
 
   /** Every entry, ascending by sequence. The verifier depends on this order. */

@@ -1,0 +1,50 @@
+/* Tooltip — supplementary detail, never the only place a meaning lives.
+
+   The rule this file is built around: a tooltip is unreachable on a touch
+   screen, invisible in a printed export, and absent from a screenshot pasted
+   into a ticket. Anything an operator must know to make a decision belongs on
+   the screen. What belongs here is the second sentence — the full timestamp
+   behind a relative one, the unit behind a number, the id behind a name. */
+
+.pv-ui-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.pv-ui-tooltip-bubble {
+  position: absolute;
+  z-index: 30;
+  inset-inline-start: 50%;
+  max-width: var(--pv-space-96);
+  min-width: max-content;
+  padding: var(--pv-space-8) var(--pv-space-12);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface-raised);
+  box-shadow: var(--pv-elevation-2);
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  font-weight: var(--pv-type-caption-weight);
+  letter-spacing: var(--pv-type-caption-tracking);
+  transform: translateX(-50%);
+  animation: pv-ui-tooltip-enter var(--pv-motion-standard) var(--pv-ease-entry);
+}
+
+/* Solid, not glass. A tooltip lands over whatever the operator was reading, and
+   text at caption size over a blurred backdrop is the exact composite the
+   specification warns about in §1.5. */
+
+.pv-ui-tooltip-bubble[data-placement="top"] {
+  inset-block-end: calc(100% + var(--pv-space-8));
+}
+
+.pv-ui-tooltip-bubble[data-placement="bottom"] {
+  inset-block-start: calc(100% + var(--pv-space-8));
+}
+
+@keyframes pv-ui-tooltip-enter {
+  from {
+    opacity: 0;
+  }
+}

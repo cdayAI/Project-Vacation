@@ -2,7 +2,13 @@
 import { loadConfig } from "../kernel/config.js";
 import { DeniedError } from "../kernel/errors.js";
 import { formatVerificationResult, verifyChain } from "../audit/chain.js";
-import { buildPlatform, describeConfig, migrate, type Platform } from "../platform.js";
+import {
+  buildPlatform,
+  describeConfig,
+  migrate,
+  migrationState,
+  type Platform,
+} from "../platform.js";
 
 /**
  * The operator command line.
@@ -12,8 +18,12 @@ import { buildPlatform, describeConfig, migrate, type Platform } from "../platfo
  *
  * Everything writes to stderr except the actual answer, which goes to stdout.
  * That is what makes `pv audit verify > evidence.txt` produce a clean artifact
- * and `pv cost report --format csv | ...` compose, without an operator having
- * to strip a banner out of their evidence file.
+ * and `pv cost report --json | jq` compose, without an operator having to strip
+ * a banner out of their evidence file. `--json` is the only output switch, on
+ * purpose: one convention that pipes into anything beats three that each cover
+ * two thirds of the verbs. This comment used to promise a `--format csv` that
+ * did not exist, which is the same defect as `db status` in the usage text
+ * below — the file's own documentation advertising a command nobody built.
  *
  * Exit codes are meaningful. Zero means the thing succeeded. Non-zero means it
  * did not, and — importantly — a *verification failure* is non-zero too. The
@@ -33,6 +43,8 @@ Project Vacation — operator commands
         --event-type <type>       (repeatable)
         --run <runId>
         --actor <actorId>
+        --subject <key=value>     (repeatable; all must match)
+        --correlation-id <id>
         --after <iso>  --before <iso>
         --limit <n>
 
@@ -47,9 +59,25 @@ Project Vacation — operator commands
                                   Run "agents" alone for the full usage.
 
   actions list                    Show the action registry with risk tiers
+
+  approvals list [--status <a,b>] [--ageing] [--within <minutes>]
+                                  Parked human decisions, least time left first
+  cost report [--since <iso> | --hours <n>] [--group-by workflow,role]
+                                  Spend in a window, and the runs that spent it
+  models degradation [--since <iso> | --hours <n>]
+                                  Fallback-chain walks, by task, hop, and cause
+  engine timers [--overdue] [--late-by <seconds>]
+                                  Timers waiting to fire, and the cases they hold
+
+  evaluate [--ci]                 Measure promoted roles against their golden
+                                  sets. --ci is the build gate: it also runs the
+                                  golden set shipped in source, and says on every
+                                  run what that set does and does not prove.
+
   config show                     Show effective configuration and warnings
   health                          Report platform health
   serve                           Run the HTTP API
+  worker [--once]                 Run maintenance: expiries, sweeps, reclaims, retention
   demo run                        Run the seeded demonstration
 
 Global:
@@ -140,6 +168,59 @@ async function commandDb(args: Args, platform: Platform): Promise<number> {
     return 0;
   }
 
+  if (sub === "status") {
+    const status = await migrationState(platform);
+    if (!status) {
+      // Not "up to date". A deployment on the in-memory store has no schema at
+      // all, and reporting it as migrated would tell an operator something
+      // false about a database that does not exist.
+      note(
+        "This deployment has no schema: PV_STORE is not postgres, so there is nothing to migrate and nothing to report. Set PV_STORE=postgres and PV_DATABASE_URL.",
+      );
+      return 78; // EX_CONFIG
+    }
+
+    if (args.json) {
+      emit(status, args);
+    } else {
+      const appliedById = new Map(status.applied.map((entry) => [entry.id, entry]));
+      for (const entry of status.applied) {
+        console.log(`applied      ${entry.id.padEnd(34)} ${entry.appliedAt}`);
+      }
+      for (const id of status.pending) {
+        console.log(`PENDING      ${id}`);
+      }
+      for (const id of status.unrecognised) {
+        console.log(`UNKNOWN      ${id.padEnd(34)} applied here, absent from this build`);
+      }
+      for (const changed of status.changed) {
+        console.log(
+          `CHANGED      ${changed.id.padEnd(34)} applied ${changed.appliedAt}; SQL has been edited since`,
+        );
+      }
+      note(
+        `${appliedById.size} applied, ${status.pending.length} pending, ${status.unrecognised.length} unrecognised, ${status.changed.length} changed.`,
+      );
+    }
+
+    if (status.unrecognised.length > 0) {
+      // Normal for minutes during a rolling deploy, and evidence of hand-applied
+      // schema at any other time. Reported either way; refused neither way.
+      note(
+        "Migrations applied here are not in this build. During a rolling deploy that is an older instance seeing a newer one's work. Outside a deploy window it means somebody has been changing the schema by hand.",
+      );
+    }
+    if (status.changed.length > 0) {
+      note(
+        "A released migration's SQL has been edited. `db migrate` will refuse to apply anything at all until the original SQL is restored and the change is expressed as a new migration — a half-migrated database is worse than an unmigrated one.",
+      );
+    }
+    // Non-zero only for the state that stops migration entirely. Pending
+    // migrations are the ordinary state of a machine that has not deployed yet
+    // and are reported on stdout for a caller that wants to gate on them.
+    return status.changed.length > 0 ? 1 : 0;
+  }
+
   note(`Unknown db subcommand: ${sub ?? "(none)"}`);
   return 2;
 }
@@ -170,7 +251,13 @@ async function commandAudit(args: Args, platform: Platform): Promise<number> {
       }
     }
 
-    const result = anchor ? verifyChain(chain, anchor) : verifyChain(chain);
+    // The watermark is what makes head truncation visible. Without it an
+    // emptied table verifies as intact and this command exits zero, which is
+    // the single most likely tampering going entirely unreported.
+    const watermark = await platform.audit.watermark();
+    const result = anchor
+      ? verifyChain(chain, anchor, watermark)
+      : verifyChain(chain, undefined, watermark);
 
     if (args.json) {
       emit(result, args);
@@ -201,12 +288,33 @@ async function commandAudit(args: Args, platform: Platform): Promise<number> {
 
   if (sub === "query") {
     const limitRaw = first(args, "limit");
+
+    // Narrowing by subject is what makes "what has this one agent been refused
+    // for" a question this command can answer. Without it the operator gets
+    // every denial in the deployment and reads another agent's behaviour as
+    // this one's — a wrong answer that looks exactly like a right one, which is
+    // worse than a command that fails.
+    //
+    // `key=value`, matching the form this command already prints, so what an
+    // operator reads out of one line is what they can paste into the next.
+    const subject: Record<string, string> = {};
+    for (const pair of args.flags["subject"] ?? []) {
+      const at = pair.indexOf("=");
+      if (at <= 0 || at === pair.length - 1) {
+        note(`--subject must be key=value, e.g. --subject externalAgentId=eag_1234; received "${pair}"`);
+        return 2;
+      }
+      subject[pair.slice(0, at)] = pair.slice(at + 1);
+    }
+
     const entries = await platform.audit.list({
       eventType: args.flags["event-type"] as never,
       runId: first(args, "run") as never,
       actorId: first(args, "actor"),
+      correlationId: first(args, "correlation-id"),
       recordedAfter: first(args, "after"),
       recordedBefore: first(args, "before"),
+      ...(Object.keys(subject).length > 0 ? { subject } : {}),
       limit: limitRaw && limitRaw !== "true" ? Number(limitRaw) : 50,
     });
 
@@ -303,12 +411,56 @@ function commandActions(args: Args, platform: Platform): number {
 }
 
 async function commandHealth(args: Args, platform: Platform): Promise<number> {
-  const head = await platform.audit.head();
-  const switches = await platform.containment.list();
+  // Same posture as the HTTP endpoint: an unreadable dependency is the answer,
+  // not a reason to refuse to answer. An operator running this during an outage
+  // needs to be told what is unreachable, and a command that raises instead
+  // tells them only that something is wrong somewhere.
+  const unreachable: string[] = [];
+  const head = await platform.audit.head().catch((error: unknown) => {
+    // allow-swallow: reported as an unhealthy status naming the dependency.
+    unreachable.push(`audit chain (${error instanceof Error ? error.message : String(error)})`);
+    return null;
+  });
+  const switches = await platform.containment.list().catch((error: unknown) => {
+    // allow-swallow: as above.
+    unreachable.push(
+      `containment switches (${error instanceof Error ? error.message : String(error)})`,
+    );
+    return [];
+  });
+  // The same four external-agent conditions the HTTP payload carries.
+  //
+  // They are here because they were not, and the EXTERNAL-CREDENTIAL-EXPIRING
+  // runbook said "the health payload carries this — `pv health`". It did not:
+  // there were three implementations of health — this one, `GET /health`, and
+  // `pv agents health` — and only the last two knew about credentials. An
+  // operator following that runbook saw a payload with no external block in it
+  // and concluded no credential was expiring. Computed from the same function
+  // the HTTP handler calls, so the three cannot drift apart again.
+  const { externalAgentHealth, externalHealthPorts, EXTERNAL_PLANE_DISABLED } = await import(
+    "../external/health.js"
+  );
+  const externalAgents = platform.external.enabled
+    ? await externalAgentHealth(
+        externalHealthPorts(platform.external.stores),
+        platform.clock.nowIso(),
+      ).catch((error: unknown) => {
+        // allow-swallow: reported as unreachable, not hidden.
+        unreachable.push(
+          `external agent plane (${error instanceof Error ? error.message : String(error)})`,
+        );
+        return EXTERNAL_PLANE_DISABLED;
+      })
+    : EXTERNAL_PLANE_DISABLED;
+
   const engaged = switches.filter((entry) => entry.engaged);
+  const paused = engaged.some((entry) => entry.scope === "global");
+
+  const status = unreachable.length > 0 ? "unavailable" : paused ? "degraded" : "ok";
 
   const health = {
-    status: "ok" as const,
+    status,
+    unreachable,
     environment: platform.config.environment,
     store: platform.config.store,
     sandboxMode: platform.sandbox.mode,
@@ -317,16 +469,21 @@ async function commandHealth(args: Args, platform: Platform): Promise<number> {
     discoveryEnabled: platform.config.discoveryEnabled,
     modelProvider: platform.config.modelProvider,
     auditHeadSeq: head?.seq ?? null,
+    externalAgents,
     containmentEngaged: engaged.map((entry) => `${entry.scope}:${entry.target}`),
     warnings: platform.config.warnings,
   };
 
   if (args.json) {
     emit(health, args);
-    return 0;
+    // Non-zero when the platform cannot serve, so this command is usable as a
+    // probe rather than only as something a person reads.
+    return status === "unavailable" ? 1 : 0;
   }
 
-  console.log(`status            ok`);
+  console.log(`status            ${status}`);
+  for (const item of unreachable) console.log(`unreachable       ${item}`);
+  if (paused) console.log(`                  globally paused by an operator — refusing on purpose`);
   console.log(`environment       ${health.environment}`);
   console.log(`operating record  ${health.store}`);
   console.log(`sandbox           ${health.sandboxMode} (${health.sandboxIsContained ? "contained" : "NOT CONTAINED"})`);
@@ -336,8 +493,33 @@ async function commandHealth(args: Args, platform: Platform): Promise<number> {
   console.log(
     `containment       ${engaged.length === 0 ? "clear" : engaged.map((e) => `${e.scope}:${e.target}`).join(", ")}`,
   );
+  console.log(
+    `external agents   ${
+      !externalAgents.planeEnabled
+        ? "plane off"
+        : `${externalAgents.enrolledCount} enrolled, ${externalAgents.activeCount} active`
+    }`,
+  );
+  if (externalAgents.enabledWithNothingEnrolled) {
+    console.log(
+      `                  the plane is ON with nothing enrolled — every external figure this platform reports is a zero it has not earned`,
+    );
+  }
+  for (const agent of externalAgents.contained) {
+    console.log(`  CONTAINED       ${agent.name} (${agent.agentId}) — ${agent.reason ?? "no reason recorded"}`);
+  }
+  for (const agent of externalAgents.overBudget) {
+    console.log(
+      `  OVER BUDGET     ${agent.name} (${agent.agentId}) — $${agent.spentUsd.toFixed(2)} of $${agent.ceilingUsd.toFixed(2)} for ${agent.periodKey}`,
+    );
+  }
+  for (const credential of externalAgents.credentialsNearingExpiry) {
+    console.log(
+      `  CREDENTIAL      ${credential.expired ? "EXPIRED" : "expiring"} ${credential.expiresAt}  ${credential.agentName} — ${credential.kind} "${credential.label}" (${credential.credentialId})`,
+    );
+  }
   for (const warning of health.warnings) console.log(`WARNING  ${warning}`);
-  return 0;
+  return status === "unavailable" ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,14 +606,70 @@ async function main(): Promise<number> {
           correlationId: first(args, "correlation-id"),
         });
       }
+      case "cost":
+      case "approvals":
+      case "models":
+      case "engine": {
+        // Imported here rather than at the top for the same reason `agents` is:
+        // a process that only serves requests should never load the reporting
+        // code, and the commands reached for during an incident should not pay
+        // to parse it.
+        const { commandOperations } = await import("./operations.js");
+        return await commandOperations(args, { platform });
+      }
+      case "evaluate": {
+        // Imported here rather than at the top so that the commands an operator
+        // reaches for during an incident do not pay to load the evaluation
+        // harness, the model gateway, and the shipped golden set.
+        const { commandEvaluate } = await import("./evaluate.js");
+        return await commandEvaluate(args, { platform, actor: cliActor(args) });
+      }
       case "health":
         return await commandHealth(args, platform);
       case "serve": {
         const { startServer } = await import("../api/server.js");
         await startServer(platform);
         note(`API listening on port ${config.httpPort}. Press Ctrl-C to stop.`);
+        note(
+          "This process serves requests only. Run `pv worker` somewhere as well, or approvals never expire, statutory timers never fire, a commit abandoned by a dead worker is never surfaced to anyone, and no retention period is enforced.",
+        );
         // Deliberately never resolves: the process stays up serving requests,
         // and the `finally` below must not close the pool underneath it.
+        await new Promise<never>(() => {});
+        return 0;
+      }
+      case "worker": {
+        // A separate process from `serve`, deliberately.
+        //
+        // Folding the loop into the API would make every instance a scheduler,
+        // and two instances sweeping the same tables need leader election
+        // before anyone can scale the API horizontally — a decision that would
+        // then be forced by an unrelated capacity change, at the worst possible
+        // moment. Separating them makes the deployment shape state the answer:
+        // run one worker.
+        const { MaintenanceLoop } = await import("../maintenance.js");
+        const loop = new MaintenanceLoop(platform, platform.logger, platform.clock);
+
+        if (first(args, "once") !== undefined) {
+          const report = await loop.runOnce();
+          if (args.json) emit(report, args);
+          else {
+            for (const result of report.results) {
+              const state = result.error
+                ? `FAILED — ${result.error}`
+                : result.skipped
+                  ? "skipped (platform paused)"
+                  : `${result.affected}`;
+              console.log(`${result.name.padEnd(34)} ${state}`);
+            }
+          }
+          // Non-zero when a pass failed, so a scheduled invocation is visible
+          // to whatever ran it rather than quietly returning success.
+          return report.results.some((result) => result.error) ? 1 : 0;
+        }
+
+        loop.start();
+        note(`Maintenance running every 60s: ${loop.describe().join(", ")}. Press Ctrl-C to stop.`);
         await new Promise<never>(() => {});
         return 0;
       }

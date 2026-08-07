@@ -1,19 +1,24 @@
 /* =============================================================================
    Design tokens — one token set, two value sets.
+   Implements §1 of docs/design/design-spec.md.
    =============================================================================
 
-   BRAND NOTE — READ BEFORE CHANGING ANY COLOUR.
+   THE ACCENT IS A PLACEHOLDER AND MUST NOT BE "IMPROVED" IN PLACE.
 
-   Marriott Vacations Worldwide licenses the Marriott, Sheraton, Westin, and
-   Hyatt marks. Nothing in this console uses a licensed mark, a brand colour, a
-   brand typeface, or a product logo. The palette below is deliberately neutral
-   — greys with a single blue accent — and it stays that way until someone with
-   authority over those marks signs off on a branded treatment in writing.
+   --pv-accent, --pv-accent-hover and --pv-accent-contrast are the only colours
+   in this file that are not final. The specification says the accent comes from
+   Marriott Vacations Worldwide's brand guidelines, and nobody has given them to
+   us. MVW licenses the Marriott, Sheraton, Westin, and Hyatt marks; brand usage
+   needs a named approver, and shipping an unlicensed brand colour in source
+   the licensee receives is a legal problem rather than a design one.
 
-   That is a decision, not an omission, and it is not a placeholder to be
-   "improved" by dropping a brand colour in. Shipping an unlicensed mark in a
-   deliverable that the licensee receives as source is a legal problem, not a
-   design one. If brand approval arrives, the change is confined to this file.
+   So the accent below is a deliberately neutral slate — chosen only to clear
+   every contrast threshold and to look like a decision that has not been made
+   yet. When the brand values arrive, three declarations change per theme and
+   nothing else does: no component references a hue, and the sequential chart
+   ramp is derived from --pv-accent with color-mix() rather than hand-picked.
+   Verify the replacement against theme/tokens.test.ts before merging it — a
+   brand blue that fails 4.5:1 fails the build, which is the point.
 
    -----------------------------------------------------------------------------
    HOW THE TWO THEMES WORK
@@ -32,236 +37,430 @@
         — an explicit dark choice, which wins over a light system preference
           because it is a later rule with higher specificity.
 
-   The theme toggle sets or clears data-theme on the root element and persists
-   the choice. With no stored choice the attribute is absent and the media
-   query governs. Both override directions are covered by tests in
-   theme/tokens.test.ts, which also asserts that the two dark blocks have not
-   drifted apart and that both value sets declare the same token names.
+   The same two-selector shape is used for density and transparency in the
+   blocks near the bottom of this file and in glass.css. Preferences are written
+   to the root element as data attributes by theme/ThemeProvider.tsx, so a
+   preference change repaints without re-rendering a component tree.
 
-   There is no third theme. There is no per-surface variation, no glass, no
-   blur, and no gradient. See ADR 0014.
+   The light colour set is the FIRST `:root {` block in this file and the
+   theme-independent scales are the SECOND. tokens.test.ts locates them that
+   way, so the order is load-bearing; the test asserts there are exactly two.
 
    -----------------------------------------------------------------------------
    CONTRAST
 
-   Every ratio below is measured, not estimated, and is asserted in
-   theme/tokens.test.ts against both value sets. Text pairs meet WCAG 2.2 AA
-   1.4.3 (4.5:1). Boundaries that identify a control or a state meet 1.4.11
-   (3:1). --pv-divider is the one colour held below 3:1 on purpose: it draws
-   purely decorative row rules that carry no information, and 1.4.11 does not
-   apply to it. Anything that must be perceived to use the interface uses
-   --pv-border or stronger.
+   Every ratio in the comments below is measured by theme/tokens.test.ts against
+   these declarations, in both themes, and against the glass composite in
+   glass.css rather than against the glass panel token. A token change that
+   drops a pair below its threshold fails the build.
 
-   If you change a value here, run the console test suite. A token change that
-   breaks contrast fails the build rather than shipping.
+   Two deliberate exemptions, asserted explicitly in the test so they stay
+   decisions rather than oversights:
+
+     - --pv-border-subtle and --pv-border-strong are the specification's
+       hairlines and composite to roughly 1.2:1 and 1.5:1. They draw structure,
+       not meaning. Anything whose boundary is the only thing identifying it —
+       an input, a chip, an unfilled button — uses --pv-border-control, which
+       clears 3:1 on every surface in both themes.
+     - the categorical chart palette is verified for greyscale separation and
+       mutual distinctness, not for 3:1 against the plot background; several of
+       its specified hues cannot reach that without being abandoned. Charts
+       therefore carry direct labels and position encoding (spec §3.5), never
+       colour alone.
+   ========================================================================== */
+
+/* Glass and motion are part of the same foundation and are pulled in here so
+   that one stylesheet import gives an application the whole system. Vite
+   inlines these at build time — they are not a runtime request. */
+@import "./glass.css";
+@import "./motion.css";
+
+/* =============================================================================
+   Colour — light value set
    ========================================================================== */
 
 :root {
-  /* ---------------------------------------------------------------------
-     Colour — light value set
-     --------------------------------------------------------------------- */
-
-  /* Tells the browser to render native controls, scrollbars, and form
-     widgets in the matching scheme. Without this, a dark console gets
-     light-rendered checkboxes and select menus. */
+  /* Tells the browser to render native controls, scrollbars, and form widgets
+     in the matching scheme. Without this, a dark console gets light-rendered
+     checkboxes and select menus. */
   color-scheme: light;
 
+  --pv-bg-base: #f7f8fa;
+  --pv-bg-subtle: #eef0f4;
   --pv-surface: #ffffff;
-  --pv-surface-raised: #f5f6f8; /* 1.08:1 vs surface — a shade, not a boundary */
-  --pv-surface-sunken: #eaecef;
+  /* Identical to --pv-surface in light, per spec §1.4: on a light page a raised
+     surface is separated by elevation and by its border, not by a tint. They
+     stay two tokens because in dark they are two colours. */
+  --pv-surface-raised: #ffffff;
 
-  --pv-divider: #dde1e6; /* decorative rules only — 1.31:1, deliberately */
-  --pv-border: #6f7784; /* 4.52:1 vs surface, 4.18:1 vs raised, 3.82:1 vs sunken */
-  --pv-border-strong: #454c56; /* 8.67:1 vs surface, 8.02:1 vs raised */
+  /* Structure only — see the contrast note above. */
+  --pv-border-subtle: rgba(16, 20, 28, 0.08);
+  --pv-border-strong: rgba(16, 20, 28, 0.18);
+  --pv-border-control: #6e7686; /* worst case 4.00:1, on --pv-bg-subtle */
 
-  --pv-text: #14171c; /* 17.96:1 on surface, 16.61:1 on raised, 15.18:1 on sunken */
-  --pv-text-muted: #555c67; /* 6.75:1 on surface, 6.24:1 on raised, 5.70:1 on sunken */
+  --pv-content-primary: #0f1319; /* worst 16.32:1 */
+  --pv-content-secondary: #4a5262; /* worst 6.88:1 */
+  /* The spec table gives #727B8C, which measures 3.73:1 on --pv-bg-subtle and
+     so fails the 4.5:1 the same section requires. Darkened to the nearest value
+     that clears it; the hue is unchanged. Recorded in ADR 0017. */
+  --pv-content-tertiary: #646c7c; /* worst 4.63:1 */
 
-  --pv-accent: #14459c; /* 8.89:1 on surface, 8.23:1 on raised */
-  --pv-accent-hover: #0f3578; /* 11.66:1 on surface */
-  --pv-accent-text: #ffffff; /* 8.89:1 on accent, 11.66:1 on accent-hover */
+  --pv-accent: #3d5a80; /* PLACEHOLDER — see the header. worst 6.19:1 */
+  --pv-accent-hover: #31496a; /* worst 8.03:1 */
+  --pv-accent-contrast: #ffffff; /* 7.06:1 on the accent fill */
 
-  --pv-success-text: #14653c; /* 7.10:1 on surface, 6.26:1 on own background */
-  --pv-success-bg: #e6f4ec; /* --pv-text on it: 15.84:1 */
-  --pv-success-border: #47906d; /* 3.83:1 vs surface, 3.38:1 vs own background */
+  /* Deliberately not derived from --pv-accent. If the focus indicator moved
+     with the brand colour, a brand change could quietly weaken the one thing a
+     keyboard-only operator depends on. It is its own decision and its own
+     token. worst 7.07:1 — WCAG 2.2 2.4.13 asks for 3:1. */
+  --pv-focus-ring: #2a4e92;
 
-  --pv-warning-text: #7a4708; /* 7.69:1 on surface, 6.81:1 on own background */
-  --pv-warning-bg: #fbf0dd; /* --pv-text on it: 15.92:1 */
-  --pv-warning-border: #a8781f; /* 3.91:1 vs surface, 3.46:1 vs own background */
+  /* Status. Always paired with an icon or a label — never colour alone. Each
+     tone has a text colour, a tint to sit on, and a boundary that clears 3:1
+     on that tint and on the page surfaces. */
+  --pv-status-success: #0e7c4a; /* worst 4.60:1 */
+  --pv-status-success-surface: #e7f3ec;
+  --pv-status-success-border: #47906d;
 
-  --pv-danger-text: #a01a17; /* 7.91:1 on surface, 6.75:1 on own background */
-  --pv-danger-bg: #fbe9e8; /* --pv-text on it: 15.33:1 */
-  --pv-danger-border: #c2564f; /* 4.43:1 vs surface, 3.78:1 vs own background */
+  /* Spec gives #B25E02, which measures 4.09:1 on --pv-bg-subtle. Darkened for
+     the same reason as content-tertiary. */
+  --pv-status-warning: #9e5302; /* worst 4.99:1 */
+  --pv-status-warning-surface: #fbf1e1;
+  --pv-status-warning-border: #a8781f;
 
-  --pv-info-text: #10508c; /* 8.24:1 on surface, 7.15:1 on own background */
-  --pv-info-bg: #e6f0fa; /* --pv-text on it: 15.58:1 */
-  --pv-info-border: #5289bb; /* 3.71:1 vs surface, 3.22:1 vs own background */
+  --pv-status-danger: #b4232b; /* worst 5.72:1 */
+  --pv-status-danger-surface: #faeaea;
+  --pv-status-danger-border: #c2564f;
 
-  /* Denied is its own tone, and deliberately not red. A refused action is the
-     platform working correctly, and painting it with the same colour as a
-     failure teaches operators to read governance as breakage. See the denial
-     surface in views/Denial.tsx. */
-  --pv-denied-text: #5b3a94; /* 8.48:1 on surface, 7.19:1 on own background */
-  --pv-denied-bg: #efeafa; /* --pv-text on it: 15.24:1 */
-  --pv-denied-border: #8a71c2; /* 4.02:1 vs surface, 3.41:1 vs own background */
+  --pv-status-info: #1f5fd0; /* worst 5.10:1 */
+  --pv-status-info-surface: #e9f0fc;
+  --pv-status-info-border: #5289bb;
 
-  --pv-focus-ring: #0a4bd4; /* 7.07:1 vs surface, 6.54:1 vs raised, 5.97:1 vs sunken */
+  --pv-status-neutral: #5b6478; /* worst 5.20:1 */
+  --pv-status-neutral-surface: #edeff3;
+  --pv-status-neutral-border: #7d8595;
 
-  --pv-shadow-raised: 0 1px 2px rgb(20 23 28 / 12%);
-  --pv-shadow-overlay: 0 8px 24px rgb(20 23 28 / 24%);
-  --pv-overlay-scrim: rgb(20 23 28 / 45%);
+  /* A sixth tone the spec does not enumerate, kept because the platform has a
+     refusal surface and a refusal is the governance working, not a failure.
+     Painting a denial the same red as a breach teaches operators to read
+     control as breakage. See views/Denial.tsx and ADR 0003. */
+  --pv-status-denied: #5b3a94; /* worst 7.43:1 */
+  --pv-status-denied-surface: #f0eafa;
+  --pv-status-denied-border: #8a71c2;
 
-  /* ---------------------------------------------------------------------
-     Everything below is theme-independent: one value, both themes.
-     --------------------------------------------------------------------- */
+  /* Elevation ladder, four levels, no others (spec §1.3). */
+  --pv-elevation-0: none;
+  --pv-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --pv-elevation-2: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --pv-elevation-3: 0 16px 40px rgba(0, 0, 0, 0.16);
 
-  /* Type. System stack only — no web font, so the console makes no network
-     request for a typeface and renders identically offline. */
-  --pv-font-sans:
-    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    "Noto Sans", sans-serif;
-  --pv-font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
-
-  /* A dense scale, but never below 13px. These screens are read on a laptop
-     in a conference room, sometimes projected, and 11px "metadata" type is
-     how a dense interface becomes an unreadable one. */
-  --pv-font-size-xs: 0.8125rem; /* 13px */
-  --pv-font-size-sm: 0.875rem; /* 14px */
-  --pv-font-size-md: 1rem; /* 16px — body */
-  --pv-font-size-lg: 1.125rem; /* 18px */
-  --pv-font-size-xl: 1.375rem; /* 22px */
-  --pv-font-size-2xl: 1.75rem; /* 28px */
-
-  --pv-line-height-tight: 1.25;
-  --pv-line-height-normal: 1.55;
-
-  --pv-font-weight-regular: 400;
-  --pv-font-weight-medium: 550;
-  --pv-font-weight-bold: 700;
-
-  /* Spacing — a 4px base. */
-  --pv-space-1: 0.25rem;
-  --pv-space-2: 0.5rem;
-  --pv-space-3: 0.75rem;
-  --pv-space-4: 1rem;
-  --pv-space-5: 1.5rem;
-  --pv-space-6: 2rem;
-  --pv-space-7: 3rem;
-
-  --pv-radius-sm: 0.1875rem;
-  --pv-radius-md: 0.375rem;
-  --pv-radius-lg: 0.625rem;
-  --pv-radius-pill: 999px;
-
-  /* Focus. 3px solid with a 2px offset gives a contiguous perimeter at least
-     2px thick on every side, which is what WCAG 2.2 2.4.13 asks for, and the
-     offset keeps the ring off the control's own border so it stays legible on
-     a bordered control. */
-  --pv-focus-ring-width: 3px;
-  --pv-focus-ring-offset: 2px;
-
-  /* WCAG 2.2 2.5.8 target size (minimum) is 24x24 CSS px. Interactive controls
-     use --pv-control-height; --pv-target-min is the floor for anything that
-     cannot be that tall, such as an icon-only control inside a dense row. */
-  --pv-target-min: 1.5rem; /* 24px */
-  --pv-control-height: 2.25rem; /* 36px */
-
-  --pv-layout-max-width: 84rem;
-  --pv-reading-max-width: 46rem;
+  --pv-scrim: rgba(15, 19, 25, 0.45);
 }
 
-/* System preference selects dark, unless the operator explicitly chose light. */
+/* =============================================================================
+   Colour — dark value set, by system preference
+
+   Applies unless the operator explicitly chose light.
+   ========================================================================== */
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
 
-    --pv-surface: #101318;
-    --pv-surface-raised: #191d24; /* 1.10:1 vs surface */
-    --pv-surface-sunken: #0a0c10;
+    --pv-bg-base: #0e1013;
+    --pv-bg-subtle: #15181d;
+    --pv-surface: #1a1d23;
+    --pv-surface-raised: #212530;
 
-    --pv-divider: #272d36; /* decorative rules only — 1.34:1, deliberately */
-    --pv-border: #79828f; /* 4.79:1 vs surface, 4.35:1 vs raised, 5.04:1 vs sunken */
-    --pv-border-strong: #9aa3b1; /* 7.31:1 vs surface, 6.64:1 vs raised */
+    --pv-border-subtle: rgba(255, 255, 255, 0.09);
+    --pv-border-strong: rgba(255, 255, 255, 0.2);
+    --pv-border-control: #8a93a2; /* worst 4.94:1 */
 
-    --pv-text: #e9ecf1; /* 15.72:1 on surface, 14.27:1 on raised, 16.53:1 on sunken */
-    --pv-text-muted: #a7b0bd; /* 8.50:1 on surface, 7.72:1 on raised, 8.94:1 on sunken */
+    --pv-content-primary: #f2f4f7; /* worst 13.89:1 */
+    --pv-content-secondary: #a6aebd; /* worst 6.86:1 */
+    /* Spec gives #7A8496 — 4.06:1 on --pv-surface-raised, and 4.47:1 through
+       dark glass. Lightened to clear both. */
+    --pv-content-tertiary: #868fa1; /* worst 4.71:1 */
 
-    --pv-accent: #8fb4ff; /* 8.99:1 on surface, 8.16:1 on raised */
-    --pv-accent-hover: #b0c9ff; /* 11.21:1 on surface */
-    --pv-accent-text: #0a0f1c; /* 9.24:1 on accent, 11.52:1 on accent-hover */
+    --pv-accent: #9db6d8; /* PLACEHOLDER — lightness-adjusted. worst 7.37:1 */
+    --pv-accent-hover: #b7cae6; /* worst 9.19:1 */
+    --pv-accent-contrast: #0b0e14; /* 9.31:1 on the accent fill */
 
-    --pv-success-text: #6fd7a3; /* 10.57:1 on surface, 9.04:1 on own background */
-    --pv-success-bg: #11261d; /* --pv-text on it: 13.45:1 */
-    --pv-success-border: #3d8462; /* 4.14:1 vs surface, 3.55:1 vs own background */
+    --pv-focus-ring: #a6c4f0; /* worst 8.58:1 */
 
-    --pv-warning-text: #e8b45f; /* 9.86:1 on surface, 8.47:1 on own background */
-    --pv-warning-bg: #2a2011; /* --pv-text on it: 13.50:1 */
-    --pv-warning-border: #94742f; /* 4.25:1 vs surface, 3.65:1 vs own background */
+    --pv-status-success: #3dd68c;
+    --pv-status-success-surface: #11291f;
+    --pv-status-success-border: #3f8a66;
 
-    --pv-danger-text: #f28b84; /* 7.80:1 on surface, 7.17:1 on own background */
-    --pv-danger-bg: #2b1614; /* --pv-text on it: 14.45:1 */
-    --pv-danger-border: #ab5f57; /* 3.99:1 vs surface, 3.67:1 vs own background */
+    --pv-status-warning: #f5a524;
+    --pv-status-warning-surface: #2b2112;
+    --pv-status-warning-border: #977632;
 
-    --pv-info-text: #86bdf0; /* 9.35:1 on surface, 8.23:1 on own background */
-    --pv-info-bg: #0f2131; /* --pv-text on it: 13.83:1 */
-    --pv-info-border: #47799f; /* 3.99:1 vs surface, 3.51:1 vs own background */
+    --pv-status-danger: #ff6b6b;
+    --pv-status-danger-surface: #2c1717;
+    --pv-status-danger-border: #ae6259;
 
-    --pv-denied-text: #bda6f0; /* 8.75:1 on surface, 8.11:1 on own background */
-    --pv-denied-bg: #1d1730; /* --pv-text on it: 14.57:1 */
-    --pv-denied-border: #71609f; /* 3.43:1 vs surface, 3.18:1 vs own background */
+    --pv-status-info: #6ba6ff;
+    --pv-status-info-surface: #101f33;
+    --pv-status-info-border: #4a7ca3;
 
-    --pv-focus-ring: #7fa9ff; /* 8.00:1 vs surface, 7.26:1 vs raised, 8.41:1 vs sunken */
+    --pv-status-neutral: #8b94a6;
+    --pv-status-neutral-surface: #1e222a;
+    --pv-status-neutral-border: #69707e;
 
-    --pv-shadow-raised: 0 1px 2px rgb(0 0 0 / 60%);
-    --pv-shadow-overlay: 0 8px 24px rgb(0 0 0 / 70%);
-    --pv-overlay-scrim: rgb(4 6 9 / 65%);
+    --pv-status-denied: #bda6f0;
+    --pv-status-denied-surface: #1e1732;
+    --pv-status-denied-border: #8071b0;
+
+    /* Shadow alpha ×2.5 of light, plus a 1px top inner highlight: on a dark
+       page a shadow alone reads as nothing, and the highlight is what makes an
+       edge legible (spec §1.3). */
+    --pv-elevation-0: none;
+    --pv-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --pv-elevation-2: 0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --pv-elevation-3: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+    --pv-scrim: rgba(4, 6, 9, 0.65);
   }
 }
 
-/* An explicit dark choice, which must win over a light system preference. */
+/* =============================================================================
+   Colour — dark value set, by explicit choice
+
+   A copy of the block above, which is the price of letting an explicit choice
+   beat the system preference in both directions without a specificity fight.
+   tokens.test.ts asserts the two copies are identical, so they cannot drift.
+   ========================================================================== */
+
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --pv-surface: #101318;
-  --pv-surface-raised: #191d24; /* 1.10:1 vs surface */
-  --pv-surface-sunken: #0a0c10;
+  --pv-bg-base: #0e1013;
+  --pv-bg-subtle: #15181d;
+  --pv-surface: #1a1d23;
+  --pv-surface-raised: #212530;
 
-  --pv-divider: #272d36; /* decorative rules only — 1.34:1, deliberately */
-  --pv-border: #79828f; /* 4.79:1 vs surface, 4.35:1 vs raised, 5.04:1 vs sunken */
-  --pv-border-strong: #9aa3b1; /* 7.31:1 vs surface, 6.64:1 vs raised */
+  --pv-border-subtle: rgba(255, 255, 255, 0.09);
+  --pv-border-strong: rgba(255, 255, 255, 0.2);
+  --pv-border-control: #8a93a2;
 
-  --pv-text: #e9ecf1; /* 15.72:1 on surface, 14.27:1 on raised, 16.53:1 on sunken */
-  --pv-text-muted: #a7b0bd; /* 8.50:1 on surface, 7.72:1 on raised, 8.94:1 on sunken */
+  --pv-content-primary: #f2f4f7;
+  --pv-content-secondary: #a6aebd;
+  --pv-content-tertiary: #868fa1;
 
-  --pv-accent: #8fb4ff; /* 8.99:1 on surface, 8.16:1 on raised */
-  --pv-accent-hover: #b0c9ff; /* 11.21:1 on surface */
-  --pv-accent-text: #0a0f1c; /* 9.24:1 on accent, 11.52:1 on accent-hover */
+  --pv-accent: #9db6d8;
+  --pv-accent-hover: #b7cae6;
+  --pv-accent-contrast: #0b0e14;
 
-  --pv-success-text: #6fd7a3; /* 10.57:1 on surface, 9.04:1 on own background */
-  --pv-success-bg: #11261d; /* --pv-text on it: 13.45:1 */
-  --pv-success-border: #3d8462; /* 4.14:1 vs surface, 3.55:1 vs own background */
+  --pv-focus-ring: #a6c4f0;
 
-  --pv-warning-text: #e8b45f; /* 9.86:1 on surface, 8.47:1 on own background */
-  --pv-warning-bg: #2a2011; /* --pv-text on it: 13.50:1 */
-  --pv-warning-border: #94742f; /* 4.25:1 vs surface, 3.65:1 vs own background */
+  --pv-status-success: #3dd68c;
+  --pv-status-success-surface: #11291f;
+  --pv-status-success-border: #3f8a66;
 
-  --pv-danger-text: #f28b84; /* 7.80:1 on surface, 7.17:1 on own background */
-  --pv-danger-bg: #2b1614; /* --pv-text on it: 14.45:1 */
-  --pv-danger-border: #ab5f57; /* 3.99:1 vs surface, 3.67:1 vs own background */
+  --pv-status-warning: #f5a524;
+  --pv-status-warning-surface: #2b2112;
+  --pv-status-warning-border: #977632;
 
-  --pv-info-text: #86bdf0; /* 9.35:1 on surface, 8.23:1 on own background */
-  --pv-info-bg: #0f2131; /* --pv-text on it: 13.83:1 */
-  --pv-info-border: #47799f; /* 3.99:1 vs surface, 3.51:1 vs own background */
+  --pv-status-danger: #ff6b6b;
+  --pv-status-danger-surface: #2c1717;
+  --pv-status-danger-border: #ae6259;
 
-  --pv-denied-text: #bda6f0; /* 8.75:1 on surface, 8.11:1 on own background */
-  --pv-denied-bg: #1d1730; /* --pv-text on it: 14.57:1 */
-  --pv-denied-border: #71609f; /* 3.43:1 vs surface, 3.18:1 vs own background */
+  --pv-status-info: #6ba6ff;
+  --pv-status-info-surface: #101f33;
+  --pv-status-info-border: #4a7ca3;
 
-  --pv-focus-ring: #7fa9ff; /* 8.00:1 vs surface, 7.26:1 vs raised, 8.41:1 vs sunken */
+  --pv-status-neutral: #8b94a6;
+  --pv-status-neutral-surface: #1e222a;
+  --pv-status-neutral-border: #69707e;
 
-  --pv-shadow-raised: 0 1px 2px rgb(0 0 0 / 60%);
-  --pv-shadow-overlay: 0 8px 24px rgb(0 0 0 / 70%);
-  --pv-overlay-scrim: rgb(4 6 9 / 65%);
+  --pv-status-denied: #bda6f0;
+  --pv-status-denied-surface: #1e1732;
+  --pv-status-denied-border: #8071b0;
+
+  --pv-elevation-0: none;
+  --pv-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --pv-elevation-2: 0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --pv-elevation-3: 0 16px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  --pv-scrim: rgba(4, 6, 9, 0.65);
+}
+
+/* =============================================================================
+   Scales — one value, both themes
+   ========================================================================== */
+
+:root {
+  /* Type. Inter if the deployment provides it; the system stack otherwise. No
+     @font-face here on purpose: the console makes no network request for a
+     typeface and renders identically offline, and if MVW licenses a digital
+     brand face it is added in one place. */
+  --pv-font-sans: Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
+  --pv-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Nine steps, and no size outside them (spec §1.1). Each step carries its own
+     line height, weight, and tracking because a size without them is half a
+     decision and the other half gets improvised per component. */
+  --pv-type-display-size: 2rem; /* 32 */
+  --pv-type-display-line: 2.5rem; /* 40 */
+  --pv-type-display-weight: 600;
+  --pv-type-display-tracking: -0.02em;
+
+  --pv-type-title-lg-size: 1.5rem; /* 24 */
+  --pv-type-title-lg-line: 2rem; /* 32 */
+  --pv-type-title-lg-weight: 600;
+  --pv-type-title-lg-tracking: -0.01em;
+
+  --pv-type-title-size: 1.25rem; /* 20 */
+  --pv-type-title-line: 1.75rem; /* 28 */
+  --pv-type-title-weight: 600;
+  --pv-type-title-tracking: -0.01em;
+
+  --pv-type-body-lg-size: 1rem; /* 16 */
+  --pv-type-body-lg-line: 1.5rem; /* 24 */
+  --pv-type-body-lg-weight: 400;
+  --pv-type-body-lg-tracking: 0;
+
+  --pv-type-body-size: 0.875rem; /* 14 */
+  --pv-type-body-line: 1.25rem; /* 20 */
+  --pv-type-body-weight: 400;
+  --pv-type-body-tracking: 0;
+
+  --pv-type-body-strong-size: 0.875rem; /* 14 */
+  --pv-type-body-strong-line: 1.25rem; /* 20 */
+  --pv-type-body-strong-weight: 500;
+  --pv-type-body-strong-tracking: 0;
+
+  --pv-type-label-size: 0.8125rem; /* 13 */
+  --pv-type-label-line: 1.125rem; /* 18 */
+  --pv-type-label-weight: 500;
+  --pv-type-label-tracking: 0;
+
+  --pv-type-caption-size: 0.75rem; /* 12 */
+  --pv-type-caption-line: 1rem; /* 16 */
+  --pv-type-caption-weight: 400;
+  --pv-type-caption-tracking: 0.01em;
+
+  --pv-type-micro-size: 0.6875rem; /* 11 */
+  --pv-type-micro-line: 0.875rem; /* 14 */
+  --pv-type-micro-weight: 500;
+  --pv-type-micro-tracking: 0.03em;
+
+  /* Spacing, named by the pixel value it produces at the default root size.
+     Named that way rather than 1..7 so that "nothing between" is checkable by
+     reading the stylesheet: --pv-space-14 does not exist and its absence is
+     obvious at the call site. */
+  --pv-space-4: 0.25rem;
+  --pv-space-8: 0.5rem;
+  --pv-space-12: 0.75rem;
+  --pv-space-16: 1rem;
+  --pv-space-20: 1.25rem;
+  --pv-space-24: 1.5rem;
+  --pv-space-32: 2rem;
+  --pv-space-40: 2.5rem;
+  --pv-space-48: 3rem;
+  --pv-space-64: 4rem;
+  --pv-space-96: 6rem;
+
+  /* Radius by role, not by size: a component asks for "card", not for "10px",
+     so a later change to what a card looks like is one edit. */
+  --pv-radius-control: 0.375rem; /* 6 — buttons, inputs, chips */
+  --pv-radius-card: 0.625rem; /* 10 — cards and panels */
+  --pv-radius-sheet: 1rem; /* 16 — sheets and modals */
+  --pv-radius-pill: 999px; /* pills and avatars */
+
+  /* Focus. 3px with a 2px offset gives a contiguous perimeter at least 2px
+     thick on every side (WCAG 2.2 2.4.13), and the offset keeps the ring off
+     the control's own border. The offset is also why the ring only ever has to
+     contrast with the surface: the gap is surface-coloured on both sides. */
+  --pv-focus-ring-width: 3px;
+  --pv-focus-ring-offset: 2px;
+
+  /* WCAG 2.2 2.5.8 target size (minimum) is 24×24 CSS px — the floor for a
+     control that cannot be a full control height, such as an icon-only action
+     inside a dense row. */
+  --pv-target-min: 1.5rem;
+
+  --pv-control-height-sm: 1.75rem; /* 28 */
+  --pv-control-height-md: 2rem; /* 32 */
+  --pv-control-height-lg: 2.5rem; /* 40 */
+
+  /* App shell metrics (spec §2). Declared here so the shell, the panel resize
+     handle, and any sticky offset all read the same number. */
+  --pv-shell-top-bar-height: 3.5rem; /* 56 */
+  --pv-shell-rail-width: 15rem; /* 240 */
+  --pv-shell-rail-width-collapsed: 4rem; /* 64, icon only */
+  --pv-shell-panel-width: 23.75rem; /* 380 */
+  --pv-shell-panel-width-min: 20rem; /* 320 */
+  --pv-shell-panel-width-max: 32.5rem; /* 520 */
+  --pv-shell-gutter: 1.5rem; /* 24 desktop */
+  --pv-shell-gutter-tablet: 1rem; /* 16 tablet */
+  --pv-shell-filter-bar-height: 3.5rem; /* 56 */
+  --pv-shell-detail-header-height: 4rem; /* 64 */
+  --pv-shell-decision-bar-height: 4.5rem; /* 72 */
+
+  /* 60–80 characters at body-lg. A paragraph wider than this is measurably
+     slower to read, and the evidence panes are full of paragraphs. */
+  --pv-reading-measure: 45rem; /* 720 */
+
+  /* Density defaults to comfortable: the first screen an operator sees should
+     be the legible one, and compact is a choice they make once they know the
+     data. Overridden by [data-density="compact"] below. */
+  --pv-row-height: 3.25rem; /* 52 */
+  --pv-control-padding-block: 0.75rem; /* 12 */
+  --pv-control-padding-inline: 1rem; /* 16 */
+
+  /* Categorical chart palette (spec §1.4). One palette for both themes: these
+     are hues chosen for perceptual distinctness, and re-picking them per theme
+     would mean a series changes colour when an operator flips the theme
+     mid-comparison.
+
+     Entry 7 is the spec's #7A8C3A lightened. The spec requires verifying the
+     palette in greyscale, and #7A8C3A and its neighbour #6E7CE0 differ by 0.3%
+     relative luminance — indistinguishable in greyscale, on a printed audit
+     export, and to a monochromat. Hue unchanged. Recorded in ADR 0017. */
+  --pv-chart-1: #3b7dd8;
+  --pv-chart-2: #e08a2e;
+  --pv-chart-3: #2e9e7b;
+  --pv-chart-4: #b15fcb;
+  --pv-chart-5: #c9483f;
+  --pv-chart-6: #6e7ce0;
+  --pv-chart-7: #8a9e42;
+  --pv-chart-8: #9a6a4a;
+
+  /* Sequential: a single-hue ramp derived from the accent, so the brand
+     decision reaches the charts without anyone hand-picking five more values
+     that then drift. Mixed in Oklab because mixing in sRGB darkens the middle
+     of a ramp. */
+  --pv-sequential-1: color-mix(in oklab, var(--pv-accent) 18%, var(--pv-surface));
+  --pv-sequential-2: color-mix(in oklab, var(--pv-accent) 38%, var(--pv-surface));
+  --pv-sequential-3: color-mix(in oklab, var(--pv-accent) 58%, var(--pv-surface));
+  --pv-sequential-4: color-mix(in oklab, var(--pv-accent) 78%, var(--pv-surface));
+  --pv-sequential-5: var(--pv-accent);
+
+  /* Diverging: danger → neutral → success, seven steps, centre on the
+     meaningful zero. Derived from the status tokens so the ends of the ramp
+     mean the same thing as every badge on the page. */
+  --pv-diverging-1: var(--pv-status-danger);
+  --pv-diverging-2: color-mix(in oklab, var(--pv-status-danger) 66%, var(--pv-status-neutral));
+  --pv-diverging-3: color-mix(in oklab, var(--pv-status-danger) 33%, var(--pv-status-neutral));
+  --pv-diverging-4: var(--pv-status-neutral);
+  --pv-diverging-5: color-mix(in oklab, var(--pv-status-success) 33%, var(--pv-status-neutral));
+  --pv-diverging-6: color-mix(in oklab, var(--pv-status-success) 66%, var(--pv-status-neutral));
+  --pv-diverging-7: var(--pv-status-success);
+}
+
+/* =============================================================================
+   Density
+
+   No system signal exists for density, so unlike theme and transparency it is
+   always written explicitly by the provider and there is no media query to
+   defer to. Comfortable is the default and is declared above, so the layout is
+   right before any JavaScript runs.
+   ========================================================================== */
+
+:root[data-density="compact"] {
+  --pv-row-height: 2.5rem; /* 40 */
+  --pv-control-padding-block: 0.5rem; /* 8 */
+  --pv-control-padding-inline: 0.75rem; /* 12 */
 }

@@ -69,20 +69,51 @@ export function computeEntryHash(entry: HashableEntry): string {
  * operator responding to a verification failure needs the extent of the damage,
  * not just its starting point.
  */
+/**
+ * What the chain is known to have reached, from a source outside the entries.
+ *
+ * Passing it is what turns verification from "are these entries consistent"
+ * into "are these the entries there were". Optional because the function is
+ * deliberately storage-independent — an auditor verifying an exported archive
+ * has entries and no database — but every caller that *has* a store must
+ * supply it, or head truncation stays invisible.
+ */
+export interface ChainWatermark {
+  readonly maxSeq: number;
+  readonly headHash: string;
+}
+
 export function verifyChain(
   entries: readonly AuditEntry[],
   expectedFirstPreviousHash: string = GENESIS_PREVIOUS_HASH,
+  watermark?: ChainWatermark | null,
 ): VerificationResult {
   const breaks: ChainBreak[] = [];
 
+  // Before anything else, because a truncated chain is internally consistent
+  // and every other check will pass on it. This is the cheapest tampering
+  // there is and it was the one the verifier could not see.
+  const highest = entries.length === 0 ? 0 : Math.max(...entries.map((entry) => entry.seq));
+  if (watermark && highest < watermark.maxSeq) {
+    breaks.push({
+      kind: "chain_truncated",
+      seq: highest,
+      detail:
+        entries.length === 0
+          ? `The chain is empty, and it is recorded as having reached sequence ${watermark.maxSeq}. Every entry has been deleted.`
+          : `The chain ends at sequence ${highest}, and it is recorded as having reached ${watermark.maxSeq}. ${watermark.maxSeq - highest} entr${watermark.maxSeq - highest === 1 ? "y has" : "ies have"} been deleted from the end.`,
+    });
+  }
+
   if (entries.length === 0) {
     return {
-      intact: true,
+      // An empty chain is intact only when nothing says it should not be.
+      intact: breaks.length === 0,
       entriesChecked: 0,
       firstSeq: null,
       lastSeq: null,
       headHash: null,
-      breaks: [],
+      breaks,
     };
   }
 
@@ -169,27 +200,57 @@ export function verifyChain(
   };
 }
 
-/** Render a verification result as operator-readable text. */
+/**
+ * Render a verification result as operator-readable text.
+ *
+ * This string is the entire operator-facing surface of chain verification:
+ * `pv audit verify` prints it and nothing else, and the structured result is
+ * only reachable behind `--json`. A break the verifier finds and this function
+ * does not print is therefore a break nobody sees.
+ *
+ * Breaks are reported before emptiness for exactly that reason. An erased chain
+ * has no entries *and* a `chain_truncated` break, and the earlier version of
+ * this function short-circuited on the entry count — so the one case the
+ * watermark exists to catch, the total wipe, rendered as "Audit chain is empty.
+ * Nothing to verify." while the exit code silently went to 1. A reassuring
+ * sentence over a destroyed chain is the worst output this function can
+ * produce, and it was the default one.
+ */
 export function formatVerificationResult(result: VerificationResult): string {
-  if (result.entriesChecked === 0) {
-    return "Audit chain is empty. Nothing to verify.";
-  }
-  if (result.intact) {
-    return [
-      `Audit chain INTACT.`,
+  if (!result.intact) {
+    const lines = [
+      `Audit chain BROKEN — ${result.breaks.length} problem${result.breaks.length === 1 ? "" : "s"} found.`,
       `  entries checked : ${result.entriesChecked}`,
-      `  sequence range  : ${result.firstSeq}..${result.lastSeq}`,
-      `  head hash       : ${result.headHash}`,
+    ];
+    // A wiped chain has no range to report, and printing "null..null" beside a
+    // break would read as a second fault rather than as an absence of entries.
+    if (result.firstSeq !== null && result.lastSeq !== null) {
+      lines.push(`  sequence range  : ${result.firstSeq}..${result.lastSeq}`);
+    }
+    lines.push("");
+    for (const problem of result.breaks) {
+      lines.push(`  [${problem.kind}] seq ${problem.seq}: ${problem.detail}`);
+    }
+    return lines.join("\n");
+  }
+
+  if (result.entriesChecked === 0) {
+    // Deliberately not phrased as a result. An empty chain is correct on a
+    // deployment that has never recorded anything, so this cannot be an alarm —
+    // but it is not a verification either, and the sequence the README used to
+    // instruct (`pnpm demo` then `pnpm audit:verify`, against a store the
+    // demonstration never wrote to) had readers taking it for one.
+    return [
+      "Audit chain is empty — nothing was verified.",
+      "  An empty chain is what a deployment that has recorded nothing looks like.",
+      "  It is not evidence that anything is intact.",
     ].join("\n");
   }
-  const lines = [
-    `Audit chain BROKEN — ${result.breaks.length} problem${result.breaks.length === 1 ? "" : "s"} found.`,
+
+  return [
+    `Audit chain INTACT.`,
     `  entries checked : ${result.entriesChecked}`,
     `  sequence range  : ${result.firstSeq}..${result.lastSeq}`,
-    "",
-  ];
-  for (const problem of result.breaks) {
-    lines.push(`  [${problem.kind}] seq ${problem.seq}: ${problem.detail}`);
-  }
-  return lines.join("\n");
+    `  head hash       : ${result.headHash}`,
+  ].join("\n");
 }

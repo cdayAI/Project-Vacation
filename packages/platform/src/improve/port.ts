@@ -61,6 +61,29 @@ export interface ObservationStore {
   getObservation(id: Id<"observation">): Promise<Observation | null>;
   listObservations(filter?: ObservationFilter): Promise<readonly Observation[]>;
   countObservations(filter?: ObservationFilter): Promise<number>;
+
+  /**
+   * Delete observations recorded before `cutoff`, oldest first, at most `limit`
+   * of them. Returns how many rows went.
+   *
+   * The retention pass's only way to discharge the two-year period the data
+   * inventory states for D10. Three properties an implementation must have:
+   *
+   *   **Oldest first.** A purge that deleted an arbitrary subset would leave
+   *   the oldest rows behind indefinitely, which is the one outcome retention
+   *   exists to prevent.
+   *
+   *   **Bounded.** `limit` caps the batch so a purge cannot hold a lock on the
+   *   table for an unbounded time. A partial purge resumes on the next pass.
+   *
+   *   **Idempotent.** A second call with nothing left past the cut-off deletes
+   *   nothing and returns 0. It is not an error.
+   *
+   * Deliberately *not* a filter-shaped API. `purge(filter)` would eventually be
+   * handed a filter that matched everything, and the one thing this operation
+   * must never be is general.
+   */
+  purgeObservationsBefore(cutoff: IsoTimestamp, limit: number): Promise<number>;
 }
 
 export interface ArtifactStore {

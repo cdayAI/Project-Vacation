@@ -1,0 +1,143 @@
+/* DiffView — current beside draft.
+
+   The tint on a row is the fourth channel, not the first. The word in the
+   Change column, the mark beside it, and the strike-through on a removed value
+   all survive a monochrome print of the change record; the tint is there to
+   make the shape of the change visible from across the desk. */
+
+.pv-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  color: var(--pv-content-primary);
+}
+
+.pv-diff-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pv-space-8);
+}
+
+.pv-diff-summary {
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-diff-scroll {
+  /* Wide values scroll inside the diff rather than pushing the page sideways. */
+  overflow-x: auto;
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+}
+
+.pv-diff-table {
+  inline-size: 100%;
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-diff-table th,
+.pv-diff-table td {
+  padding: var(--pv-space-8) var(--pv-space-12);
+  border-block-end: 1px solid var(--pv-border-subtle);
+  text-align: start;
+  vertical-align: top;
+}
+
+.pv-diff-table tbody tr:last-child th,
+.pv-diff-table tbody tr:last-child td {
+  border-block-end: none;
+}
+
+.pv-diff-table thead th {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  white-space: nowrap;
+}
+
+.pv-diff-change {
+  white-space: nowrap;
+}
+
+.pv-diff-change-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+.pv-diff-field {
+  font-weight: var(--pv-type-body-strong-weight);
+  white-space: nowrap;
+}
+
+.pv-diff-value {
+  min-inline-size: var(--pv-space-96);
+  color: var(--pv-content-primary);
+}
+
+/* Templates, expressions, and anything with its own line breaks. */
+.pv-diff-value[data-block="true"] {
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  white-space: pre-wrap;
+}
+
+.pv-diff-absent {
+  color: var(--pv-content-tertiary);
+  font-style: italic;
+}
+
+/* -----------------------------------------------------------------------------
+   The changes themselves
+   -------------------------------------------------------------------------- */
+
+.pv-diff-row[data-change="added"] {
+  background-color: var(--pv-status-success-surface);
+}
+
+.pv-diff-row[data-change="added"] .pv-diff-change-mark {
+  color: var(--pv-status-success);
+}
+
+.pv-diff-row[data-change="removed"] {
+  background-color: var(--pv-status-danger-surface);
+}
+
+.pv-diff-row[data-change="removed"] .pv-diff-change-mark {
+  color: var(--pv-status-danger);
+}
+
+.pv-diff-row[data-change="changed"] {
+  background-color: var(--pv-status-info-surface);
+}
+
+.pv-diff-row[data-change="changed"] .pv-diff-change-mark {
+  color: var(--pv-status-info);
+}
+
+.pv-diff-row[data-change="unchanged"] .pv-diff-change-mark {
+  color: var(--pv-content-tertiary);
+}
+
+/* A superseded value is struck through as well as tinted. This is the channel
+   that still works on the printed copy in the regulator pack. */
+.pv-diff-row[data-change="changed"] .pv-diff-current,
+.pv-diff-row[data-change="removed"] .pv-diff-current {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  color: var(--pv-content-secondary);
+}

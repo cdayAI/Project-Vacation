@@ -1,0 +1,32 @@
+/* The `/design` route while the gallery is being assembled. A reading surface:
+   one column, capped at the reading measure, nothing else. */
+
+.pv-design-route {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-24);
+  max-inline-size: var(--pv-reading-measure);
+}
+
+.pv-design-lede {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-lg-size);
+  line-height: var(--pv-type-body-lg-line);
+}
+
+.pv-design-note {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+  padding: var(--pv-space-20);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface);
+  box-shadow: var(--pv-elevation-1);
+}
+
+.pv-design-path {
+  font-family: var(--pv-font-mono);
+  font-size: 0.9375em;
+  color: var(--pv-content-primary);
+}

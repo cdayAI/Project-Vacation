@@ -1,11 +1,16 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { App } from "./App";
 import { ApiError } from "./api/client";
 import { expectNoAccessibilityViolations, renderShell } from "./test/axe";
 import { createFakeClient } from "./test/fakeClient";
 import { alarmingPlatform, auditorSession, healthyPlatform, session } from "./test/fixtures";
+
+afterEach(() => {
+  window.localStorage.clear();
+  document.documentElement.removeAttribute("data-density");
+});
 
 describe("App shell", () => {
   it("puts a skip link first, so a keyboard user can reach the content in one press", async () => {
@@ -32,13 +37,20 @@ describe("App shell", () => {
   });
 
   it("marks an auditor session read-only", async () => {
+    const user = userEvent.setup();
     renderShell(<App />, createFakeClient({ session: () => Promise.resolve(auditorSession) }));
-    expect(await screen.findByText("Read-only")).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: /Signed in as/ }));
+    expect(screen.getAllByText("Read-only").length).toBeGreaterThan(0);
   });
 
-  it("carries the theme toggle in the header", async () => {
+  it("carries the theme control in the account menu", async () => {
+    const user = userEvent.setup();
     renderShell(<App />, createFakeClient());
-    expect(await screen.findByRole("button", { name: /dark theme/i })).toBeInTheDocument();
+
+    await user.click(await screen.findByRole("button", { name: /Signed in as/ }));
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
   });
 
   it("sends the operator to the work queue from the root path", async () => {
@@ -62,6 +74,63 @@ describe("App shell", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Approvals" })).toBeInTheDocument();
     expect(document.title).toBe("Approvals — Operator console");
+  });
+
+  it("says where you are, from the zone down", async () => {
+    const user = userEvent.setup();
+    renderShell(<App />, createFakeClient());
+    await user.click(await screen.findByRole("link", { name: "Audit and evidence" }));
+
+    const trail = await screen.findByRole("navigation", { name: "Breadcrumb" });
+    expect(trail).toHaveTextContent("Oversight");
+    expect(trail).toHaveTextContent("Audit and evidence");
+  });
+
+  it("opens the command palette from anywhere in the console", async () => {
+    const user = userEvent.setup();
+    renderShell(<App />, createFakeClient());
+    await screen.findByRole("heading", { level: 1, name: "Work queue" });
+
+    await user.keyboard("{Control>}k{/Control}");
+    expect(
+      await screen.findByRole("combobox", { name: "Search actions, records and saved views" }),
+    ).toBeInTheDocument();
+  });
+
+  it("navigates from the command palette, which is primary navigation and not a bonus", async () => {
+    const user = userEvent.setup();
+    renderShell(<App />, createFakeClient());
+    await screen.findByRole("heading", { level: 1, name: "Work queue" });
+
+    await user.keyboard("{Control>}k{/Control}");
+    // By name: a screen may have comboboxes of its own, and this is the
+    // palette's field.
+    await user.type(
+      await screen.findByRole("combobox", { name: "Search actions, records and saved views" }),
+      "improvements",
+    );
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Improvements" })).toBeInTheDocument();
+  });
+
+  it("reaches the design gallery, which is the review surface", async () => {
+    const user = userEvent.setup();
+    renderShell(<App />, createFakeClient());
+    await user.click(await screen.findByRole("link", { name: "Design system" }));
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Design system gallery" }),
+    ).toBeInTheDocument();
+  });
+
+  it("steps back one level on Escape from a detail route", async () => {
+    window.history.replaceState(null, "", "/approvals/apr_01k3r2m8k5");
+    const user = userEvent.setup();
+    renderShell(<App />, createFakeClient());
+    await screen.findByRole("navigation", { name: "Breadcrumb" });
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(window.location.pathname).toBe("/approvals"));
   });
 
   it("stays quiet when the platform state is unremarkable", async () => {

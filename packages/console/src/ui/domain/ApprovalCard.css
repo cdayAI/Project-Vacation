@@ -1,0 +1,218 @@
+/* ApprovalCard — the hero.
+
+   The order of the blocks in the markup is the order of the argument and the
+   layout does not rearrange it at any width. An approver on item seven is
+   pattern-matching against items one to six; a responsive rule that moves the
+   blast radius above the consequence on a narrow screen costs them the second
+   the whole design exists to save. */
+
+.pv-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-20);
+  padding: var(--pv-space-24);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface);
+  box-shadow: var(--pv-elevation-1);
+  color: var(--pv-content-primary);
+}
+
+.pv-approval-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+}
+
+/* The ask is `title` — 20/28. Plain language, never a serialized payload. */
+.pv-approval-ask {
+  margin: 0;
+  max-width: var(--pv-reading-measure);
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+}
+
+.pv-approval-provenance {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+}
+
+.pv-approval-requested {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -----------------------------------------------------------------------------
+   The artifact
+   -------------------------------------------------------------------------- */
+
+.pv-approval-artifact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding-block-start: var(--pv-space-8);
+}
+
+.pv-approval-chevron-open {
+  transform: rotate(180deg);
+}
+
+/* The exact thing that will be sent. Bordered and on the page background so it
+   reads as a document rather than as more interface. */
+.pv-approval-artifact-preview {
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-bg-subtle);
+  max-width: var(--pv-reading-measure);
+  font-size: var(--pv-type-body-lg-size);
+  line-height: var(--pv-type-body-lg-line);
+  color: var(--pv-content-primary);
+}
+
+/* -----------------------------------------------------------------------------
+   If you reject, and why this needs you
+   -------------------------------------------------------------------------- */
+
+/* Same type step and the same colour as the approval consequence, with no
+   border: equal weight, less furniture. A rejection is not an error state. */
+.pv-approval-rejected,
+.pv-approval-rule {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+  margin: 0;
+  max-width: var(--pv-reading-measure);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-approval-rejected-label,
+.pv-approval-rule-label {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-body-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+  flex: none;
+}
+
+.pv-approval-rejected-text,
+.pv-approval-rule-value {
+  color: var(--pv-content-primary);
+}
+
+/* -----------------------------------------------------------------------------
+   Blast radius
+   -------------------------------------------------------------------------- */
+
+/* Four cells that stay four cells. They wrap to two rows on a narrow panel and
+   never to a single column, because the strip is read as a shape — an approver
+   who has seen forty of these knows where "Reversible?" is without looking. */
+.pv-approval-blast {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--pv-space-16);
+  margin: 0;
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-bg-subtle);
+}
+
+@media (max-width: 900px) {
+  .pv-approval-blast {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.pv-approval-blast-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+}
+
+.pv-approval-blast dt {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-approval-blast dd {
+  margin: 0;
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+/* -----------------------------------------------------------------------------
+   Evidence and prior decisions
+   -------------------------------------------------------------------------- */
+
+.pv-approval-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+}
+
+.pv-approval-section-title {
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+}
+
+/* -----------------------------------------------------------------------------
+   The decision
+   -------------------------------------------------------------------------- */
+
+.pv-approval-decision-bar {
+  padding-block-start: var(--pv-space-8);
+  border-block-start: 1px solid var(--pv-border-subtle);
+}
+
+/* Two columns of exactly equal width. This is the rule the screen is judged on
+   and it is enforced by the grid rather than by everyone remembering it. */
+.pv-approval-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--pv-space-12);
+}
+
+.pv-approval-reason {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+}
+
+.pv-approval-reason-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--pv-space-8);
+}
+
+.pv-approval-decision {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+  margin: 0;
+  padding-block-start: var(--pv-space-8);
+  border-block-start: 1px solid var(--pv-border-subtle);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

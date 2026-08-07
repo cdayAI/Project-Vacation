@@ -1,0 +1,266 @@
+/* The chrome every chart shares.
+
+   The plot is an SVG stretched to its container; everything with words in it is
+   HTML positioned over the same percentages. That split is what keeps every
+   label on the nine-step type scale at every container width, and it is why
+   there is not a single font-size inside the SVG below.
+
+   Glass never goes near a chart (spec §1.5): a blurred backdrop under a
+   gridline is a gridline nobody can measure against. */
+
+.pv-chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+  margin: 0;
+  color: var(--pv-content-primary);
+}
+
+.pv-chart-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+}
+
+/* One question per chart, written as the title. */
+.pv-chart-question {
+  margin: 0;
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+}
+
+/* Where the denominator lives. "94.2% first-pass — of 1,240 cases." */
+.pv-chart-caption {
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+/* -----------------------------------------------------------------------------
+   The plot and its axes
+   -------------------------------------------------------------------------- */
+
+.pv-chart-figure {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  column-gap: var(--pv-space-8);
+  row-gap: var(--pv-space-8);
+  /* The gutter the series labels at the line ends are written into. */
+  padding-inline-end: var(--pv-space-64);
+}
+
+.pv-chart-axis-y {
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  min-inline-size: var(--pv-space-32);
+}
+
+.pv-chart-axis-y-label {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: var(--pv-chart-y);
+  transform: translateY(-50%);
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  white-space: nowrap;
+}
+
+.pv-chart-plot {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  /* A shape rather than a height: the chart is as tall as it is wide by this
+     ratio at every breakpoint, so nothing reflows into a different reading. */
+  aspect-ratio: 16 / 7;
+  min-block-size: var(--pv-space-96);
+}
+
+.pv-chart-canvas {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  /* The marks are clipped to the plot; the labels over it are not. */
+  overflow: visible;
+}
+
+.pv-chart-gridline,
+.pv-chart-gridline-zero {
+  stroke: var(--pv-border-subtle);
+  stroke-width: 1;
+}
+
+/* One subtle horizontal set and no vertical set at all (spec §3.5). The zero
+   line is stronger because it is the line a bar is measured from. */
+.pv-chart-gridline-zero {
+  stroke: var(--pv-border-strong);
+}
+
+.pv-chart-annotation-rule {
+  stroke: var(--pv-content-tertiary);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.pv-chart-overlay {
+  position: absolute;
+  inset: 0;
+  /* Labels sit over the marks and must never eat a click meant for the page. */
+  pointer-events: none;
+}
+
+.pv-chart-annotation-label {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: var(--pv-chart-x);
+  max-inline-size: var(--pv-space-96);
+  padding-inline: var(--pv-space-4);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+}
+
+.pv-chart-annotation-label[data-side="start"] {
+  margin-inline-start: var(--pv-space-4);
+}
+
+.pv-chart-annotation-label[data-side="end"] {
+  transform: translateX(-100%);
+  margin-inline-start: calc(var(--pv-space-4) * -1);
+}
+
+/* The direct label that replaces a legend. Written in the series' own colour,
+   beside the end of its line, where the eye already is. */
+.pv-chart-series-label {
+  position: absolute;
+  inset-inline-start: 100%;
+  inset-block-start: var(--pv-chart-y);
+  transform: translateY(-50%);
+  padding-inline-start: var(--pv-space-8);
+  max-inline-size: var(--pv-space-64);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--pv-chart-series-color);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+}
+
+.pv-chart-axis-x {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--pv-space-4);
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-chart-axis-x-label {
+  white-space: nowrap;
+}
+
+/* -----------------------------------------------------------------------------
+   Legend, note, and the numbers
+   -------------------------------------------------------------------------- */
+
+/* Only for bars and stacks, which have no line end to write on. */
+.pv-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  color: var(--pv-content-secondary);
+}
+
+.pv-chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+}
+
+.pv-chart-legend-swatch {
+  inline-size: var(--pv-space-12);
+  block-size: var(--pv-space-12);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-chart-series-color);
+  flex: none;
+}
+
+.pv-chart-note {
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-chart-data-summary {
+  cursor: pointer;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+}
+
+/* The marker is a native affordance; the outline is the designed focus state.
+   Both stay — a disclosure with no marker is a paragraph nobody clicks. */
+.pv-chart-data-summary:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+  border-radius: var(--pv-radius-control);
+}
+
+.pv-chart-data-scroll {
+  /* A wide table scrolls inside its own box rather than pushing the page
+     sideways — a horizontally scrolling console is a lost console. */
+  overflow-x: auto;
+  margin-block-start: var(--pv-space-8);
+}
+
+.pv-chart-table {
+  inline-size: 100%;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-chart-table th,
+.pv-chart-table td {
+  padding: var(--pv-space-4) var(--pv-space-8);
+  border-block-end: 1px solid var(--pv-border-subtle);
+  text-align: start;
+  white-space: nowrap;
+}
+
+.pv-chart-table thead th {
+  color: var(--pv-content-secondary);
+  font-weight: var(--pv-type-label-weight);
+}
+
+/* Numbers align on their last digit, which is the only way a column of them can
+   be compared at a glance. */
+.pv-chart-table-number {
+  text-align: end;
+}

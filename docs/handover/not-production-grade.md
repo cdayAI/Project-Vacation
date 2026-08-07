@@ -1,6 +1,10 @@
 # What is not production grade
 
-**Last reviewed:** 2026-08-06.
+**Last reviewed:** 2026-08-07, in the verification pass's honesty audit
+(`docs/review/honesty-audit.md`). Six items were added from it — B7, S9, S10,
+S11, and L17 through L20 — and B3 was corrected: a partial restore drill *has*
+now been run, against a laptop, which is not the drill this document was asking
+for.
 
 Read this before deciding to deploy anything.
 
@@ -50,19 +54,25 @@ refuses `fake` in staging and production, which means **the platform cannot
 currently be run in production at all** until this is resolved. That is
 deliberate.
 
-### B3. No restore drill has been executed
+### B3. No restore drill has been executed on real infrastructure
 
 **What.** The backup and restore procedure is written and the drill is specified
-(`docs/ops/backup-restore-and-dr.md`). It has never been run, because there is
-no deployed infrastructure.
+(`docs/ops/backup-restore-and-dr.md`). Steps 1–4 of it were run by hand during
+the verification pass against a local scratch Postgres and passed — `pg_dump`
+0.27s, `pg_restore` 0.69s, no pending migrations, the restored chain verified
+INTACT, row counts identical to the pre-backup census. **That is a laptop, not a
+drill.** No snapshot, no isolated environment, no measured RTO, no recorded
+evidence, and step 5 — confirming work resumes — was not run at all.
 
 **Why it matters.** A backup you have never restored is a hope. For this
 platform the drill has an extra step that matters more than the data coming
 back: **the restored audit chain must verify.** A restore that returns data but
 produces a chain that fails verification is a failed restore.
 
-**What is required.** Execute the drill on real infrastructure, record the
-result, and repeat monthly.
+**What is required.** Execute the drill on real infrastructure, time it against
+the stated RTO, record the result, and repeat monthly. `tools/restore-drill.sh`
+is named in the ops document as the thing that would automate it and has never
+been written; §4 there now walks the manual sequence instead.
 
 ### B4. No disaster-recovery exercise
 
@@ -97,6 +107,32 @@ European or other non-US staff; union and collective-agreement constraints; and
 whether contact-centre staff already recorded for QA are treated differently.
 Additionally, this is a strong EU AI Act Annex III high-risk candidate — see
 `eu-ai-act-assessment.md`.
+
+### B7. A subject-rights request cannot be executed against this platform
+
+**What.** Access, deletion, correction and opt-out are specified end to end in
+`docs/assurance/subject-rights-runbook.md` and none of it is built. There is no
+`subject-rights` verb and no `consent` verb in the command line;
+`owner.export_data` and `owner.delete_data` are registered actions with correct
+risk tiers and no caller; `subject_rights.request_recorded` and
+`subject_rights.fulfilled` are declared audit event types that nothing emits.
+
+**Why it is a blocker rather than a gap.** The moment this platform holds an
+owner reference under CCPA/CPRA — or GDPR, if European owners are in scope — a
+deletion request creates a statutory obligation the deployment cannot discharge,
+on a clock. There is no manual fallback either: no operator surface exists to
+purge a document body or to record a revocation by hand.
+
+**Related, and worth knowing while it is open.** The architectural claim that
+makes this cheap when it is built — the audit chain holds digests and opaque
+references, so deletion does not touch the evidence — is now enforced rather
+than asserted: `AuditLog.record` refuses direct identifiers, and the retention
+pass is structurally unable to delete an audit entry. So the hard half is done
+and the missing half is ordinary work.
+
+**What is required.** Build the four verbs and the two events, then run a
+deletion end to end and confirm the chain still verifies afterwards. That last
+check has never been performed, because there is nothing to perform it with.
 
 ---
 
@@ -169,8 +205,96 @@ are unimplemented.
 ### S7. Audit archival is specified but not built
 
 The prune-a-prefix-and-anchor procedure is documented and the verifier supports
-it. The archival job is not written. **Until it is, leave audit retention at its
-default and prune nothing.**
+it. The archival job is not written, and **nothing in the platform prunes the
+chain** — there is no deletion operation on the audit store, and the retention
+job refuses at construction to accept a rule targeting the chain. The chain
+therefore grows without bound, which is a capacity problem rather than a
+compliance one. `PV_AUDIT_RETENTION_DAYS` is the period MVW is undertaking to
+keep it *for*; it does not cause anything to be removed from it.
+
+### S8. Twelve of the fourteen retention rules are policy, not code
+
+`retention-and-deletion.md` §1 lists fourteen rules and marks the two the
+platform enforces today: the improvement loop's observations, and work-discovery
+observations. §5 names the other twelve and what each is waiting on — mostly a
+period MVW has not confirmed, or a `run` reference that cannot be deleted while
+four tables that point at it have no period of their own.
+
+Two consequences an operator should know. The rules that *are* enforced are
+applied by the `retention.purge` pass of the maintenance loop, so **a deployment
+that never runs `pv worker` enforces no retention at all**. And the purge does
+not run while the platform is globally paused — deliberately, since a deletion
+cannot be undone when the incident turns out to be the reason the data was
+needed — so a long containment window defers retention until it is released.
+
+### S9. There is no HTTP request log, so two SLO indicators have no source
+
+**What.** `api/server.ts` sets `logger: false` — deliberately, because two
+loggers with different redaction rules is how a secret reaches a log — and
+nothing replaced it. The platform's own logger writes two lines for the lifetime
+of the process, plus one per unhandled failure. There is no per-request line at
+all.
+
+**Why it matters.** Any request that does not throw leaves no trace outside the
+audit chain and the operating record, so a case cannot be followed across
+components through the log stream. `docs/ops/slos.md` S1 (successful page loads
+over attempts) and S3 (p95 read latency) are not derivable from anything that
+exists, which makes them aspirations rather than objectives.
+
+**What is required.** An `onResponse` hook writing method, path, status,
+duration and correlation id through the platform's own logger. The correlation
+id is already minted per request and already reaches the audit chain and the run
+row, so the join is one field away. Confirm the redaction rules cover the URL
+before turning it on.
+
+### S9a. No metrics are emitted; the metric list is a specification
+
+`docs/ops/observability-and-cost.md` specifies sixteen metrics with types and
+labels, derived from the SLOs they serve. **None of them is emitted.** There is
+no metrics client, no exporter, and no instrumentation anywhere in the platform;
+its runtime dependencies are Fastify, `jose`, `pg`, `pino` and `zod`.
+
+The list is right and worth building. What an operator has instead today is the
+CLI: `pv health`, `pv cost report`, `pv approvals list --ageing`, `pv models
+degradation`, `pv engine timers` and `pv audit verify` each exit non-zero on the
+condition they check for, so a scheduler can alert on them without a metrics
+pipeline. That covers the alerts; it does not cover dashboards, trends, or
+anything an SRE would call observability.
+
+### S10. Single sign-on does not pass through the egress allowlist
+
+**What.** `PV_EGRESS_ALLOWLIST` bounds every call to a system of record, because
+every one goes through `integrations/egress.ts`. `identity/oidc.ts` does not: it
+calls `fetch` directly for the discovery document and the token endpoint, and
+`jose` fetches the signing keys on its own. So an operator who reads the
+allowlist as "the complete list of hosts this deployment can reach" is wrong
+about the identity provider.
+
+**What compensates.** The discovery document is validated so every endpoint must
+be HTTPS on the issuer's own host, and both calls now set `redirect: "manual"`
+so a 307 cannot walk the client secret to an unvetted host. Those are real
+controls and they are narrower than the seven the egress client carries.
+
+**Why it is not simply fixed.** `EgressClient` requires a `runId` and records a
+step before every call, and a sign-in has no run. Routing OIDC through it means
+deciding what the operating record says about an authentication, which is a
+design question rather than a patch. A test now fails if a *third* direct
+`fetch` caller appears, so the exception cannot quietly become a pattern.
+
+### S11. The data-scope check is inert on every console read
+
+**What.** `authorize()` compares an actor's scope entitlements against
+`ActionRequest.requiredScopes`, and the console read routes supply none — they
+pass an action and an actor and nothing else. Workflow steps, knowledge
+ingestion, freshness review and the external plane do supply them, so the
+control works where it is used.
+
+**Why it is not exploitable today.** A `Run` carries no scope, so there is no
+second party's record to reach for through `/api/runs`, `/api/approvals` or
+`/api/audit` — the check has nothing to compare against, which is why no failing
+test could be written for it. It becomes reachable the moment runs carry a
+scope, and that is exactly when somebody will assume the check has been running
+all along.
 
 ---
 
@@ -219,6 +343,70 @@ We do not know MVW's internal systems. The ports in `integrations/` are narrow
 and clearly commented as requiring confirmation. **They are almost certainly
 wrong in detail.** Do not treat them as a specification MVW must meet; treat
 them as a starting point for a conversation with each system's owner.
+
+### L4b. The screens have not been migrated onto the design system
+
+The design system in `packages/console/src/ui/` — primitives, surfaces, domain
+components, the command palette — was built to `docs/design/design-spec.md`
+from scratch, is demonstrated at `/design`, and is exercised by that gallery
+and its tests. **The seventeen screens an operator actually reaches do not use
+it.** They use the older `src/components/` set and are styled by
+`src/screens.css`, which takes its values from the same tokens and therefore
+gets theme, density, and transparency right, but is a second implementation of
+button, badge, callout, field, dialog, and table.
+
+Two consequences worth knowing before planning the work:
+
+- The two layers share one CSS namespace. Three names had already collided
+  (`pv-table`, `pv-table-numeric`, `pv-table-sort`) and, with both stylesheets
+  loaded, `display: flex` from the library's virtualised grid was landing on
+  the shipped tables' `<table>` elements. The shipped table was renamed to
+  `pv-dt-*`. Nothing enforces that the next collision gets caught, and a
+  collision presents as a broken layout rather than as a failure.
+- Screen behaviour is well covered by tests and screen *appearance* is not.
+  What `screens.test.ts` checks is that the stylesheet obeys its own rules —
+  tokens only, no blur on a repeating element, decorative layers removed under
+  reduced transparency. Nothing asserts that a panel looks like the panel in
+  the specification. There are no visual-regression snapshots.
+
+Migrating view by view is the work, and it is the largest single item on this
+list. Doing it removes `src/components/` and `src/screens.css` entirely.
+
+### L4c. Filter state is not in the URL
+
+`docs/design/design-spec.md` §3.1 requires that every filter state encode into
+the URL, so a view can be pasted into a ticket. The server side is built for
+it — `parseWorkQueueQuery` reads every filter, saved view, and sort from the
+query string and refuses unknown values rather than ignoring them. The console
+does not use it: the work queue's filters are component state, so a filtered
+view cannot be shared and the browser's back button does not undo a filter.
+
+### L4d. Five of the six performance budgets are not measured
+
+`docs/design/design-spec.md` §7 asks for six budgets "enforced in CI": route
+change under 100ms, interaction-to-next-paint under 200ms at p95, zero
+cumulative layout shift on the hot paths, skeletons only past 300ms, typing
+never blocked past 120ms, and ten thousand rows without jank.
+
+**One is enforced.** `tools/check-bundle-budget.mjs` holds the console's
+transfer size to 190KB of gzipped JavaScript and 24KB of CSS, and fails the
+build over either. It currently measures 159.4KB and 17.7KB. That number bounds
+the other five from below and substitutes for none of them.
+
+The other five need a running browser under a throttled network, and there is
+no harness for that. Two things are worth knowing before building one:
+
+- **The shipped table does not virtualise.** `components/DataTable` renders one
+  `<tr>` per row, so the ten-thousand-row budget is not met — it is not close.
+  The virtualised grid exists in `ui/surfaces/Table` and is the one the design
+  gallery demonstrates; this is the same L4b migration seen from the
+  performance side rather than the appearance side.
+- **The design gallery ships in the operator's bundle.** `routes.tsx` imports
+  `DesignGallery` statically, and it is the single largest module in the build.
+  It is a developer surface an operator never opens. A `React.lazy` boundary
+  around that one route is the cheapest performance win available here and is
+  not taken in this change because it touches routing, which is well covered by
+  tests that would need reading first rather than adjusting.
 
 ### L5. Accessibility automation covers about half of WCAG
 
@@ -325,6 +513,53 @@ just work done, and verification cost is linear in chain length.
 Plan for it: verify a window on demand and the full chain on a schedule. The
 consequence and the options are set out in
 `docs/ops/observability-and-cost.md`.
+
+### L17. Explicit integration degradation is built and never invoked
+
+`integrations/degrade.ts` documents "queue, park for a human, or refuse" as the
+policy for an integration that is failing, and `DegradationHandler` is
+constructed nowhere outside its own tests. What actually happens when a system of
+record returns 500 is that the egress client throws and the caller propagates —
+an explicit failure, which is the right direction, but not the queueing or
+parking the module describes. Wiring it means each call site choosing its policy,
+which is a decision per integration rather than one change.
+
+### L18. `EST` and `Etc/GMT+5` are still accepted as recipient timezones
+
+Quiet hours are measured on the recipient's clock, and a bare offset (`-05:00`)
+is now refused because it is wrong twice a year. `EST` and `Etc/GMT+5` are the
+same fault wearing an IANA-shaped name: `EST` reads 11:00 when New York is at
+12:00, which is the direction that permits a call inside the quiet window. They
+are still accepted, because every clean predicate that rejects them (require a
+`/`; reject `Etc/*`) also rejects legitimate single-part zones like `Singapore`,
+`Japan` and `Iceland`. A curated deny-list of the abbreviation aliases would
+work and is a data decision. No shipped policy row uses one.
+
+### L19. A truncated model answer is recorded as a complete one
+
+The provider parses `stop_reason` and acts only on `"refusal"`. A response cut
+off at `max_tokens` returns its partial text, and `invoke` records a succeeded
+step and hands that text back. For a product that drafts consumer notices, a
+silently truncated answer is meaningful. The same applies to a well-formed
+response with an empty `content` array, which yields `text: ""` recorded as a
+success. What it should do instead — refuse, or flag on the record — is a
+product decision, which is why it is here rather than fixed.
+
+### L20. A green test run does not mean both store adapters were exercised
+
+The persistence contract suites are gated on `PV_TEST_DATABASE_URL`. Without it,
+158 assertions are skipped — every concurrency case, the append-only triggers,
+the store-unavailable refusals — and the run still ends green. CI always sets it;
+a developer's laptop often does not. The run now prints which adapters it
+covered, but the summary line still says "passed". A defect where the in-memory
+fake was quietly *more permissive* than Postgres has already been found once
+here, so a local green is a partial result and should be described as one.
+
+Separately: two full-suite runs sharing one `PV_TEST_DATABASE_URL` destroy each
+other, because both contract suites `TRUNCATE` shared tables to isolate. The
+failures are numerous and convincing, which is how a real failure gets
+misclassified as infrastructure. Run one suite at a time against a given
+database.
 
 ---
 

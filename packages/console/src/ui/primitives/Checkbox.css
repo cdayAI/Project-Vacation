@@ -1,0 +1,170 @@
+/* Checkbox.
+
+   The real `<input type="checkbox">` is still here — transparent, on top of the
+   drawn box. Everything that makes a checkbox a checkbox comes from the
+   platform: the role, the checked state, the indeterminate state, Space, the
+   label association, the form value. What is drawn is only a picture of it,
+   which is why `:checked` and `:indeterminate` drive the mark rather than React
+   state. A checkbox reimplemented on a div is the classic way to lose the
+   announcement of "checked" and never notice. */
+
+.pv-ui-checkbox {
+  display: grid;
+  grid-template-columns: var(--pv-space-16) 1fr;
+  column-gap: var(--pv-space-8);
+  align-items: start;
+}
+
+.pv-ui-checkbox-control {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: var(--pv-space-16);
+  height: var(--pv-space-16);
+  /* Optical: centres the 16px box on the first line of a 20px label. */
+  margin-block-start: calc((var(--pv-type-body-line) - var(--pv-space-16)) / 2);
+}
+
+.pv-ui-checkbox-input {
+  position: absolute;
+  /* Grown to the 24×24 WCAG 2.2 2.5.8 asks for, while the painted box stays 16
+     so a column of checkboxes stays dense. Negative on every side by exactly
+     half the difference. */
+  inset: calc((var(--pv-space-16) - var(--pv-target-min)) / 2);
+  width: var(--pv-target-min);
+  height: var(--pv-target-min);
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.pv-ui-checkbox-input:disabled {
+  cursor: not-allowed;
+}
+
+.pv-ui-checkbox-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface);
+  color: transparent;
+  pointer-events: none;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    border-color var(--pv-motion-micro) var(--pv-ease-entry),
+    color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-ui-checkbox-input:hover + .pv-ui-checkbox-box {
+  border-color: var(--pv-content-tertiary);
+}
+
+/* The ring is drawn on the box because the input it belongs to is invisible. */
+.pv-ui-checkbox-input:focus-visible + .pv-ui-checkbox-box {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+}
+
+.pv-ui-checkbox-input:checked + .pv-ui-checkbox-box,
+.pv-ui-checkbox-input:indeterminate + .pv-ui-checkbox-box {
+  border-color: var(--pv-accent);
+  background-color: var(--pv-accent);
+  color: var(--pv-accent-contrast);
+}
+
+.pv-ui-checkbox-input:disabled + .pv-ui-checkbox-box {
+  border-color: var(--pv-border-subtle);
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-ui-checkbox-input:disabled:checked + .pv-ui-checkbox-box,
+.pv-ui-checkbox-input:disabled:indeterminate + .pv-ui-checkbox-box {
+  background-color: var(--pv-content-tertiary);
+  color: var(--pv-surface);
+}
+
+/* Both marks are always in the DOM and the state decides which is painted:
+   `:indeterminate` cannot be expressed as an attribute, only as a DOM property,
+   so CSS is the only place that can see it without React tracking it twice. */
+.pv-ui-checkbox-mark {
+  opacity: 0;
+}
+
+.pv-ui-checkbox-input:checked + .pv-ui-checkbox-box .pv-ui-checkbox-mark-check,
+.pv-ui-checkbox-input:indeterminate + .pv-ui-checkbox-box .pv-ui-checkbox-mark-dash {
+  opacity: 1;
+}
+
+/* Indeterminate wins: an input that is both checked and indeterminate shows a
+   dash in every browser, and showing a tick here would contradict the platform. */
+.pv-ui-checkbox-input:indeterminate + .pv-ui-checkbox-box .pv-ui-checkbox-mark-check {
+  opacity: 0;
+}
+
+.pv-ui-checkbox-body {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.pv-ui-checkbox-label {
+  display: block;
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+  cursor: pointer;
+}
+
+.pv-ui-checkbox[data-disabled="true"] .pv-ui-checkbox-label {
+  color: var(--pv-content-tertiary);
+  cursor: not-allowed;
+}
+
+.pv-ui-checkbox-hint {
+  display: block;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  max-width: var(--pv-reading-measure);
+}
+
+.pv-ui-checkbox-error {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  color: var(--pv-status-danger);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+/* -----------------------------------------------------------------------------
+   Read-only
+   -------------------------------------------------------------------------- */
+
+/* No input, no border, no fill — and the state written out as a word. A
+   greyed-out disabled checkbox asks the auditor to work out which shade means
+   ticked; "Selected" does not need working out, and it survives a greyscale
+   print of the evidence pack. */
+.pv-ui-checkbox[data-readonly="true"] .pv-ui-checkbox-box {
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--pv-content-primary);
+}
+
+.pv-ui-checkbox[data-readonly="true"] .pv-ui-checkbox-mark {
+  opacity: 1;
+}
+
+.pv-ui-checkbox-state {
+  display: inline-block;
+  margin-inline-start: var(--pv-space-8);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

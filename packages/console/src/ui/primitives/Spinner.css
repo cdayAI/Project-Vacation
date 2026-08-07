@@ -1,0 +1,68 @@
+/* Spinner — an indeterminate wait.
+
+   Indeterminate on purpose: this is for a wait whose length is unknown. A wait
+   whose length *is* known gets a progress bar with a number, because a spinner
+   that runs for eleven seconds is indistinguishable from a spinner that has
+   hung. */
+
+.pv-ui-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: currentColor;
+}
+
+.pv-ui-spinner[data-size="sm"] {
+  width: var(--pv-space-12);
+  height: var(--pv-space-12);
+}
+
+.pv-ui-spinner[data-size="md"] {
+  width: var(--pv-space-16);
+  height: var(--pv-space-16);
+}
+
+.pv-ui-spinner[data-size="lg"] {
+  width: var(--pv-space-24);
+  height: var(--pv-space-24);
+}
+
+.pv-ui-spinner-glyph {
+  width: 100%;
+  height: 100%;
+  /* One revolution per 1120ms — four page transitions. Derived from a motion
+     token rather than picked, so a change to the system's sense of pace reaches
+     the spinner too. */
+  animation: pv-ui-spinner-turn calc(var(--pv-motion-page) * 4) linear infinite;
+}
+
+.pv-ui-spinner-track {
+  stroke: var(--pv-border-subtle);
+}
+
+.pv-ui-spinner-head {
+  stroke: currentColor;
+  /* A quarter of the 37.7 unit circumference, offset so the arc starts at the
+     top. Geometry, not design values. */
+  stroke-dasharray: 9.4 28.3;
+  stroke-linecap: round;
+}
+
+@keyframes pv-ui-spinner-turn {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Under reduced motion the arc holds still. theme/motion.css caps every
+   animation at 80ms and one iteration, so left alone this would spin a fifth of
+   a turn and stop — which reads as "finished" while the request is still out.
+   A static three-quarter ring plus the status text is the honest version. */
+.pv-ui-spinner[data-static="true"] .pv-ui-spinner-glyph {
+  animation: none;
+}
+
+.pv-ui-spinner[data-static="true"] .pv-ui-spinner-head {
+  stroke-dasharray: 28.3 9.4;
+}

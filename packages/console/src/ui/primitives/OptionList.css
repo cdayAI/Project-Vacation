@@ -1,0 +1,80 @@
+/* The option list itself. The layer it sits on is popup.css. */
+
+.pv-ui-listbox {
+  max-height: calc(var(--pv-row-height) * 7);
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--pv-space-4);
+  list-style: none;
+}
+
+.pv-ui-listbox-option {
+  display: grid;
+  grid-template-columns: var(--pv-space-16) 1fr;
+  align-items: center;
+  column-gap: var(--pv-space-8);
+  padding: var(--pv-space-8) var(--pv-space-8);
+  border-radius: var(--pv-radius-control);
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+  cursor: pointer;
+}
+
+/* The active option is where Enter would land. It is a highlight rather than a
+   focus ring because focus never leaves the input — that is the whole point of
+   aria-activedescendant, and drawing a ring here would put two focus
+   indicators on screen at once. */
+.pv-ui-listbox-option[data-active="true"] {
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-ui-listbox-option[aria-selected="true"] {
+  color: var(--pv-content-primary);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-ui-listbox-option[aria-disabled="true"] {
+  color: var(--pv-content-tertiary);
+  cursor: not-allowed;
+}
+
+/* Reserved whether or not it is drawn, so labels do not shift by 16px the
+   moment a selection is made. */
+.pv-ui-listbox-check {
+  grid-column: 1;
+  color: var(--pv-accent);
+}
+
+.pv-ui-listbox-text {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.pv-ui-listbox-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-ui-listbox-description {
+  display: block;
+  overflow: hidden;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The empty state is a sentence, not an empty box. An operator who has typed a
+   filter and sees nothing needs to know the search ran. */
+.pv-ui-listbox-empty {
+  padding: var(--pv-space-12);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}

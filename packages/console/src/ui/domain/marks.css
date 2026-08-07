@@ -1,0 +1,17 @@
+/* Domain glyphs.
+
+   Sized from the spacing scale rather than from a font size, so a mark beside a
+   label is the same height whatever type step the label uses, and `flex: none`
+   because the one thing a mark must never do is get squeezed by the long label
+   next to it. */
+
+.pv-mark {
+  width: var(--pv-space-16);
+  height: var(--pv-space-16);
+  flex: none;
+}
+
+.pv-mark-sm {
+  width: var(--pv-space-12);
+  height: var(--pv-space-12);
+}

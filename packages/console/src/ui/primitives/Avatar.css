@@ -1,0 +1,66 @@
+/* Avatar — who.
+
+   Monochrome on purpose. Tinting an avatar from a hash of the name is the
+   common trick and it is wrong here: every other coloured circle in this
+   console means something — a status, a tone, a series in a chart — and a
+   decorative one teaches operators that colour is sometimes meaningless. It is
+   also unreadable: eight hashed hues cannot all clear contrast against white
+   initials. */
+
+.pv-ui-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-secondary);
+  font-weight: var(--pv-type-body-strong-weight);
+  /* Initials are letters, but an avatar sits in rows next to numbers and the
+     shared baseline matters more than the theory. */
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.pv-ui-avatar[data-size="sm"] {
+  width: var(--pv-control-height-sm);
+  height: var(--pv-control-height-sm);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  letter-spacing: var(--pv-type-micro-tracking);
+}
+
+.pv-ui-avatar[data-size="md"] {
+  width: var(--pv-control-height-md);
+  height: var(--pv-control-height-md);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-ui-avatar[data-size="lg"] {
+  width: var(--pv-control-height-lg);
+  height: var(--pv-control-height-lg);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  letter-spacing: var(--pv-type-label-tracking);
+}
+
+.pv-ui-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Unassigned is a real and frequent state in a queue — the specification puts
+   it in the assignee column — so it is drawn rather than left as an empty
+   circle that reads as a loading failure. */
+.pv-ui-avatar[data-unassigned="true"] {
+  border-style: dashed;
+  border-color: var(--pv-border-control);
+  background-color: transparent;
+  color: var(--pv-content-tertiary);
+}

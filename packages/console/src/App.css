@@ -1,0 +1,16 @@
+/* The one thing App.tsx draws itself: the address that matched no surface.
+   Everything else on screen belongs to the shell or to a route. */
+
+.pv-not-found {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-16);
+  max-inline-size: var(--pv-reading-measure);
+}
+
+.pv-not-found-path {
+  font-family: var(--pv-font-mono);
+  font-size: 0.9375em;
+  color: var(--pv-content-primary);
+  overflow-wrap: anywhere;
+}

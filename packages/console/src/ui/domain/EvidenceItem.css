@@ -1,0 +1,139 @@
+/* EvidenceItem — the source, and the words themselves.
+
+   The source is monospace because it is an identifier: "§721.10" and "§72110"
+   are different rules, and a proportional face makes them look the same at a
+   glance. Everything else is body text, because it is read. */
+
+.pv-evidence {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  padding: var(--pv-space-12);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-primary);
+}
+
+.pv-evidence[data-expanded] {
+  border-color: var(--pv-border-strong);
+}
+
+.pv-evidence-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pv-space-8);
+}
+
+.pv-evidence-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-8);
+  min-width: 0;
+}
+
+/* The whole source line is the disclosure. A separate chevron-only button would
+   be a 24px target beside a 300px piece of text that looks like it should work
+   — and on a dense evidence list, it is the text people aim at. */
+.pv-evidence-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: start;
+  min-block-size: var(--pv-target-min);
+}
+
+.pv-evidence-toggle:hover .pv-evidence-source {
+  color: var(--pv-accent);
+}
+
+.pv-evidence-toggle:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+  border-radius: var(--pv-radius-control);
+}
+
+.pv-evidence-chevron-open {
+  transform: rotate(180deg);
+}
+
+.pv-evidence-source {
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  color: var(--pv-content-primary);
+}
+
+.pv-evidence-provenance {
+  margin: 0;
+}
+
+.pv-evidence-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  flex: none;
+}
+
+.pv-evidence-version {
+  margin: 0;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-evidence-summary {
+  margin: 0;
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-evidence-passage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding-block-start: var(--pv-space-8);
+}
+
+/* The passage is the one place in the console with a genuine reading measure,
+   so it gets body-lg and the 60–80 character cap. It is quoted text a person
+   reads word by word before deciding something. */
+.pv-evidence-quote {
+  margin: 0;
+  padding: var(--pv-space-12);
+  border-inline-start: 2px solid var(--pv-border-strong);
+  background-color: var(--pv-bg-subtle);
+  border-radius: var(--pv-radius-control);
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-lg-size);
+  line-height: var(--pv-type-body-lg-line);
+}
+
+.pv-evidence-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  align-self: flex-start;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+/* Read-only drops the affordances and raises the contrast of what is left: an
+   auditor is reading this, not acting on it. */
+.pv-evidence[data-read-only] .pv-evidence-summary,
+.pv-evidence[data-read-only] .pv-evidence-version {
+  color: var(--pv-content-secondary);
+}

@@ -39,6 +39,18 @@ export const CONTACT_ACTIONS: readonly ActionDefinition[] = [
     allowedRoles: ["supervisor", "compliance_reviewer"],
     approvalsRequired: 2,
     integration: "messaging",
+    approvalGuidance: {
+      ask: "Send an owner message on the elevated path",
+      effects: [
+        "The message reaches the owner through the messaging integration, on a collections or marketing purpose, a live call, or model-written content.",
+        "The contact compliance gate is consulted at send time: a suppression, a quiet-hours window, or a revoked consent refuses it even after both approvals.",
+        "Two approvers are recorded against the send, and the second may not be the first.",
+      ],
+      ifRejected:
+        "Nothing is sent. The contact attempt is closed with the rejection reason, and the reason is captured as improvement signal.",
+      reversal:
+        "A sent message cannot be recalled. On the elevated path a corrective follow-up is itself an elevated send and needs two approvers again.",
+    },
   },
   {
     name: RECORD_DO_NOT_CALL_ACTION,

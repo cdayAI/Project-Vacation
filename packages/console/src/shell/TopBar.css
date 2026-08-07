@@ -1,0 +1,198 @@
+/* =============================================================================
+   The top bar. 56px, glass, three groups: where you are, how to get anywhere,
+   who you are.
+   ========================================================================== */
+
+header.pv-topbar {
+  grid-area: topbar;
+  display: grid;
+  /* Three columns rather than flex with `margin: auto`, so the command trigger
+     is centred on the *window* and not on whatever is left after a long
+     breadcrumb. A control that moves as you navigate is a control you have to
+     look for. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--pv-space-16);
+  block-size: var(--pv-shell-top-bar-height);
+  padding-inline: var(--pv-space-16);
+  /* Only the block-end hairline: the bar spans the window, and side borders on
+     a full-width strip read as a box floating in the frame. */
+  border-inline: 0;
+  border-block-start: 0;
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+}
+
+.pv-topbar-lead {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-12);
+  min-inline-size: 0;
+}
+
+.pv-topbar-centre {
+  display: flex;
+  justify-content: center;
+}
+
+.pv-topbar-trailing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--pv-space-8);
+}
+
+/* -----------------------------------------------------------------------------
+   Icon buttons — the rail and panel toggles
+   -------------------------------------------------------------------------- */
+
+.pv-topbar-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: var(--pv-control-height-md);
+  block-size: var(--pv-control-height-md);
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius-control);
+  background: transparent;
+  color: var(--pv-content-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-topbar-icon-button:hover {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+.pv-topbar-icon-button:active {
+  border-color: var(--pv-border-strong);
+}
+
+/* Refused rather than disabled: `disabled` takes the control out of the tab
+   order, so an operator tabbing the bar finds a missing button rather than one
+   that explains itself. */
+.pv-topbar-icon-button[aria-disabled="true"] {
+  color: var(--pv-content-tertiary);
+  cursor: not-allowed;
+}
+
+.pv-topbar-icon-button[aria-disabled="true"]:hover {
+  background-color: transparent;
+  color: var(--pv-content-tertiary);
+}
+
+/* -----------------------------------------------------------------------------
+   The command trigger
+   -------------------------------------------------------------------------- */
+
+.pv-command-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  inline-size: 24rem;
+  max-inline-size: 100%;
+  block-size: var(--pv-control-height-md);
+  padding-inline: var(--pv-space-12);
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-secondary);
+  cursor: text;
+  transition:
+    border-color var(--pv-motion-micro) var(--pv-ease-entry),
+    background-color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+/* `cursor: text` above is the one place this console lies with a cursor, and
+   it is on purpose: the trigger opens a field, the operator's next act is to
+   type, and an I-beam is the honest description of what happens next. */
+
+.pv-command-trigger:hover {
+  border-color: var(--pv-border-strong);
+  background-color: var(--pv-surface-raised);
+  color: var(--pv-content-primary);
+}
+
+.pv-command-trigger:active {
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-command-trigger-mark {
+  flex: none;
+  color: var(--pv-content-tertiary);
+}
+
+.pv-command-trigger-label {
+  flex: 1;
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-command-trigger-keys {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--pv-space-4);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  color: var(--pv-content-tertiary);
+  font-family: var(--pv-font-sans);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+}
+
+/* -----------------------------------------------------------------------------
+   Narrow windows
+
+   The trigger gives up its width first, then its label. It never disappears:
+   the palette is primary navigation (§5), and on the narrowest screen — where
+   the rail is icons and the panel is a sheet — it is the *only* full route to
+   anything.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1279px) {
+  .pv-command-trigger {
+    inline-size: 18rem;
+  }
+}
+
+@media (max-width: 899px) {
+  /* Element-qualified to match the base rule above: a bare class would lose to
+     it and the padding would never narrow. */
+  header.pv-topbar {
+    gap: var(--pv-space-8);
+    padding-inline: var(--pv-space-8);
+  }
+
+  .pv-command-trigger {
+    inline-size: auto;
+    padding-inline: var(--pv-space-8);
+  }
+
+  /* Hidden from the eye, kept for the ear. `display: none` here would leave
+     an icon button with no accessible name at the one width where the palette
+     matters most, and adding an aria-label to paper over that would put the
+     button's name in two places that can disagree. */
+  .pv-command-trigger-label {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .pv-command-trigger-keys {
+    display: none;
+  }
+}

@@ -154,6 +154,24 @@ const schema = z.object({
    */
   externalJwksPath: z.string().optional(),
 
+  /**
+   * Refuse to compute a statutory deadline from an unverified rule.
+   *
+   * Defaults ON, and the default is the whole point. Every rescission rule this
+   * platform ships is placeholder data with a placeholder citation, marked
+   * unverified because nobody has checked it against the statute — and a
+   * deadline derived from a guess is worse than no deadline, because somebody
+   * acts on it. A deployment that wants numbers before counsel has verified the
+   * table has to say so explicitly, in configuration, where the decision is
+   * visible.
+   *
+   * `loadConfig` refuses to let a production deployment turn it off, for the
+   * same reason it refuses the in-memory store and the fake model provider
+   * there: those are development conveniences, and a legal deadline computed
+   * from placeholder data is not a convenience anyone should be able to ship.
+   */
+  requireVerifiedStatutoryRules: booleanish.default(true),
+
   auditRetentionDays: positiveInt.default(2555), // 7 years
   demoSeed: nonEmpty.default("project-vacation-demo-v1"),
 });
@@ -163,7 +181,15 @@ export type Config = z.infer<typeof schema> & {
   readonly warnings: readonly string[];
 };
 
-const ENV_KEYS: Record<keyof z.input<typeof schema>, string> = {
+/**
+ * The environment variable behind each setting.
+ *
+ * Exported so the documented surface — `.env.example`, which this file and the
+ * CLI both point operators at — can be checked against it rather than kept in
+ * step by hand. A control an operator cannot find in that file is a control
+ * they do not know they have.
+ */
+export const ENV_KEYS: Record<keyof z.input<typeof schema>, string> = {
   environment: "PV_ENV",
   serviceName: "PV_SERVICE_NAME",
   httpPort: "PV_HTTP_PORT",
@@ -200,6 +226,7 @@ const ENV_KEYS: Record<keyof z.input<typeof schema>, string> = {
   externalAgentMaxSpendCeilingUsd: "PV_EXTERNAL_AGENT_MAX_SPEND_CEILING_USD",
   externalRefuseBearerWhenStrong: "PV_EXTERNAL_REFUSE_BEARER_WHEN_STRONG",
   externalJwksPath: "PV_EXTERNAL_JWKS_PATH",
+  requireVerifiedStatutoryRules: "PV_REQUIRE_VERIFIED_STATUTORY_RULES",
   auditRetentionDays: "PV_AUDIT_RETENTION_DAYS",
   demoSeed: "PV_DEMO_SEED",
 };
@@ -281,6 +308,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
 
+  if (isProductionLike && !config.requireVerifiedStatutoryRules) {
+    throw new ConfigError(
+      `PV_REQUIRE_VERIFIED_STATUTORY_RULES must not be disabled in ${config.environment}. Every statutory rule this platform ships is unverified placeholder data; computing a rescission deadline from it and letting somebody act on the answer is the one failure this product cannot absorb. Verify the rule table with counsel and mark the rows verified instead.`,
+      { environment: config.environment },
+    );
+  }
+
   if (config.modelProvider === "anthropic" && !config.anthropicApiKey) {
     throw new ConfigError("PV_MODEL_PROVIDER=anthropic requires PV_ANTHROPIC_API_KEY.", {});
   }
@@ -334,6 +368,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (config.egressAllowlist.length === 0) {
     warnings.push(
       "EGRESS: PV_EGRESS_ALLOWLIST is empty, so every outbound integration call will be refused.",
+    );
+  }
+  if (!config.requireVerifiedStatutoryRules) {
+    warnings.push(
+      "STATUTORY RULES: PV_REQUIRE_VERIFIED_STATUTORY_RULES is off, so this deployment will compute rescission deadlines from UNVERIFIED placeholder rules and return a number rather than refusing. Nobody may act on those dates.",
     );
   }
   if (config.externalAgentsEnabled && !config.externalRefuseBearerWhenStrong) {

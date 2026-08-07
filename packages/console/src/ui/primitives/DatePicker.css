@@ -1,0 +1,166 @@
+/* DatePicker — the typed field and the calendar it can also be picked from.
+
+   The field comes first in every sense. An operator working a queue types
+   "12 Jun" in about a second; finding it in a grid takes four or five. The
+   calendar is for the cases typing cannot answer — "which Monday is that",
+   "how far is that from the deadline" — and it is drawn to answer those:
+   always six rows, today marked, out-of-range days visibly out. */
+
+.pv-ui-calendar {
+  padding: var(--pv-space-12);
+}
+
+.pv-ui-calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pv-space-8);
+  margin-block-end: var(--pv-space-8);
+}
+
+.pv-ui-calendar-month {
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-ui-calendar-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--pv-control-height-sm);
+  height: var(--pv-control-height-sm);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius-control);
+  background: none;
+  color: var(--pv-content-secondary);
+  cursor: pointer;
+}
+
+.pv-ui-calendar-step:hover:not(:disabled) {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+.pv-ui-calendar-step:disabled {
+  color: var(--pv-content-tertiary);
+  cursor: not-allowed;
+}
+
+.pv-ui-calendar-grid {
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.pv-ui-calendar-weekday {
+  padding-block-end: var(--pv-space-4);
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+.pv-ui-calendar-cell {
+  padding: 0;
+}
+
+.pv-ui-calendar-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pv-control-height-md);
+  height: var(--pv-control-height-md);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius-control);
+  background: none;
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+/* Days from the neighbouring months stay on screen and stay clickable — an
+   operator looking at the end of June is often looking for the first of July —
+   but they recede so the month being read is obvious at a glance. */
+.pv-ui-calendar-day[data-outside="true"] {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-ui-calendar-day:hover:not(:disabled) {
+  background-color: var(--pv-bg-subtle);
+}
+
+/* `aria-disabled`, not `disabled`: a natively disabled button cannot be
+   focused, and the roving tabindex that makes this grid one tab stop would
+   strand the keyboard on a day it could not leave. Out-of-range days stay
+   reachable, are announced as unavailable, and refuse the click. */
+.pv-ui-calendar-day[aria-disabled="true"] {
+  color: var(--pv-content-tertiary);
+  cursor: not-allowed;
+  /* Struck through, not merely dimmed: "outside the allowed window" and "in
+     another month" are different facts and must not look the same. */
+  text-decoration: line-through;
+}
+
+.pv-ui-calendar-day[aria-disabled="true"]:hover {
+  background-color: transparent;
+}
+
+/* Today is a ring; the chosen day is a fill. Two different marks, so the two
+   can be told apart when they are different days and when they are the same
+   one — and neither is only a colour. */
+.pv-ui-calendar-day[data-today="true"] {
+  border-color: var(--pv-border-control);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-ui-calendar-day[aria-pressed="true"] {
+  border-color: var(--pv-accent);
+  background-color: var(--pv-accent);
+  color: var(--pv-accent-contrast);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-ui-calendar-day[aria-pressed="true"]:hover {
+  background-color: var(--pv-accent-hover);
+}
+
+/* The row under the grid: what today is, and a way back to it. A calendar an
+   operator has paged three months into needs an exit that is not "page back
+   three times". */
+.pv-ui-calendar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pv-space-8);
+  margin-block-start: var(--pv-space-8);
+  padding-block-start: var(--pv-space-8);
+  border-block-start: 1px solid var(--pv-border-subtle);
+}
+
+.pv-ui-calendar-today {
+  width: auto;
+  padding-inline: var(--pv-space-8);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+}
+
+.pv-ui-calendar-hint {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  font-variant-numeric: tabular-nums;
+}

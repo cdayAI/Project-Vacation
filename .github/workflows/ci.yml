@@ -202,3 +202,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+
+      # The one budget from design-spec §7 that CI can measure without a
+      # browser harness. It bounds the other five from below: no route change
+      # is under 100ms on a property network if reaching the route costs
+      # 400KB. See tools/check-bundle-budget.mjs for what this does not cover.
+      - name: Console transfer-size budget
+        run: node tools/check-bundle-budget.mjs

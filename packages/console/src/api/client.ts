@@ -1,8 +1,11 @@
 import type {
   ApprovalView,
+  ApprovalDetailView,
   AuditEntryView,
   AuditVerificationView,
   ContainmentView,
+  CorrectionRequest,
+  CorrectionView,
   DenialView,
   DiscoveryCandidateView,
   ExecutiveView,
@@ -16,9 +19,11 @@ import type {
   RoleView,
   RunDetailView,
   RunStatus,
+  SavedView,
   SessionView,
   WorkflowInstanceView,
-  WorkQueueItem,
+  WorkQueuePage,
+  WorkQueueSort,
 } from "./contract";
 
 /**
@@ -84,9 +89,24 @@ export interface ListQuery {
   readonly offset?: number;
 }
 
+/**
+ * The work queue's filter set.
+ *
+ * Every field here is a query parameter rather than browser state, because
+ * §3.1 of the design specification requires a filtered view to survive being
+ * pasted into a ticket. The server refuses an unknown value rather than
+ * ignoring it: a mistyped status that silently widened the result set would
+ * answer a different question from the one the URL says was asked.
+ */
 export interface WorkQueueQuery extends ListQuery {
   readonly status?: readonly RunStatus[];
+  readonly kind?: readonly string[];
   readonly mode?: readonly OperatingMode[];
+  /** An actor id, or the literal `unassigned`. */
+  readonly assignee?: string;
+  readonly breaching?: boolean;
+  readonly view?: SavedView;
+  readonly sort?: WorkQueueSort;
 }
 
 export interface ApprovalDecision {
@@ -142,15 +162,38 @@ export interface RequestOptions {
 export interface ConsoleClient {
   session(options?: RequestOptions): Promise<Outcome<SessionView>>;
   health(options?: RequestOptions): Promise<Outcome<HealthView>>;
-  workQueue(query?: WorkQueueQuery, options?: RequestOptions): Promise<Outcome<Page<WorkQueueItem>>>;
+  workQueue(query?: WorkQueueQuery, options?: RequestOptions): Promise<Outcome<WorkQueuePage>>;
+  /**
+   * The approval queue.
+   *
+   * Returns queue rows, not full decision context. The evidence, the artifact
+   * preview, and the prior-decision lookback are per-approval reads served by
+   * `approval()`; running them for every row nobody has opened would make the
+   * queue slow in proportion to how good the detail screen is.
+   */
   approvals(query?: ListQuery, options?: RequestOptions): Promise<Outcome<Page<ApprovalView>>>;
-  approval(approvalId: string, options?: RequestOptions): Promise<Outcome<ApprovalView>>;
+  approval(approvalId: string, options?: RequestOptions): Promise<Outcome<ApprovalDetailView>>;
   decideApproval(
     approvalId: string,
     decision: ApprovalDecision,
     options?: RequestOptions,
-  ): Promise<Outcome<ApprovalView>>;
+  ): Promise<Outcome<ApprovalDetailView>>;
   run(runId: string, options?: RequestOptions): Promise<Outcome<RunDetailView>>;
+  /**
+   * "Correct this" on a step: a person disagreeing with what the platform did.
+   *
+   * A write, and therefore never retried here. It reaches exactly one stage of
+   * the improvement loop — the correction is recorded as an observation tied to
+   * the run, and stops there. Nothing on this path can change the platform's
+   * behaviour: that needs a proposal, a measured evaluation, and a recorded
+   * human approval, and no configuration removes the gate (ADR 0011).
+   */
+  correctStep(
+    runId: string,
+    stepId: string,
+    correction: CorrectionRequest,
+    options?: RequestOptions,
+  ): Promise<Outcome<CorrectionView>>;
 
   workflowInstance(
     instanceId: string,
@@ -337,12 +380,17 @@ export function createConsoleClient(options: ClientOptions = {}): ConsoleClient 
     health: (requestOptions) => get<HealthView>("/health", requestOptions),
 
     workQueue: (query = {}, requestOptions) =>
-      get<Page<WorkQueueItem>>(
+      get<WorkQueuePage>(
         // The work queue is a filtered view of runs, not a separate
         // resource; the server route is /api/runs.
         `/runs${buildQuery({
           status: query.status,
+          kind: query.kind,
           mode: query.mode,
+          assignee: query.assignee,
+          breaching: query.breaching,
+          view: query.view,
+          sort: query.sort,
           limit: query.limit,
           offset: query.offset,
         })}`,
@@ -356,10 +404,10 @@ export function createConsoleClient(options: ClientOptions = {}): ConsoleClient 
       ),
 
     approval: (approvalId, requestOptions) =>
-      get<ApprovalView>(`/approvals/${encodeURIComponent(approvalId)}`, requestOptions),
+      get<ApprovalDetailView>(`/approvals/${encodeURIComponent(approvalId)}`, requestOptions),
 
     decideApproval: (approvalId, decision, requestOptions) =>
-      post<ApprovalView>(
+      post<ApprovalDetailView>(
         `/approvals/${encodeURIComponent(approvalId)}/decisions`,
         { decision: decision.decision, note: decision.note },
         decision.idempotencyKey,
@@ -368,6 +416,20 @@ export function createConsoleClient(options: ClientOptions = {}): ConsoleClient 
 
     run: (runId, requestOptions) =>
       get<RunDetailView>(`/runs/${encodeURIComponent(runId)}`, requestOptions),
+
+    correctStep: (runId, stepId, correction, requestOptions) =>
+      post<CorrectionView>(
+        `/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/corrections`,
+        {
+          signature: correction.signature,
+          note: correction.note,
+          correctionMinutes: correction.correctionMinutes,
+          before: correction.before,
+          after: correction.after,
+        },
+        correction.idempotencyKey,
+        requestOptions,
+      ),
 
     workflowInstance: (instanceId, requestOptions) =>
       get<WorkflowInstanceView>(

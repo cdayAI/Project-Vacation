@@ -1,0 +1,286 @@
+/* =============================================================================
+   Table.
+
+   THERE IS NO TRANSITION ON A ROW IN THIS FILE, AND ADDING ONE IS A DEFECT.
+   Spec §1.6: sorting re-renders instantly. An animated sort makes the operator
+   wait to read the answer they already asked for, and at 10,000 rows it is also
+   10,000 elements handed to the compositor for no reason.
+   ========================================================================== */
+
+.pv-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  /* Fills whatever it is given. A table with a height of its own is a table
+     that either clips its own scrollbar or leaves a gap under it. */
+  block-size: 100%;
+}
+
+/* -----------------------------------------------------------------------------
+   Toolbar
+   -------------------------------------------------------------------------- */
+
+.pv-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pv-space-12);
+  padding-bottom: var(--pv-space-8);
+  flex: none;
+}
+
+/* The persistent row count (spec §3.1). A live region, so filtering a queue
+   announces the new total without the operator hunting for it. */
+.pv-table-count {
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-table-toolbar-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+}
+
+/* -----------------------------------------------------------------------------
+   Scroller and grid
+   -------------------------------------------------------------------------- */
+
+.pv-table-scroller {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  overflow: auto;
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface);
+  /* Reaching the end of a 10,000-row list must not start scrolling the page
+     behind it. */
+  overscroll-behavior: contain;
+}
+
+.pv-table-grid {
+  inline-size: 100%;
+  /* Fixed, because the columns have explicit widths and because a browser
+     measuring content to size 10,000 rows of columns is the slowest thing a
+     table can be asked to do. base.css collapses borders on every table; a
+     collapsed border cannot be sticky, so the header would lose its underline
+     the moment it scrolled. */
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+
+/* `position: sticky` is also what anchors the absolutely positioned resize
+   handle — it establishes a containing block, so there is no `position:
+   relative` here and adding one would cancel the stickiness. */
+.pv-table-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  background-color: var(--pv-surface);
+  text-align: start;
+  /* Drawn as an inset shadow rather than a border: a sticky cell's own border
+     is painted at its original position and scrolls away with the content. */
+  box-shadow: inset 0 -1px 0 var(--pv-border-subtle);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+}
+
+.pv-table-header.pv-table-numeric {
+  text-align: end;
+}
+
+.pv-table-header-label {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The button fills the cell so the target is the header, not the glyph. */
+.pv-table-sort {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  inline-size: 100%;
+  min-block-size: var(--pv-control-height-md);
+  padding: 0 var(--pv-space-12);
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+}
+
+.pv-table-numeric .pv-table-sort {
+  justify-content: flex-end;
+}
+
+.pv-table-sort:hover {
+  color: var(--pv-content-primary);
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-table-sort:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: calc(var(--pv-focus-ring-offset) * -1);
+}
+
+/* Always present, so the header does not reflow when a column becomes sorted.
+   Spec §7 puts cumulative layout shift at zero on the hot paths, and a column
+   that jumps sideways when you sort it is the cheapest way to fail that. */
+.pv-table-sort-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--pv-content-tertiary);
+}
+
+.pv-table-sort-mark[data-sorted] {
+  color: var(--pv-accent);
+}
+
+/* One chevron, turned round. An icon that is another icon rotated is a
+   transform rather than a second drawing to keep in step. */
+.pv-table-sort-ascending {
+  transform: rotate(180deg);
+}
+
+.pv-table-header[aria-sort="ascending"],
+.pv-table-header[aria-sort="descending"] {
+  color: var(--pv-content-primary);
+}
+
+/* -----------------------------------------------------------------------------
+   Rows
+   -------------------------------------------------------------------------- */
+
+.pv-table-row {
+  /* Exact, and equal to --pv-row-height, because the virtualizer computes every
+     offset from it. Table.test.tsx asserts the JavaScript constant and this
+     token still agree. */
+  block-size: var(--pv-row-height);
+}
+
+/* Hover raises to bg-subtle. No shadow, no lift, no scale (spec §3.1) — a row
+   that moves under the pointer makes a dense list feel unstable. */
+.pv-table-row:hover > * {
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-table-row:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: calc(var(--pv-focus-ring-offset) * -1);
+}
+
+.pv-table-row[data-active] > * {
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-table-cell {
+  padding: 0 var(--pv-space-12);
+  border-block-end: 1px solid var(--pv-border-subtle);
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+  font-weight: var(--pv-type-body-weight);
+  /* A row is a fixed height and the virtualizer depends on it, so content that
+     would wrap is clipped instead of pushing the row taller. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: start;
+}
+
+.pv-table-numeric {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A 2px leading accent bar on the selected row (spec §3.1). Drawn as an inset
+   shadow on the first cell so it does not change the row's box and therefore
+   cannot shift a single pixel of the layout. */
+.pv-table-row[data-selected] > *:first-child {
+  box-shadow: inset 2px 0 0 var(--pv-accent);
+}
+
+.pv-table-row[data-selected] > * {
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-table-spacer {
+  /* Geometry, not content. Its height arrives as an inline style because it is
+     a row count times a row height. */
+  padding: 0;
+  border: none;
+}
+
+.pv-table-state {
+  padding: var(--pv-space-24);
+  color: var(--pv-content-secondary);
+  text-align: start;
+}
+
+/* -----------------------------------------------------------------------------
+   Column chooser
+   -------------------------------------------------------------------------- */
+
+.pv-table-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv-table-column-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pv-space-12);
+  min-block-size: var(--pv-control-height-md);
+}
+
+.pv-table-column-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  min-width: 0;
+  cursor: pointer;
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-table-column-toggle:has(input:disabled) {
+  cursor: default;
+  color: var(--pv-content-tertiary);
+}
+
+.pv-table-column-move {
+  display: flex;
+  gap: var(--pv-space-4);
+  flex: none;
+}
+
+/* One chevron, rotated, rather than two icons. There is no chevron-up in the
+   primitive set on purpose: an icon that is another icon turned round is a
+   transform, not a drawing. */
+.pv-table-column-move-up {
+  transform: rotate(180deg);
+}

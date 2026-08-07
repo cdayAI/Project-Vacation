@@ -1,0 +1,87 @@
+/* Callout — a bordered block that states a consequence.
+
+   The class is `pv-notice` rather than `pv-callout` on purpose: the superseded
+   component in src/components still ships that class name to the screens that
+   have not been rebuilt yet, and two stylesheets fighting over one selector is
+   a bug that only appears on the screens where both happen to render.
+
+   The border is the boundary of a claim, so it uses the tone's own border
+   token, which clears 3:1 on every surface in both themes. border-subtle would
+   be structure; this is meaning. */
+
+.pv-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pv-space-12);
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-tone-border);
+  border-radius: var(--pv-radius-card);
+  color: var(--pv-content-primary);
+}
+
+/* The default. Spec §3.2 puts the "If you approve" block in a strong border
+   with no fill: it is the most important paragraph on the screen and it must
+   not read as a notification banner. */
+.pv-notice[data-emphasis="outline"] {
+  background-color: var(--pv-surface);
+  border-color: var(--pv-border-strong);
+}
+
+.pv-notice[data-emphasis="tinted"] {
+  background-color: var(--pv-tone-surface);
+}
+
+.pv-notice-mark {
+  display: flex;
+  flex: none;
+  /* Optically centred on the first line of the title rather than on the box: a
+     mark centred on a three-line callout floats in the middle of the prose. */
+  padding-block-start: calc((var(--pv-type-body-line) - var(--pv-space-16)) / 2);
+  color: var(--pv-tone-text);
+}
+
+.pv-notice-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  min-width: 0;
+}
+
+.pv-notice-title {
+  margin: 0;
+  max-width: var(--pv-reading-measure);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  color: var(--pv-content-primary);
+}
+
+.pv-notice-body {
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+/* Consequences arrive as a short list far more often than as a paragraph, so
+   the list styling lives here rather than being re-invented at every call. */
+.pv-notice-body ul,
+.pv-notice-body ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  margin: 0;
+  padding-inline-start: var(--pv-space-20);
+}
+
+.pv-notice-body li::marker {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-8);
+  padding-block-start: var(--pv-space-4);
+}

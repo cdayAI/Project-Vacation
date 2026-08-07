@@ -1,0 +1,63 @@
+/* Skeleton — the shape of what is coming, but only past 300ms.
+
+   Two rules from the specification meet here and appear to contradict each
+   other: skeletons only past 300ms (§7), and cumulative layout shift of zero on
+   the hot paths (§7 again). Showing nothing for 300ms and then a block of bars
+   would shift the page; reserving the space and painting the bars immediately
+   would flash on every fast response.
+
+   The resolution is that the *box* is reserved from the first frame and the
+   *bars* fade in at the threshold. A response that arrives in 90ms replaces an
+   empty box of the right size with content of the right size: no flash, and
+   nothing moves. */
+
+.pv-ui-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+}
+
+.pv-ui-skeleton-bar {
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-bg-subtle);
+  opacity: 0;
+}
+
+.pv-ui-skeleton[data-shown="true"] .pv-ui-skeleton-bar {
+  opacity: 1;
+  background-image: linear-gradient(
+    90deg,
+    var(--pv-bg-subtle) 0%,
+    var(--pv-surface-raised) 50%,
+    var(--pv-bg-subtle) 100%
+  );
+  background-size: 200% 100%;
+  /* Derived from the page duration rather than picked: one sweep per four page
+     transitions is slow enough to read as waiting rather than as activity. */
+  animation: pv-ui-skeleton-sweep calc(var(--pv-motion-page) * 5) var(--pv-ease-entry) infinite;
+}
+
+.pv-ui-skeleton[data-radius="card"] .pv-ui-skeleton-bar {
+  border-radius: var(--pv-radius-card);
+}
+
+.pv-ui-skeleton[data-radius="pill"] .pv-ui-skeleton-bar {
+  border-radius: var(--pv-radius-pill);
+}
+
+@keyframes pv-ui-skeleton-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* theme/motion.css caps every animation at 80ms and one iteration, which would
+   leave the sweep frozen mid-gradient. Under reduced motion the bars are flat
+   and still — a placeholder does not need to move to be understood. */
+.pv-ui-skeleton[data-static="true"] .pv-ui-skeleton-bar {
+  background-image: none;
+  animation: none;
+}

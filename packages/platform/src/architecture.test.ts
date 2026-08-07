@@ -69,6 +69,12 @@ const LAYERS: Readonly<Record<string, number>> = {
   demo: 6,
   api: 7,
   cli: 8,
+  // The verification pass's own tests and their shared harness. Outermost on
+  // purpose: a review test composes whatever it needs to attack, up to and
+  // including the CLI and the API, and nothing in the product may import from
+  // here. Placing it above `cli` states that direction rather than leaving the
+  // directory undeclared, which would exempt it from the check entirely.
+  review: 9,
 };
 
 /**

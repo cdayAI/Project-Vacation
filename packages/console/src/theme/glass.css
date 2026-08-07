@@ -1,0 +1,276 @@
+/* =============================================================================
+   Glass — the recipe. Implements §1.5 of docs/design/design-spec.md.
+   =============================================================================
+
+   Glass goes on every *container*: the rail, the top bar, the context panel,
+   popovers, sheets, modals, toasts, cards, panels, toolbars, callouts, metric
+   tiles, and the scroll container a table sits in. It does not go on any
+   element that repeats — a row, a cell, a badge, a chip. A `backdrop-filter`
+   is a full-surface repaint, and this console's tables run to ten thousand
+   rows: one filter per row is the difference between a table that scrolls and
+   a table that does not. **Containers blur, contents tint.**
+
+   That is a deliberate widening of the original §1.5 rule, which confined
+   glass to chrome and overlays. The owner asked for the maximum, and the
+   maximum is bounded by two things this file does not get to move: the
+   measured contrast floor, and the operator's reduced-transparency
+   preference. Both are below.
+
+   Three rules this file can enforce, and one it cannot:
+
+     - Light and dark are separate value sets. Dark glass is not light glass
+       inverted: it needs a darker tint, more blur, less saturation, and a much
+       weaker top highlight, because inverting the light recipe on a dark page
+       produces a grey fog with a white rim.
+     - Reduced transparency swaps every glass surface for a designed solid —
+       surface-raised, border-subtle, elevation 2 — by redefining the same
+       tokens. No component needs a second class or a conditional, so a screen
+       cannot be built that only works with transparency on.
+     - Text on glass sits on a scrim. .pv-glass-scrim is a solid child at 92%,
+       which is the container text belongs in. Contrast for text on glass is
+       measured against the composite — glass over the page background — in
+       theme/tokens.test.ts, not against the panel token, because measuring
+       against the panel token is the single most common way a glass interface
+       passes review and fails a real audit. **The panel tint got more
+       translucent and the scrim did not.** The scrim is the reason the
+       measured number is trustworthy; spending it to make the glass prettier
+       would leave the contrast test passing against a surface nothing is
+       drawn on.
+
+   The rule this file cannot enforce is how many blurred surfaces are on screen
+   at once. Nesting is handled — a glass surface inside another does not blur
+   twice, see the rule at the foot of this file — but a screen that stacks a
+   sheet over a popover over the panel is three live filters and only the
+   person building it can count them.
+   ========================================================================== */
+
+/* -----------------------------------------------------------------------------
+   Light
+   -------------------------------------------------------------------------- */
+
+:root {
+  --pv-glass-bg: rgba(255, 255, 255, 0.58);
+  --pv-glass-blur: blur(32px) saturate(200%);
+  --pv-glass-border-color: rgba(16, 20, 28, 0.09);
+  --pv-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  /* The second half of the lens. A glass edge is not a line, it is a
+     thickness: light enters at the top and pools at the bottom, and without
+     the lower inner shadow the panel reads as a flat tinted rectangle. */
+  --pv-glass-lens: inset 0 -1px 0 rgba(16, 20, 28, 0.06);
+  --pv-glass-sheen: rgba(255, 255, 255, 0.55);
+  --pv-glass-rim: rgba(255, 255, 255, 0.5);
+  --pv-glass-scrim: rgba(255, 255, 255, 0.92);
+}
+
+/* -----------------------------------------------------------------------------
+   Dark — separate values, not an inversion
+   -------------------------------------------------------------------------- */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pv-glass-bg: rgba(22, 25, 31, 0.5);
+    --pv-glass-blur: blur(36px) saturate(150%);
+    --pv-glass-border-color: rgba(255, 255, 255, 0.1);
+    --pv-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+    --pv-glass-lens: inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+    --pv-glass-sheen: rgba(255, 255, 255, 0.09);
+    --pv-glass-rim: rgba(255, 255, 255, 0.12);
+    --pv-glass-scrim: rgba(26, 29, 35, 0.92);
+  }
+}
+
+:root[data-theme="dark"] {
+  --pv-glass-bg: rgba(22, 25, 31, 0.5);
+  --pv-glass-blur: blur(36px) saturate(150%);
+  --pv-glass-border-color: rgba(255, 255, 255, 0.1);
+  --pv-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  --pv-glass-lens: inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+  --pv-glass-sheen: rgba(255, 255, 255, 0.09);
+  --pv-glass-rim: rgba(255, 255, 255, 0.12);
+  --pv-glass-scrim: rgba(26, 29, 35, 0.92);
+}
+
+/* -----------------------------------------------------------------------------
+   Reduced transparency — a designed surface, not a degraded one
+   -------------------------------------------------------------------------- */
+
+/* The system preference is spelled out against all three theme selectors
+   rather than left on a bare :root. `:root[data-theme="dark"]` above has two
+   selector components; a bare `:root` here has one and would lose to it, so an
+   operator on a dark theme who has asked their OS for reduced transparency
+   would still get glass. Matching the specificity and coming later is what
+   makes the swap actually happen. */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  :root[data-theme="dark"],
+  :root[data-theme="light"] {
+    --pv-glass-bg: var(--pv-surface-raised);
+    --pv-glass-blur: none;
+    --pv-glass-border-color: var(--pv-border-subtle);
+    /* Not `none`: this value is one item in a box-shadow list, and `none`
+       inside a list is invalid and would drop the elevation with it. */
+    --pv-glass-highlight: inset 0 0 0 0 transparent;
+    --pv-glass-lens: inset 0 0 0 0 transparent;
+    --pv-glass-sheen: transparent;
+    --pv-glass-rim: transparent;
+    --pv-glass-scrim: var(--pv-surface-raised);
+  }
+}
+
+/* The in-app preference. There is deliberately no "force transparency on"
+   value: reduction is a floor, not a toggle. An operator can ask for less
+   transparency than their OS does, never for more — an application that can
+   override an accessibility preference upward will eventually do it by
+   accident. See theme/preferences.ts. */
+:root[data-transparency="reduced"] {
+  --pv-glass-bg: var(--pv-surface-raised);
+  --pv-glass-blur: none;
+  --pv-glass-border-color: var(--pv-border-subtle);
+  --pv-glass-highlight: inset 0 0 0 0 transparent;
+  --pv-glass-lens: inset 0 0 0 0 transparent;
+  --pv-glass-sheen: transparent;
+  --pv-glass-rim: transparent;
+  --pv-glass-scrim: var(--pv-surface-raised);
+}
+
+/* -----------------------------------------------------------------------------
+   The recipe
+   -------------------------------------------------------------------------- */
+
+.pv-glass {
+  position: relative;
+  background-color: var(--pv-glass-bg);
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+  border: 1px solid var(--pv-glass-border-color);
+  box-shadow: var(--pv-glass-highlight), var(--pv-glass-lens), var(--pv-elevation-2);
+  /* The blurred backdrop has to be clipped to the panel's own radius or it
+     bleeds square corners past a rounded edge. */
+  border-radius: var(--pv-radius-card);
+  isolation: isolate;
+}
+
+/* -----------------------------------------------------------------------------
+   The lens
+
+   What separates glass from a tinted rectangle. Two pseudo-elements, both
+   `pointer-events: none` and both `aria-hidden` by construction — a decorative
+   layer that intercepts a click is a control an operator cannot press.
+
+     ::before  the rim. A hairline of concentrated light around the edge,
+               brightest at the top, which is what makes the panel read as
+               having thickness rather than as a hole cut in the page.
+     ::after   the sheen. A wide, low-contrast specular band across the upper
+               third. Static by default; it only moves on hover, and only for
+               an operator who has not asked for less motion.
+   -------------------------------------------------------------------------- */
+
+.pv-glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    to bottom,
+    var(--pv-glass-rim),
+    transparent 40%,
+    transparent 60%,
+    var(--pv-glass-rim)
+  );
+  /* Draws the gradient in the 1px padding ring only, leaving the fill clear.
+     `mask-composite: exclude` is what turns a filled rectangle into a border. */
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  pointer-events: none;
+}
+
+.pv-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    var(--pv-glass-sheen) 42%,
+    transparent 62%
+  );
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* The one moving part, and it is opt-in twice over: the operator has to point
+   at the surface, and they have to not have asked for reduced motion. Nothing
+   on this console animates on load, on data arrival, or on a timer — a
+   governance console that shimmers while somebody reads a refusal is a
+   console that makes people distrust it. */
+@media (prefers-reduced-motion: no-preference) {
+  .pv-glass::after {
+    transition: opacity var(--pv-motion-slow, 240ms) var(--pv-motion-ease, ease-out);
+  }
+
+  .pv-glass:hover::after {
+    opacity: 0.85;
+  }
+}
+
+/* A glass surface inside another glass surface does not blur twice. Two
+   stacked backdrop-filters cost two full-surface repaints for a difference
+   nobody can see, and on a long screen it is the difference between scrolling
+   at 60fps and not. The inner surface keeps the tint and the lens and drops
+   the filter. */
+.pv-glass .pv-glass {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Where text lives on a glass panel. Solid enough that the measured contrast
+   is the token pair the designer intended rather than whatever happened to
+   scroll underneath. */
+.pv-glass-scrim {
+  background-color: var(--pv-glass-scrim);
+}
+
+/* A browser without backdrop-filter would otherwise render the tint alone —
+   72% white over whatever is behind it, with no blur to separate the two —
+   which is less legible than the solid surface, not more. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pv-glass {
+    background-color: var(--pv-surface-raised);
+    border-color: var(--pv-border-subtle);
+    box-shadow: var(--pv-elevation-2);
+  }
+
+  /* The lens is a lie without the blur behind it: a rim highlight over an
+     opaque panel reads as a rendering artefact, not as glass. */
+  .pv-glass::before,
+  .pv-glass::after {
+    display: none;
+  }
+
+  .pv-glass-scrim {
+    background-color: var(--pv-surface-raised);
+  }
+}
+
+/* Reduced transparency takes the lens with it. The tokens above already go
+   solid, but a rim and a sheen drawn over a designed solid surface is exactly
+   the shimmer the preference exists to remove. */
+@media (prefers-reduced-transparency: reduce) {
+  .pv-glass::before,
+  .pv-glass::after {
+    display: none;
+  }
+}
+
+:root[data-transparency="reduced"] .pv-glass::before,
+:root[data-transparency="reduced"] .pv-glass::after {
+  display: none;
+}

@@ -13,9 +13,9 @@ import type { SecretProvider } from "./port.js";
 /**
  * Outbound HTTP.
  *
- * Nothing in this platform calls `fetch` at an external system directly. Every
- * outbound call comes through here, because seven controls belong on that path
- * and putting them anywhere else means putting them in seven places:
+ * Every outbound call to a **system of record** comes through here, because
+ * seven controls belong on that path and putting them anywhere else means
+ * putting them in seven places:
  *
  *   *Host allowlist.* From configuration, and empty by default — a deployment
  *   that has not been told where it may talk to talks to nobody. This is the
@@ -54,6 +54,25 @@ import type { SecretProvider } from "./port.js";
  * surface. Screening here would be the wrong place — a partner's JSON
  * legitimately contains text that the injection screen scores — so the
  * obligation sits with the adapter that interprets the body.
+ *
+ * **One caller does not come through here, and it is named rather than
+ * implied.** `identity/oidc.ts` calls `fetch` directly twice — the discovery
+ * document and the token endpoint — and `jose`'s `createRemoteJWKSet` fetches
+ * the signing keys on its own. This file used to open by claiming that nothing
+ * in the platform called `fetch` at an external system directly, which was
+ * false the day single sign-on was added and failed no test, because no check
+ * asserted it. `pass10-claims.test.ts` now does, so a *third* direct caller
+ * fails the build and this paragraph has to be updated deliberately.
+ *
+ * Why OIDC is not routed through here rather than merely not routed through
+ * here yet: this client requires a `runId` and records a step before every
+ * call, and a sign-in has no run. The identity provider gets its own controls
+ * instead — the discovery document is validated so that every endpoint must be
+ * HTTPS on the issuer's host, and both calls set `redirect: "manual"` so a 307
+ * cannot walk the client secret to an unvetted host. Those are narrower than
+ * the seven above, and the allowlist in particular does not apply to the
+ * issuer. An operator who expects `PV_EGRESS_ALLOWLIST` to bound every outbound
+ * destination is wrong about the identity provider, and should know it.
  */
 
 export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";

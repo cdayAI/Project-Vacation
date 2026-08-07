@@ -1,0 +1,62 @@
+/* =============================================================================
+   The resize handle.
+
+   The visible grip is a hairline. The hit area is much wider than the hairline,
+   because a 1px target is a target nobody hits — WCAG 2.2 2.5.8 puts the floor
+   at 24 CSS px, and the pointer ergonomics are the same argument in a different
+   language.
+   ========================================================================== */
+
+.pv-resize-separator {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: calc(var(--pv-space-12) * -0.5);
+  inline-size: var(--pv-space-12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  /* Above the header cell's own content so a drag near the edge of a long
+     header label still starts the resize. */
+  z-index: 2;
+  touch-action: none;
+}
+
+.pv-resize-separator[aria-disabled="true"] {
+  cursor: default;
+}
+
+.pv-resize-separator-grip {
+  inline-size: 1px;
+  block-size: 60%;
+  background-color: var(--pv-border-subtle);
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    inline-size var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+/* Hover and active both thicken the grip and take it to the accent, so the
+   thing the operator is about to move is unambiguous before they press. */
+.pv-resize-separator:hover .pv-resize-separator-grip,
+.pv-resize-separator:focus-visible .pv-resize-separator-grip {
+  inline-size: 2px;
+  background-color: var(--pv-accent);
+}
+
+.pv-resize-separator:active .pv-resize-separator-grip {
+  inline-size: 2px;
+  background-color: var(--pv-accent-hover);
+}
+
+.pv-resize-separator[aria-disabled="true"] .pv-resize-separator-grip {
+  background-color: var(--pv-border-subtle);
+  inline-size: 1px;
+}
+
+/* The focus ring is drawn on the hit area rather than the hairline: a 3px ring
+   around a 1px line is a smudge, and around the target it is the target. */
+.pv-resize-separator:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: calc(var(--pv-focus-ring-offset) * -1);
+  border-radius: var(--pv-radius-control);
+}

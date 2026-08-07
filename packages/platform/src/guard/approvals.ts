@@ -184,10 +184,18 @@ export class ApprovalService {
       input.stepUpMaxAgeSeconds !== undefined &&
       input.secondsSinceAuthentication <= input.stepUpMaxAgeSeconds;
 
-    if (input.requiresStepUp && !steppedUp) {
+    // Step-up gates granting, not rejecting.
+    //
+    // A rejection is the safe direction — it stops the action — and requiring
+    // re-authentication to stop something has the shape of a control while
+    // acting as an obstacle: the work stays pending, which is the outcome the
+    // requirement was trying to prevent. Whoever is refusing is still
+    // authenticated and still role-checked above; what they are not being asked
+    // for is a second proof in order to say no.
+    if (input.decision === "granted" && input.requiresStepUp && !steppedUp) {
       throw new DeniedError(
         "authorization.step_up_required",
-        `Approving "${request.action}" requires re-authentication within the last ${input.stepUpMaxAgeSeconds ?? 0}s.`,
+        `Approving "${request.action}" requires re-authentication within the last ${input.stepUpMaxAgeSeconds ?? 0}s, and this platform has not observed one. A high-consequence approval is refused rather than recorded as if a re-authentication happened.`,
         { approvalId: request.id, actorId: input.actor.actorId },
       );
     }
@@ -250,6 +258,16 @@ export class ApprovalService {
     readonly expectedProposalDigest: Digest;
     readonly runId?: Id<"run">;
     readonly actor: ActorRef;
+    /**
+     * The action this approval is about to be spent on.
+     *
+     * Optional only because not every caller has a registered action name to
+     * check against. When supplied it is verified *here*, before the
+     * compare-and-set, because consuming is destructive: an approval presented
+     * against the wrong action must be refused without costing the approver
+     * their decision.
+     */
+    readonly expectedAction?: string;
   }): Promise<ApprovalRequest> {
     const request = await this.store.getApproval(input.approvalId);
     if (!request) {
@@ -266,6 +284,20 @@ export class ApprovalService {
         "approval.digest_mismatch",
         `Approval ${request.id} authorised a different proposal. What was approved is not what is about to be done.`,
         { approvalId: request.id, action: request.action },
+      );
+    }
+
+    // A granted approval for a cheap action must not be redeemable against an
+    // expensive one. A proposal digest is not a secret — it is on the approval
+    // record the console renders and in `inputDigests.proposal` on every audit
+    // entry about it — so a caller holding a digest can present it against a
+    // different registered action. Refusing here rather than after consumption
+    // is what stops that refusal from destroying the approval on its way past.
+    if (input.expectedAction !== undefined && request.action !== input.expectedAction) {
+      throw new DeniedError(
+        "approval.digest_mismatch",
+        `Approval ${request.id} was raised for "${request.action}", not "${input.expectedAction}".`,
+        { approvalId: request.id, action: input.expectedAction },
       );
     }
 
@@ -335,7 +367,15 @@ export class ApprovalService {
     return this.store.listApprovals(filter);
   }
 
-  /** Sweep expired approvals. Called by the scheduler and by the CLI. */
+  /**
+   * Sweep expired approvals.
+   *
+   * Called by the `approvals.expire` pass of the maintenance loop, which is
+   * `pv worker`, and by nothing else. This used to say "the scheduler and the
+   * CLI", at a time when there was neither a scheduler nor a CLI verb that
+   * called it — so approvals never expired anywhere, and the sentence was the
+   * reason nobody checked.
+   */
   async expireDue(): Promise<readonly ApprovalRequest[]> {
     const expired = await this.store.expireApprovals(this.clock.nowIso());
     for (const request of expired) {

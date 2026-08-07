@@ -1,0 +1,156 @@
+/* Switch — a setting that takes effect immediately.
+
+   That is the whole distinction from Checkbox, and it decides where each one is
+   used: a checkbox is an answer that gets saved with the form, a switch is a
+   change that happens the moment it is flipped. Using a switch for something
+   that needs a Save button is how an operator ends up believing they turned
+   something off when they did not.
+
+   The state is written beside the track as a word. A switch is the control most
+   often misread — several usability studies and one regulator questionnaire
+   later, "is left on or off?" is still a real question — and the word costs one
+   line of markup. */
+
+.pv-ui-switch {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  column-gap: var(--pv-space-12);
+}
+
+.pv-ui-switch-body {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.pv-ui-switch-label {
+  display: block;
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-ui-switch-hint {
+  display: block;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  max-width: var(--pv-reading-measure);
+}
+
+.pv-ui-switch-state {
+  grid-column: 2;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  /* The two words are different lengths; without a floor the track jumps
+     sideways every time the switch is flipped. */
+  min-width: var(--pv-space-24);
+  text-align: end;
+}
+
+.pv-ui-switch-track {
+  position: relative;
+  grid-column: 3;
+  flex: none;
+  width: var(--pv-space-40);
+  height: var(--pv-space-20);
+  padding: 0;
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-bg-subtle);
+  cursor: pointer;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    border-color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+/* The track is 20px tall, below the 24×24 minimum, so the hit area is grown
+   past the paint the same way the checkbox does it. */
+.pv-ui-switch-track::before {
+  content: "";
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  width: 100%;
+  height: var(--pv-target-min);
+  transform: translate(-50%, -50%);
+}
+
+/* Scoped to the button form. The read-only track is a span, and a hover
+   response on something that cannot be pressed is an affordance that lies. */
+button.pv-ui-switch-track:hover:not(:disabled) {
+  border-color: var(--pv-content-tertiary);
+}
+
+.pv-ui-switch-track[aria-checked="true"] {
+  border-color: var(--pv-accent);
+  background-color: var(--pv-accent);
+}
+
+.pv-ui-switch-track:disabled {
+  border-color: var(--pv-border-subtle);
+  background-color: var(--pv-bg-subtle);
+  cursor: not-allowed;
+}
+
+.pv-ui-switch-track:disabled[aria-checked="true"] {
+  background-color: var(--pv-content-tertiary);
+  border-color: var(--pv-content-tertiary);
+}
+
+.pv-ui-switch-thumb {
+  position: absolute;
+  inset-block-start: 50%;
+  /* 2px each side, derived: half the difference between track and thumb. */
+  inset-inline-start: calc((var(--pv-space-20) - var(--pv-space-16)) / 2);
+  width: var(--pv-space-16);
+  height: var(--pv-space-16);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-surface);
+  box-shadow: var(--pv-elevation-1);
+  /* Travel = track − thumb − both insets = 40 − 16 − 4. */
+  transform: translate(0, -50%);
+  transition: transform var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-ui-switch-track[aria-checked="true"] .pv-ui-switch-thumb {
+  background-color: var(--pv-accent-contrast);
+  transform: translate(var(--pv-space-20), -50%);
+}
+
+/* -----------------------------------------------------------------------------
+   Read-only
+   -------------------------------------------------------------------------- */
+
+/* The track keeps its shape so the row still reads as a setting, and loses its
+   fill so it does not read as something to press. The word carries the state. */
+.pv-ui-switch[data-readonly="true"] .pv-ui-switch-track,
+.pv-ui-switch[data-readonly="true"] .pv-ui-switch-track[data-checked="true"] {
+  border-color: var(--pv-border-subtle);
+  background-color: transparent;
+  cursor: default;
+}
+
+.pv-ui-switch[data-readonly="true"] .pv-ui-switch-thumb {
+  background-color: var(--pv-content-tertiary);
+  box-shadow: none;
+}
+
+.pv-ui-switch[data-readonly="true"] .pv-ui-switch-track[data-checked="true"] .pv-ui-switch-thumb {
+  background-color: var(--pv-content-primary);
+  transform: translate(var(--pv-space-20), -50%);
+}
+
+.pv-ui-switch-error {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  color: var(--pv-status-danger);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

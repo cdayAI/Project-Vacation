@@ -451,7 +451,11 @@ export class AdmissionService {
         externalAgentId: agent.id,
         agentName: agent.name,
         hostPlatform: agent.hostPlatform,
-        owner: agent.owner,
+        // The accountable owner is deliberately NOT here. It is an email
+        // address, the chain is append-only and kept for seven years, and
+        // `externalAgentId` already resolves to the registry entry that names
+        // them — which is editable when somebody changes job. An identifier
+        // that resolves is worth more in this record than a copy that rots.
         department: agent.department,
         tool: request.tool,
         effectiveRisk,
@@ -558,13 +562,41 @@ function boundsCheck(request: AdmissionRequest): string | null {
   return null;
 }
 
+/**
+ * Reduce an agent-supplied subject map to opaque references.
+ *
+ * The keys are kept — an operator needs to know an entry was about an owner
+ * rather than a contract — and every **value** becomes a digest, because the
+ * values are free text a third party composes and this map lands in an
+ * append-only chain kept for seven years.
+ *
+ * `{"ownerEmail":"jane.doe@example.com"}` used to land verbatim. Worse, it did
+ * so on the *denial* path, which needs no valid tool grant: any enrolled agent
+ * with working credentials could write whatever it liked into the record simply
+ * by making requests that failed.
+ *
+ * Digesting rather than refusing is deliberate. Refusing the audit write would
+ * refuse the action, which on the denial path means an agent could make its own
+ * refusal unrecordable by choosing the right subject — trading a data-protection
+ * problem for an accountability one. A digest still joins: the same owner
+ * reference produces the same value in every entry, so an investigator can
+ * follow one subject across the chain without the chain holding who they are.
+ *
+ * An id-shaped value is left alone. Those are what the record is *for*, they
+ * are already opaque, and digesting `con_1001` would make the log unreadable to
+ * the operator it exists to serve.
+ */
+const OPAQUE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+
 function boundedSubject(
   subject: Readonly<Record<string, string>> | undefined,
 ): Record<string, string> {
   if (!subject) return {};
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(subject).slice(0, INPUT_BOUNDS.subjectKeys)) {
-    if (typeof value === "string") out[key] = value.slice(0, INPUT_BOUNDS.subjectValue);
+    if (typeof value !== "string") continue;
+    const bounded = value.slice(0, INPUT_BOUNDS.subjectValue);
+    out[key] = OPAQUE_REFERENCE.test(bounded) ? bounded : digestValue({ subjectValue: bounded });
   }
   return out;
 }

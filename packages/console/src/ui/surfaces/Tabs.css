@@ -1,0 +1,161 @@
+/* =============================================================================
+   Tabs.
+
+   Selection is carried three ways — an accent underline, a heavier weight, and
+   aria-selected — because any one alone fails somebody. The underline is a real
+   element rather than a pseudo-element so it survives a forced-colours mode
+   that drops backgrounds.
+   ========================================================================== */
+
+.pv-tabs {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pv-tabs-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--pv-space-16);
+  border-bottom: 1px solid var(--pv-border-subtle);
+}
+
+.pv-tabs-list {
+  display: flex;
+  align-items: stretch;
+  gap: var(--pv-space-4);
+  min-width: 0;
+  /* A long stage list on a narrow viewport scrolls rather than wrapping: a
+     wrapped tab row changes height as tabs are added, which moves the panel
+     underneath it. */
+  overflow-x: auto;
+}
+
+.pv-tabs-bar-trailing {
+  display: flex;
+  align-items: center;
+  padding-bottom: var(--pv-space-8);
+  flex: none;
+}
+
+/* -----------------------------------------------------------------------------
+   A tab
+   -------------------------------------------------------------------------- */
+
+.pv-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-8) var(--pv-space-12);
+  /* Clears the 24px target minimum with room for the underline below it. */
+  min-height: var(--pv-control-height-lg);
+  border: none;
+  background: none;
+  cursor: pointer;
+  white-space: nowrap;
+
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+
+  transition: color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-tab:hover {
+  color: var(--pv-content-primary);
+}
+
+.pv-tab:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  /* Inset, because an outset ring on a tab sitting on the list's bottom border
+     is clipped by the scroll container and reads as a broken edge. */
+  outline-offset: calc(var(--pv-focus-ring-offset) * -1);
+  border-radius: var(--pv-radius-control);
+}
+
+.pv-tab[aria-selected="true"] {
+  color: var(--pv-content-primary);
+  /* 600 is the scale's ceiling and the title weight. Weight is the carrier
+     that survives both a monochrome print and a colour-blind reader. */
+  font-weight: var(--pv-type-title-weight);
+}
+
+.pv-tab[aria-disabled="true"] {
+  color: var(--pv-content-tertiary);
+  cursor: default;
+}
+
+/* -----------------------------------------------------------------------------
+   The underline
+   -------------------------------------------------------------------------- */
+
+.pv-tab-indicator {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: -1px;
+  block-size: 2px;
+  background-color: transparent;
+}
+
+/* Hovering an unselected tab previews the underline in a neutral tone, so the
+   accent stays reserved for what is actually selected. */
+.pv-tab:hover .pv-tab-indicator {
+  background-color: var(--pv-border-strong);
+}
+
+/* A disabled tab shows no preview: it is not going anywhere. */
+.pv-tab[aria-disabled="true"]:hover .pv-tab-indicator {
+  background-color: transparent;
+}
+
+/* Last, so selection wins over both of the above. */
+.pv-tab[aria-selected="true"] .pv-tab-indicator {
+  background-color: var(--pv-accent);
+}
+
+/* -----------------------------------------------------------------------------
+   Count
+   -------------------------------------------------------------------------- */
+
+.pv-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--pv-target-min);
+  padding: 0 var(--pv-space-4);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  /* base.css gives tabular numerals to [data-numeric]; stated here too so the
+     count cannot lose them if the element ever stops carrying the attribute. */
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-tab[aria-selected="true"] .pv-tab-count {
+  background-color: var(--pv-surface-raised);
+  color: var(--pv-content-primary);
+  box-shadow: inset 0 0 0 1px var(--pv-border-subtle);
+}
+
+/* -----------------------------------------------------------------------------
+   Panel
+   -------------------------------------------------------------------------- */
+
+.pv-tabs-panel {
+  min-width: 0;
+  padding-top: var(--pv-space-16);
+}
+
+/* The panel is focusable so a keyboard operator can scroll it. That is the only
+   reason, so the ring goes inside its own box rather than around the content. */
+.pv-tabs-panel:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: calc(var(--pv-focus-ring-offset) * -1);
+  border-radius: var(--pv-radius-card);
+}

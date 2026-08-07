@@ -1,0 +1,296 @@
+/* =============================================================================
+   The command palette.
+
+   Glass, elevation 3, 240ms in and 0.7 of that out — specification §1.3, §1.6
+   and §5. Every value here is a token; the only bare numbers are the viewport
+   fractions that decide how much of the screen it may take, which are
+   proportions rather than measurements.
+   ========================================================================== */
+
+/* The page cannot scroll behind the palette. Written as an attribute rule
+   rather than as an inline style so that it cannot fight the inline `overflow`
+   that dialogHost.tsx sets and restores for modals and sheets — whichever of
+   the two is still open keeps the page still, and neither has to know about
+   the other. */
+:root[data-palette="open"] {
+  overflow: hidden;
+}
+
+.pv-palette-host {
+  position: fixed;
+  inset: 0;
+  /* Above the shell's chrome and above an anchored surface, below nothing:
+     the palette is the frontmost thing in the console while it is open. */
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  /* Aligned near the top rather than centred: the list grows downward, and a
+     centred palette moves its own first row as results arrive. */
+  align-items: flex-start;
+  padding: var(--pv-space-96) var(--pv-space-24) var(--pv-space-24);
+  background-color: var(--pv-scrim);
+  opacity: 0;
+  transition: opacity var(--pv-motion-surface) var(--pv-ease-entry);
+}
+
+.pv-palette-host[data-state="open"] {
+  opacity: 1;
+}
+
+.pv-palette-host[data-state="exiting"] {
+  opacity: 0;
+  transition-duration: var(--pv-motion-surface-exit);
+  transition-timing-function: var(--pv-ease-exit);
+}
+
+div.pv-palette {
+  inline-size: min(var(--pv-reading-measure), 100%);
+  display: flex;
+  flex-direction: column;
+  max-block-size: 100%;
+  overflow: hidden;
+  border-radius: var(--pv-radius-sheet);
+  /* Elevation 3 replaces the elevation 2 that .pv-glass and .pv-overlay-solid
+     carry: this is a modal-class surface (§1.3). */
+  box-shadow: var(--pv-glass-highlight), var(--pv-elevation-3);
+  opacity: 0;
+  transform: translateY(calc(var(--pv-space-8) * -1)) scale(0.99);
+  transition:
+    opacity var(--pv-motion-surface) var(--pv-ease-entry),
+    transform var(--pv-motion-surface) var(--pv-ease-entry);
+}
+
+div.pv-palette.pv-overlay-solid {
+  box-shadow: var(--pv-elevation-3);
+}
+
+.pv-palette[data-state="open"] {
+  opacity: 1;
+  transform: none;
+}
+
+.pv-palette[data-state="exiting"] {
+  opacity: 0;
+  transform: translateY(calc(var(--pv-space-8) * -1)) scale(0.99);
+  transition-duration: var(--pv-motion-surface-exit);
+  transition-timing-function: var(--pv-ease-exit);
+}
+
+/* -----------------------------------------------------------------------------
+   The field
+   -------------------------------------------------------------------------- */
+
+.pv-palette-search {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-12);
+  block-size: var(--pv-shell-top-bar-height);
+  padding-inline: var(--pv-space-20);
+  border-block-end: 1px solid var(--pv-border-subtle);
+}
+
+.pv-palette-input {
+  flex: 1;
+  min-inline-size: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pv-content-primary);
+  /* body-lg: the operator is typing into it, and 14px is a label size. */
+  font-size: var(--pv-type-body-lg-size);
+  line-height: var(--pv-type-body-lg-line);
+}
+
+.pv-palette-input::placeholder {
+  color: var(--pv-content-tertiary);
+}
+
+/* The field fills the row, so its own focus ring would draw a rectangle around
+   the whole header. The palette has just taken the whole screen and the cursor
+   is in this field; there is nothing else focus could mean. */
+.pv-palette-input:focus-visible {
+  outline: none;
+}
+
+.pv-palette-key {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--pv-target-min);
+  padding: 0 var(--pv-space-4);
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-control);
+  color: var(--pv-content-secondary);
+  font-family: var(--pv-font-sans);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  white-space: nowrap;
+}
+
+/* -----------------------------------------------------------------------------
+   Results
+   -------------------------------------------------------------------------- */
+
+.pv-palette-notice {
+  padding: var(--pv-space-12) var(--pv-space-20);
+  border-block-end: 1px solid var(--pv-border-subtle);
+}
+
+.pv-palette-results {
+  flex: 1;
+  min-block-size: 0;
+  overflow-y: auto;
+  /* A wheel gesture that reaches the end of this list must not start scrolling
+     the page behind the scrim. */
+  overscroll-behavior: contain;
+  padding: var(--pv-space-8);
+}
+
+.pv-palette-loading {
+  padding: var(--pv-space-8) var(--pv-space-12);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-palette-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+}
+
+.pv-palette-row {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-12);
+  padding: var(--pv-space-8) var(--pv-space-12);
+  border-radius: var(--pv-radius-control);
+  /* The accent bar lives in a transparent border so the row does not shift by
+     3px when it becomes active. Cumulative layout shift on the hot path is
+     zero (§7), and a list that twitches under the arrow keys is unreadable. */
+  border-inline-start: 3px solid transparent;
+  cursor: default;
+}
+
+.pv-palette-row[data-active="true"] {
+  border-inline-start-color: var(--pv-accent);
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-palette-row[data-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.pv-palette-row[data-disabled="true"] .pv-palette-row-label {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-palette-row-text {
+  flex: 1;
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+}
+
+.pv-palette-row-label {
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+/* Two channels, never one: the matched run is underlined *and* heavier, so the
+   highlight survives greyscale, a monochrome display, and a printed pack. */
+.pv-palette-mark {
+  background: transparent;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--pv-accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+
+.pv-palette-row-hint {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pv-palette-row-hint[data-refused="true"] {
+  color: var(--pv-status-neutral);
+}
+
+.pv-palette-row-kind {
+  flex: none;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+/* -----------------------------------------------------------------------------
+   Empty and footer
+   -------------------------------------------------------------------------- */
+
+.pv-palette-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-24) var(--pv-space-16) var(--pv-space-32);
+}
+
+.pv-palette-empty-title {
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-palette-empty-body {
+  color: var(--pv-content-secondary);
+}
+
+.pv-palette-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-16);
+  max-inline-size: none;
+  padding: var(--pv-space-8) var(--pv-space-20);
+  border-block-start: 1px solid var(--pv-border-subtle);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-palette-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+}
+
+/* -----------------------------------------------------------------------------
+   Small viewports
+
+   Below the panel-overlay breakpoint the palette takes the full width it can
+   and starts nearer the top: there is no room to spend 96px on air.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 899px) {
+  .pv-palette-host {
+    padding: var(--pv-space-24) var(--pv-space-16) var(--pv-space-16);
+  }
+}

@@ -1,0 +1,183 @@
+/* =============================================================================
+   The navigation rail. 240px expanded, 64px icon-only, glass.
+   ========================================================================== */
+
+nav.pv-rail {
+  grid-area: rail;
+  min-block-size: 0;
+  overflow-y: auto;
+  overflow-x: visible;
+  padding-block: var(--pv-space-16);
+  padding-inline: var(--pv-space-12);
+  /* Only the inline-end hairline: the rail runs to three edges of the window
+     and a border on those edges reads as a box floating in the frame. */
+  border-block: 0;
+  border-inline-start: 0;
+  border-radius: 0;
+}
+
+.pv-rail[data-collapsed="true"] {
+  padding-inline: var(--pv-space-8);
+}
+
+.pv-rail-zones,
+.pv-rail-items {
+  list-style: none;
+}
+
+.pv-rail-zones {
+  display: flex;
+  flex-direction: column;
+  /* Between groups: 24 (§1.2). The zones are the console's largest structural
+     division and the gap is what says so without a rule between them. */
+  gap: var(--pv-space-24);
+}
+
+.pv-rail-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+}
+
+.pv-rail-zone-label {
+  padding-inline: var(--pv-space-12);
+  padding-block-end: var(--pv-space-8);
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+/* Collapsed: the zone name is kept for the ear and replaced by a hairline for
+   the eye. Clipped rather than `display: none`, so heading navigation still
+   works at 64px — a screen-reader user's route to the Admin zone is the same
+   whether or not the operator can see the labels. */
+.pv-rail[data-collapsed="true"] .pv-rail-zone-label {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.pv-rail[data-collapsed="true"] .pv-rail-zone + .pv-rail-zone {
+  padding-block-start: var(--pv-space-16);
+  border-block-start: 1px solid var(--pv-border-subtle);
+}
+
+/* -----------------------------------------------------------------------------
+   Items
+   -------------------------------------------------------------------------- */
+
+.pv-rail-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-12);
+  block-size: var(--pv-control-height-lg);
+  padding-inline: var(--pv-space-12);
+  /* The active marker lives in a transparent border so that becoming active
+     never moves the row. Layout shift on the hot path is zero (§7). */
+  border-inline-start: 3px solid transparent;
+  border-radius: var(--pv-radius-control);
+  color: var(--pv-content-secondary);
+  text-decoration: none;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-rail-link:hover {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+.pv-rail-link:active {
+  background-color: var(--pv-surface-raised);
+}
+
+/* The active surface, per §2: a 3px accent bar and `surface-raised`. Never a
+   full-bleed accent fill — the loudest thing on the screen must be the
+   decision, not the furniture. The weight change is the second channel, so the
+   current item is still identifiable in greyscale. */
+.pv-rail-link[aria-current="page"] {
+  border-inline-start-color: var(--pv-accent);
+  background-color: var(--pv-surface-raised);
+  color: var(--pv-content-primary);
+  font-weight: var(--pv-type-body-strong-weight);
+  box-shadow: var(--pv-elevation-1);
+}
+
+.pv-rail-link-mark {
+  display: inline-flex;
+  flex: none;
+  color: var(--pv-content-tertiary);
+}
+
+.pv-rail-link:hover .pv-rail-link-mark,
+.pv-rail-link[aria-current="page"] .pv-rail-link-mark {
+  color: currentcolor;
+}
+
+.pv-nav-icon {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+
+.pv-rail-link-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* -----------------------------------------------------------------------------
+   Collapsed items
+
+   The label moves rather than disappearing: it stays in the accessibility tree
+   at zero opacity and becomes a chip beside the icon on hover and on focus.
+   -------------------------------------------------------------------------- */
+
+.pv-rail[data-collapsed="true"] .pv-rail-link {
+  justify-content: center;
+  padding-inline: 0;
+  /* The bar moves inside on a 64px rail: a border on the outer edge of a
+     centred icon reads as a stripe down the window rather than as a marker on
+     the item. */
+  border-inline-start-width: 3px;
+}
+
+.pv-rail[data-collapsed="true"] .pv-rail-link-label {
+  position: absolute;
+  inset-inline-start: 100%;
+  inset-block-start: 50%;
+  z-index: 30;
+  margin-inline-start: var(--pv-space-8);
+  padding: var(--pv-space-4) var(--pv-space-8);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-surface-raised);
+  box-shadow: var(--pv-elevation-2);
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  transform: translateY(-50%);
+  opacity: 0;
+  /* Zero opacity rather than `visibility: hidden` or `display: none`: those two
+     take the label out of the accessibility tree, and the label is the link's
+     name. Pointer events are off so an invisible chip cannot swallow a click
+     on the content beside it. */
+  pointer-events: none;
+  transition: opacity var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-rail[data-collapsed="true"] .pv-rail-link:hover .pv-rail-link-label,
+.pv-rail[data-collapsed="true"] .pv-rail-link:focus-visible .pv-rail-link-label {
+  opacity: 1;
+}

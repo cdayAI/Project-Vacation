@@ -1,0 +1,139 @@
+/* The notifications bell and its panel. */
+
+.pv-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--pv-control-height-md);
+  block-size: var(--pv-control-height-md);
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius-control);
+  background: transparent;
+  color: var(--pv-content-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-bell:hover {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+.pv-bell:active {
+  border-color: var(--pv-border-strong);
+}
+
+.pv-bell[aria-expanded="true"] {
+  background-color: var(--pv-surface-raised);
+  border-color: var(--pv-border-strong);
+  color: var(--pv-content-primary);
+}
+
+/* The count sits on the bell's shoulder. Its own border in the surface colour
+   keeps it legible where it overlaps the glyph. */
+.pv-bell-count {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  min-inline-size: var(--pv-space-16);
+  padding: 0 var(--pv-space-4);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-status-danger);
+  color: var(--pv-surface);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.pv-bell-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  color: var(--pv-content-secondary);
+}
+
+.pv-bell-empty-title {
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-bell-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+}
+
+.pv-bell-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pv-space-4);
+  padding: var(--pv-space-12);
+  border-radius: var(--pv-radius-control);
+  border-inline-start: 3px solid transparent;
+}
+
+.pv-bell-item[data-unread="true"] {
+  border-inline-start-color: var(--pv-accent);
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-bell-item + .pv-bell-item {
+  border-block-start: 1px solid var(--pv-border-subtle);
+}
+
+.pv-bell-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+}
+
+.pv-bell-unread {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+.pv-bell-unread-mark {
+  inline-size: var(--pv-space-8);
+  block-size: var(--pv-space-8);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-accent);
+}
+
+.pv-bell-when {
+  margin-inline-start: auto;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-bell-title {
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-bell-detail {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

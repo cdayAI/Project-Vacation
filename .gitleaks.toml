@@ -1,0 +1,84 @@
+# Secret scanning.
+#
+# The whole value of this gate is that a real committed credential fails the
+# build, so the exemptions below are written to be as small as the scanner's
+# configuration format allows.
+#
+# ## What is exempted, and how narrowly
+#
+# Six exact literals, matched against the *secret* a rule extracted — not
+# against a file, a directory, or a rule. Nothing about a path is exempted, so
+# every one of these test files is still fully scanned: a real credential
+# committed beside one of these fixtures fails the build exactly as it would
+# anywhere else. Six specific invented strings are declared not to be secrets,
+# because they are not.
+#
+# Path-scoping was the first thing tried and was removed on purpose. Within a
+# single allowlist, gitleaks combines `paths` and `regexes` with OR, so adding
+# the five file paths would have *widened* this to "anything in these five test
+# files is fine" — the blanket exemption this file exists to avoid. The
+# `matchCondition = "AND"` and `targetRules` fields that would express
+# "this literal, in this file, for this rule" are not honoured by the version
+# the CI action pins (8.24.3), and a knob that silently does nothing is worse
+# than none: the finding it was meant to cover comes back, and the next person
+# widens the entry until the build goes green. Verified against 8.24.3 and
+# 8.28.0 before shipping this file.
+#
+# ## Why these literals cannot simply be deleted
+#
+# The scan covers full history, so a fixture reshaped or removed today is still
+# present in the commit that introduced it. Assembling a credential-shaped
+# fixture from parts at runtime — as packages/platform/src/external/report.test.ts
+# does — is still the right thing for anything added from here on, because it
+# stops the *next* finding from existing. It cannot retire one that already
+# does.
+#
+# Every literal below is invented. None has ever authenticated anything. Each
+# exists because the test around it proves the platform refuses or redacts
+# credential-shaped material, and a redaction test with nothing to redact tests
+# nothing.
+
+title = "Project Vacation"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Invented credential-shaped fixtures. See the comments above each entry."
+regexes = [
+  # packages/platform/src/kernel/kernel.test.ts — redaction.
+  # A JWT signed with a throwaway key over the payload {"sub":"1234567890"}.
+  # redactText() must remove it, which needs a string the JWT rule matches.
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk''',
+
+  # packages/platform/src/kernel/kernel.test.ts — redaction.
+  # The value in the test's "client_secret=..." fixture. The assertion is that
+  # a value assigned to a secret-shaped name is removed, so the fixture has to
+  # be an assignment of something to a secret-shaped name.
+  '''abc123XYZ987''',
+
+  # packages/platform/src/external/store.contract.test.ts — refusal.
+  # A token-shaped string where a token *hash* belongs. The store must refuse
+  # it; the value most likely to be pasted into that field is a real token,
+  # which is exactly why the fixture is shaped like one.
+  '''pv_live_9f2c8a71c0''',
+
+  # packages/platform/src/external/credentials.test.ts — refusal.
+  # Base64 for the English sentence "hello world this is a secret value".
+  # Credential minting must refuse a secret *value* pasted into the field that
+  # holds a secret *name*, so the fixture must be value-shaped.
+  '''aGVsbG8gd29ybGQgdGhpcyBpcyBhIHNlY3JldCB2YWx1ZQ==''',
+
+  # packages/platform/src/contact/contact.test.ts — not a credential.
+  # A deduplication key. The generic rule fires on the field name
+  # `idempotencyKey`, not on the value; the value names one send so a repeat is
+  # recognised as the same send, and grants nothing to whoever holds it. The
+  # field name is part of the platform's published API and is not renamed to
+  # please a scanner.
+  '''idem-collections-2''',
+
+  # packages/console/src/api/client.test.ts — not a credential.
+  # The same shape: a deduplication key on an approval decision, asserting the
+  # console client forwards the caller's idempotency key.
+  '''d0c8a1f2-4b6e-4c3a-9f11-5a2b7c9e0d34''',
+]

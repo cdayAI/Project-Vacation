@@ -1,0 +1,54 @@
+/* =============================================================================
+   The three designed states every surface owes: loading, error, empty.
+   ========================================================================== */
+
+.pv-surface-state-label {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  margin: 0 0 var(--pv-space-4);
+  color: var(--pv-status-danger);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+}
+
+.pv-surface-state-label svg {
+  flex: none;
+}
+
+/* The detail is primary rather than danger-coloured: the tone belongs on the
+   label, and a whole paragraph in red is harder to read and reads as panic. */
+.pv-surface-state-detail {
+  color: var(--pv-content-primary);
+}
+
+.pv-surface-error {
+  padding: var(--pv-space-12);
+  border: 1px solid var(--pv-status-danger-border);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-status-danger-surface);
+}
+
+.pv-surface-empty {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-surface-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+}
+
+/* No shimmer, no pulse. Six loading cards animating in sync is six things
+   moving while the operator reads the seventh. */
+.pv-surface-skeleton {
+  display: block;
+  block-size: var(--pv-space-12);
+  border-radius: var(--pv-radius-control);
+  background-color: var(--pv-bg-subtle);
+}
+
+.pv-surface-skeleton[data-line="last"] {
+  inline-size: 60%;
+}

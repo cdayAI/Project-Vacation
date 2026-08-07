@@ -1,0 +1,112 @@
+/* Toast — the receipt for something that already happened.
+
+   Glass, because it floats over the shell (spec §1.5), with the text on a solid
+   scrim child so the measured contrast is the token pair the design intended
+   rather than whatever happened to scroll underneath. When the blur budget is
+   spent — or the operator has asked for reduced transparency — the same markup
+   renders the designed solid with no conditional anywhere. */
+
+.pv-toast-region {
+  position: fixed;
+  /* Bottom-end rather than top: the top bar is where the operator's attention
+     already is, and a toast over it covers the breadcrumb they navigate by. */
+  inset-block-end: var(--pv-space-24);
+  inset-inline-end: var(--pv-space-24);
+  /* Above popovers and dropdowns, below the command palette. Modals and sheets
+     need no ordering here at all: they are `<dialog>` elements in the top
+     layer, which no z-index can reach. */
+  z-index: 50;
+
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--pv-space-8);
+  /* The region is the full column, but only the toasts inside it should catch
+     the pointer — an invisible strip that eats clicks along the bottom edge of
+     the screen is a bug nobody can see. */
+  pointer-events: none;
+  /* The width of the context panel it stacks in front of, so the two edges
+     line up rather than nearly lining up. */
+  max-inline-size: min(var(--pv-shell-panel-width), calc(100vw - var(--pv-space-48)));
+}
+
+.pv-toast {
+  pointer-events: auto;
+  border-radius: var(--pv-radius-card);
+  overflow: hidden;
+  box-shadow: var(--pv-elevation-2);
+
+  /* Arrives from the edge it lives on. Under prefers-reduced-motion the
+     universal rule in motion.css caps this at a single 80ms iteration, which
+     for a one-shot entrance is exactly the fade the preference asks for. */
+  animation: pv-toast-in var(--pv-motion-standard) var(--pv-ease-entry);
+}
+
+@keyframes pv-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--pv-space-8));
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pv-toast-body {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-12);
+}
+
+/* The solid variant paints its own background; the glass variant gets its fill
+   from the scrim class, so neither draws two. */
+.pv-toast.pv-overlay-solid .pv-toast-body {
+  background-color: transparent;
+}
+
+.pv-toast-mark {
+  display: flex;
+  flex: none;
+  padding-block-start: calc((var(--pv-type-body-strong-line) - var(--pv-space-12)) / 2);
+  color: var(--pv-tone-text);
+}
+
+.pv-toast-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+  flex: 1;
+}
+
+.pv-toast-title {
+  margin: 0;
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  color: var(--pv-content-primary);
+}
+
+.pv-toast-description {
+  margin: 0;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  color: var(--pv-content-secondary);
+}
+
+.pv-toast-record {
+  align-self: flex-start;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-toast-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  flex: none;
+}

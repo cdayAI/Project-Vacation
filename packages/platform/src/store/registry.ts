@@ -30,6 +30,16 @@ import { orderMigrations, type Migration } from "./migrate.js";
  *     0003  guard        approvals, approver decisions, containment switches
  *     0004+ unallocated  claim the next free number when you add a module
  *
+ * **The number is advisory; the whole id is the identity.** Two follow-up
+ * migrations landed in parallel and both took 18 —
+ * `0018_audit_watermark` and `0018_external_parked_committing`. They are
+ * distinct ids, `orderMigrations` sorts them deterministically, and the two
+ * changes are independent and additive, so nothing is ambiguous. They are also
+ * not being renumbered: an id is what `schema_migrations` records, and
+ * renaming one after it has been applied anywhere is the exact drift this
+ * table exists to prevent. Prefer the next free number; if you find one taken,
+ * take the next and leave the collision alone.
+ *
  * A note on direction. Everything else under `store/` sits *below* the
  * modules: `db.ts` is the seam they share, and they import it. This file is
  * the exception — it is a composition point that imports *from* the modules,

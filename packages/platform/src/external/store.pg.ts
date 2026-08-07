@@ -27,6 +27,8 @@ import type {
 } from "./port.js";
 import {
   STRONG_CREDENTIAL_KINDS,
+  TERMINAL_AGENT_STATUSES,
+  TERMINAL_PARKED_STATUSES,
   type AgentCredential,
   type AgentStatus,
   type BudgetPeriod,
@@ -137,6 +139,7 @@ type ParkedRow = {
   agent_id: string;
   integration: string;
   operation: string;
+  mode: string;
   request_digest: string;
   preview: { label: string; value: string }[];
   approval_id: string | null;
@@ -144,6 +147,7 @@ type ParkedRow = {
   created_at: string;
   expires_at: string;
   committed_at: string | null;
+  committing_at: string | null;
   result_digest: string | null;
   result_summary: string | null;
   void_reason: string | null;
@@ -176,9 +180,9 @@ const CREDENTIAL_COLUMNS = `id, agent_id, kind, label, token_hash, issuer, audie
   secret_ref, public_key, created_by, created_at, expires_at, revoked_at, revoked_by,
   revoked_reason, last_used_at`;
 
-const PARKED_COLUMNS = `id, agent_id, integration, operation, request_digest, preview,
-  approval_id, status, created_at, expires_at, committed_at, result_digest, result_summary,
-  void_reason, run_id, correlation_id`;
+const PARKED_COLUMNS = `id, agent_id, integration, operation, mode, request_digest, preview,
+  approval_id, status, created_at, expires_at, committed_at, committing_at, result_digest,
+  result_summary, void_reason, run_id, correlation_id`;
 
 const EXTERNAL_RUN_COLUMNS = `id, agent_id, run_id, goal, status, started_at, last_heartbeat_at,
   ended_at, outcome, cost_usd, correlation_id`;
@@ -404,14 +408,30 @@ export class PgEnrollmentStore implements EnrollmentStore {
     // Compare and set in one statement. Postgres serialises concurrent updates
     // of a row, so a containment decided from a stale read matches nothing
     // rather than overwriting a revocation another process already applied.
+    //
+    // The terminal-status clause is a second, different control, and it is in
+    // the WHERE rather than in a service because compare-and-set stops only a
+    // *stale* writer: a caller that reads first and then asks for
+    // `revoked → active` satisfies `status = $2` exactly. Matching nothing is
+    // what stops an offboarding being undone by a status flip. The list is
+    // `TERMINAL_AGENT_STATUSES`, shared with the memory adapter so a rule one
+    // store keeps and the other does not cannot exist.
     const rows = await this.guard("setAgentStatus", () =>
       this.db.query<AgentRow>(
         `UPDATE external_agent
          SET status = $3, status_reason = $4, status_changed_at = $5, status_changed_by = $6,
              updated_at = $5
-         WHERE id = $1 AND status = $2
+         WHERE id = $1 AND status = $2 AND NOT (status = ANY($7::text[]))
          RETURNING ${AGENT_COLUMNS}`,
-        [input.id, input.expectedStatus, input.status, input.reason, input.at, input.by],
+        [
+          input.id,
+          input.expectedStatus,
+          input.status,
+          input.reason,
+          input.at,
+          input.by,
+          [...TERMINAL_AGENT_STATUSES],
+        ],
       ),
     );
     const row = rows[0];
@@ -875,7 +895,7 @@ export class PgParkedActionStore implements ParkedActionStore {
     const rows = await runGuarded("createParkedAction", () =>
       this.db.query<ParkedRow>(
         `INSERT INTO external_parked_action (${PARKED_COLUMNS})
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (id) DO NOTHING
          RETURNING ${PARKED_COLUMNS}`,
         [
@@ -883,6 +903,7 @@ export class PgParkedActionStore implements ParkedActionStore {
           action.agentId,
           action.integration,
           action.operation,
+          action.mode,
           action.requestDigest,
           JSON.stringify([...action.preview]),
           action.approvalId ?? null,
@@ -890,6 +911,7 @@ export class PgParkedActionStore implements ParkedActionStore {
           action.createdAt,
           action.expiresAt,
           action.committedAt ?? null,
+          action.committingAt ?? null,
           action.resultDigest ?? null,
           action.resultSummary ?? null,
           action.voidReason ?? null,
@@ -1001,6 +1023,15 @@ export class PgParkedActionStore implements ParkedActionStore {
     // `status = expected` and the rest match nothing. That empty result is how
     // a duplicate commit is detected — and it is what stops the second commit
     // overwriting the first one's recorded result.
+    //
+    // The terminal-status clause is the separate control. Compare-and-set stops
+    // a stale writer and permits anything from a writer that reads first, so
+    // without it `committed → pending` matches its row and puts a refund that
+    // already went out back in front of an approver. `committing` is
+    // deliberately absent from `TERMINAL_PARKED_STATUSES` and so from this
+    // clause: the commit path leaves `committing` for `committed`, `pending`
+    // and `indeterminate`, and excluding it here would break the writer this
+    // rule exists to protect.
     const rows = await runGuarded("transitionParkedAction", () =>
       this.db.query<ParkedRow>(
         `UPDATE external_parked_action
@@ -1009,10 +1040,17 @@ export class PgParkedActionStore implements ParkedActionStore {
              -- rejection would make the console read as though the action
              -- had landed.
              committed_at = CASE WHEN $3::text = 'committed' THEN $4::text ELSE committed_at END,
+             -- Stamped by the store, because the sweeper's question is "how
+             -- long has this row been in flight" and the row is the only thing
+             -- that knows when it entered that state. Measuring from
+             -- created_at instead measures how long ago a human was asked,
+             -- which is normally hours earlier and declares every live commit
+             -- abandoned on the first sweep.
+             committing_at = CASE WHEN $3::text = 'committing' THEN $4::text ELSE committing_at END,
              result_digest = COALESCE($5::text, result_digest),
              result_summary = COALESCE($6::text, result_summary),
              void_reason = COALESCE($7::text, void_reason)
-         WHERE id = $1 AND status = $2
+         WHERE id = $1 AND status = $2 AND NOT (status = ANY($8::text[]))
          RETURNING ${PARKED_COLUMNS}`,
         [
           input.id,
@@ -1022,6 +1060,7 @@ export class PgParkedActionStore implements ParkedActionStore {
           input.resultDigest ?? null,
           input.resultSummary ?? null,
           input.voidReason ?? null,
+          [...TERMINAL_PARKED_STATUSES],
         ],
       ),
     );
@@ -1433,6 +1472,7 @@ function toParkedAction(row: ParkedRow): ParkedAction {
     agentId: row.agent_id,
     integration: row.integration,
     operation: row.operation,
+    mode: row.mode === "read" ? "read" : "write",
     requestDigest: row.request_digest as Digest,
     preview: row.preview,
     approvalId: row.approval_id ?? undefined,
@@ -1440,6 +1480,7 @@ function toParkedAction(row: ParkedRow): ParkedAction {
     createdAt: row.created_at,
     expiresAt: row.expires_at,
     committedAt: row.committed_at ?? undefined,
+    committingAt: row.committing_at ?? undefined,
     resultDigest: (row.result_digest ?? undefined) as Digest | undefined,
     resultSummary: row.result_summary ?? undefined,
     voidReason: row.void_reason ?? undefined,

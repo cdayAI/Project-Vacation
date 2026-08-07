@@ -207,6 +207,7 @@ function aParkedAction(id: string, agentId: string, overrides: Partial<ParkedAct
     id: id as Id<"parkedAction">,
     agentId: agentId as ExternalAgentId,
     integration: "letters",
+    mode: "write",
     operation: "send",
     requestDigest: digestValue({ letter: "rescission-acknowledgement", contractId: "ctr_0001" }),
     preview: [{ label: "Recipient", value: "owner of ctr_0001" }],
@@ -429,6 +430,65 @@ function runContract(name: string, factory: () => Harness, skip: boolean): void 
             at: T1,
           }),
         ).toBeNull();
+      });
+
+      it("refuses to move a revoked agent, however the caller asks", async () => {
+        const agent = await store.agents.createAgent(anAgent("eag_1"));
+        await store.agents.setAgentStatus({
+          id: agent.id,
+          expectedStatus: "active",
+          status: "revoked",
+          reason: "vendor offboarding",
+          by: "act_operator",
+          at: T1,
+        });
+
+        // Not a stale read: this caller has read the current status and is
+        // asking for exactly the transition the record forbids. Revocation is
+        // terminal, so bringing the agent back is a fresh enrollment — another
+        // deliberate, approved decision — and never a status flip.
+        for (const status of ["active", "contained"] as const) {
+          expect(
+            await store.agents.setAgentStatus({
+              id: agent.id,
+              expectedStatus: "revoked",
+              status,
+              reason: "changed my mind",
+              by: "act_operator",
+              at: T2,
+            }),
+          ).toBeNull();
+        }
+
+        const stored = await store.agents.getAgent(agent.id);
+        expect(stored?.status).toBe("revoked");
+        // Nothing was written, not even the reason or the timestamp.
+        expect(stored?.statusReason).toBe("vendor offboarding");
+        expect(stored?.statusChangedAt).toBe(T1);
+
+        // Containment stays releasable. It is a pause an operator lifts, and
+        // treating it as terminal would make release impossible.
+        const other = await store.agents.createAgent(anAgent("eag_2"));
+        await store.agents.setAgentStatus({
+          id: other.id,
+          expectedStatus: "active",
+          status: "contained",
+          reason: "denial storm",
+          by: "act_operator",
+          at: T1,
+        });
+        expect(
+          (
+            await store.agents.setAgentStatus({
+              id: other.id,
+              expectedStatus: "contained",
+              status: "active",
+              reason: "investigated and cleared",
+              by: "act_operator",
+              at: T2,
+            })
+          )?.status,
+        ).toBe("active");
       });
 
       it(`lets exactly one of ${RACERS} concurrent containment decisions land`, async () => {
@@ -996,6 +1056,58 @@ function runContract(name: string, factory: () => Harness, skip: boolean): void 
             at: T1,
           }),
         ).toBeNull();
+      });
+
+      it("refuses to move an action out of a terminal status, however the caller asks", async () => {
+        // Every terminal status, against every status a caller might want to
+        // put it back to. The compare-and-set is satisfied in each case — the
+        // caller reads first and expects exactly what is there — so this is the
+        // rule the compare-and-set does not carry.
+        for (const terminal of ["committed", "rejected", "voided", "indeterminate"] as const) {
+          const id = `pac_${terminal}` as Id<"parkedAction">;
+          await store.parked.createParkedAction(
+            aParkedAction(id, "eag_1", { status: terminal, resultSummary: "as settled" }),
+          );
+
+          for (const wanted of ["pending", "approved", "committing", "expired"] as const) {
+            expect(
+              await store.parked.transitionParkedAction({
+                id,
+                expectedStatus: terminal,
+                status: wanted,
+                at: T2,
+                voidReason: "reopened",
+              }),
+            ).toBeNull();
+          }
+
+          const stored = await store.parked.getParkedAction(id);
+          expect(stored?.status).toBe(terminal);
+          // Nothing was written at all — not the status, and not the reason
+          // the losing caller supplied alongside it.
+          expect(stored?.voidReason).toBeUndefined();
+        }
+
+        // `committing` is not terminal, and must not become so by accident:
+        // every one of these is a transition the commit path itself performs.
+        // A commit that could not leave `committing` would strand the effect it
+        // just made in a state no sweeper and no operator can settle.
+        for (const [index, settled] of (["committed", "pending", "indeterminate"] as const).entries()) {
+          const id = `pac_inflight_${index}` as Id<"parkedAction">;
+          await store.parked.createParkedAction(
+            aParkedAction(id, "eag_1", { status: "committing" }),
+          );
+          expect(
+            (
+              await store.parked.transitionParkedAction({
+                id,
+                expectedStatus: "committing",
+                status: settled,
+                at: T2,
+              })
+            )?.status,
+          ).toBe(settled);
+        }
       });
 
       it(`lets exactly one of ${RACERS} concurrent commits through`, async () => {

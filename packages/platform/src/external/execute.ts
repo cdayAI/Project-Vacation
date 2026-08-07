@@ -51,6 +51,26 @@ const DEFAULT_COMMIT_STALE_MS = 5 * 60 * 1000;
 export interface GovernedIntegration {
   /** True when this connector is currently enabled. Re-checked at commit. */
   isEnabled(integration: string): Promise<boolean>;
+  /**
+   * The registered mode of an operation, or null when there is no such
+   * operation.
+   *
+   * On the port rather than only on the router because the commit path needs to
+   * know, before it spends a human's approval, whether the call it is about to
+   * make can be made at all. Without it, an unregistered operation or a mode
+   * mismatch was discovered inside `perform` — after the approval was consumed
+   * — and reported as an effect that might have landed.
+   */
+  modeOf(integration: string, operation: string): "read" | "write" | null;
+  /**
+   * Perform the call.
+   *
+   * A `DeniedError` from this method asserts that **nothing was done**. That is
+   * part of the contract rather than an implementation detail: the caller uses
+   * it to distinguish "the platform declined" from "the call may have crossed
+   * the network", and those two get very different answers. An adapter that
+   * could refuse *after* a partial effect must raise something else.
+   */
   perform(input: {
     readonly integration: string;
     readonly operation: string;
@@ -227,6 +247,11 @@ export class ExecutionService {
       agentId: request.agentId,
       integration: request.integration,
       operation: request.operation,
+      // Bound at parking time, not asserted at commit. A read the operator
+      // rated high-consequence takes this same path, and a commit that assumed
+      // `write` refused it at the last step — spending a human's approval on
+      // something that could never happen.
+      mode: request.mode,
       requestDigest,
       preview: previewOf(request.request, {
         action: `${request.integration}.${request.operation}`,
@@ -338,6 +363,31 @@ export class ExecutionService {
       });
     }
 
+    // 0. Ownership, before the record is read for any other purpose.
+    //
+    // `runs.ts:291` and `runs.ts:348` already refuse a heartbeat or a finish
+    // for another agent's run, and `api/external.ts:471` refuses to say whether
+    // another agent's approval exists. This is the same boundary at the one
+    // place that produces an effect, and it has to come first for two reasons.
+    //
+    // The digest comparison below *voids* the record on a mismatch, and rightly
+    // so — a caller substituting a payload after sign-off is misbehaviour. But
+    // `digestOf` folds `agentId` into the digest, so a commit naming another
+    // agent's action can never match, and running that check first turned
+    // "somebody else guessed my id" into "this agent tampered with its own
+    // request": the victim's approved action was destroyed, the human's
+    // decision became unspendable, and the record accused an agent that had
+    // submitted nothing. One enrolled agent could cancel every other agent's
+    // approved work by naming its id.
+    //
+    // The refusal is deliberately the same one an unknown id gets, so this
+    // endpoint cannot be used to discover which ids exist.
+    if (action.agentId !== request.agentId) {
+      throw new DeniedError("approval.required", `No parked action ${id}.`, {
+        parkedActionId: id,
+      });
+    }
+
     // 1. Terminal status outlives expiry.
     if (action.status === "committed") {
       return {
@@ -434,6 +484,27 @@ export class ExecutionService {
     }
     await this.containment.assertClear({ integration: action.integration });
 
+    // The operation must still exist and must still be the mode it was approved
+    // as. Both are refusals the router would raise anyway — the point of asking
+    // here is that this is *before* the approval is consumed. Asking inside
+    // `perform` meant a refusal that never touched the network was reported as
+    // an effect that might have landed, with the human's decision already spent.
+    const registeredMode = this.integration.modeOf(action.integration, action.operation);
+    if (registeredMode === null) {
+      throw new DeniedError(
+        "authorization.action_not_permitted",
+        `"${action.integration}.${action.operation}" is no longer a governed operation. Nothing was done.`,
+        { parkedActionId: action.id, integration: action.integration },
+      );
+    }
+    if (registeredMode !== action.mode) {
+      throw new DeniedError(
+        "authorization.action_not_permitted",
+        `"${action.integration}.${action.operation}" was approved as a ${action.mode} and is now registered as a ${registeredMode}. Nothing was done; the approval stands and can be committed once the two agree.`,
+        { parkedActionId: action.id, approvedMode: action.mode, registeredMode },
+      );
+    }
+
     // 4. One-shot approval, durably.
     if (!action.approvalId) {
       throw new DeniedError(
@@ -443,11 +514,13 @@ export class ExecutionService {
       );
     }
     if (await this.usedApprovals.isConsumed(action.approvalId)) {
-      return {
-        kind: "already_done",
-        parkedActionId: action.id,
-        resultSummary: action.resultSummary,
-      };
+      // The ledger says this approval cannot be spent again. That is a refusal
+      // signal and NOT evidence that anything happened — the ledger also
+      // over-refuses every id at or below its evicted floor, deliberately, and
+      // a worker that dies between claiming the approval and moving the action
+      // leaves exactly this state with nothing performed. Answering from the
+      // action's real status is the only honest reply.
+      return this.answerFromStatus(action.id, "That approval has already been spent.");
     }
     await this.approvals.consume({
       approvalId: action.approvalId,
@@ -456,11 +529,7 @@ export class ExecutionService {
     });
     const claimed = await this.usedApprovals.claimApproval(action.approvalId, this.clock.nowIso());
     if (!claimed) {
-      return {
-        kind: "already_done",
-        parkedActionId: action.id,
-        resultSummary: action.resultSummary,
-      };
+      return this.answerFromStatus(action.id, "That approval was claimed by another commit.");
     }
 
     // 5. Conditional transition into the in-flight state. Whichever concurrent
@@ -472,27 +541,23 @@ export class ExecutionService {
       at: this.clock.nowIso(),
     });
     if (!inFlight) {
-      return {
-        kind: "already_done",
-        parkedActionId: action.id,
-        resultSummary: action.resultSummary,
-      };
+      return this.answerFromStatus(action.id, "That action moved before this commit could start.");
     }
 
-    const run = await this.openRun(request, "write");
+    const run = await this.openRun(request, action.mode);
 
     try {
       const result = await this.integration.perform({
         integration: action.integration,
         operation: action.operation,
-        mode: "write",
+        mode: action.mode,
         request: request.request,
         // Derived from the parked action, so a retry of the same commit reaches
         // the remote system under the same key.
         idempotencyKey: `parked:${action.id}`,
       });
 
-      await this.parked.transitionParkedAction({
+      const settled = await this.parked.transitionParkedAction({
         id: action.id,
         expectedStatus: "committing",
         status: "committed",
@@ -500,6 +565,27 @@ export class ExecutionService {
         resultDigest: digestBytes(canonicalJson({ result })),
         resultSummary: `Committed ${action.integration}.${action.operation}`,
       });
+
+      if (!settled) {
+        // Something moved the row while the call was in flight — the sweeper
+        // deciding the worker had died is the only writer that can. The effect
+        // DID happen, but the record now says otherwise, and returning
+        // "completed" over a record that says "indeterminate" would be two
+        // contradictory statements about one action. The record wins and a
+        // person reconciles it.
+        await this.runs.patchRun(run.id, {
+          status: "failed",
+          endedAt: this.clock.nowIso(),
+          outcome:
+            "The action completed but its record had already been moved. Reconcile against the system of record.",
+        });
+        return {
+          kind: "indeterminate",
+          parkedActionId: action.id,
+          message:
+            "This action completed, but its record had already been settled by something else — most likely a sweep that judged the worker dead. It has NOT been retried. Verify in the system of record before acting.",
+        };
+      }
 
       await this.runs.patchRun(run.id, {
         status: "succeeded",
@@ -509,9 +595,30 @@ export class ExecutionService {
 
       return { kind: "completed", result, runId: run.id };
     } catch (error) {
-      // The effect may or may not have landed. We do not know, and neither does
-      // anyone else here — only the system of record does. Mark it and say so.
-      // Never retry automatically: a retry of an action that succeeded is a
+      // A DeniedError from the outbound path asserts that nothing was done —
+      // that is the `GovernedIntegration` contract, not an inference. The
+      // platform declined, so say so and leave the action where it was rather
+      // than terminalising it as an effect that might have landed. Getting this
+      // wrong tells an operator to go and check a system of record for a call
+      // that was never made.
+      if (error instanceof DeniedError) {
+        await this.parked.transitionParkedAction({
+          id: action.id,
+          expectedStatus: "committing",
+          status: "pending",
+          at: this.clock.nowIso(),
+        });
+        await this.runs.patchRun(run.id, {
+          status: "failed",
+          endedAt: this.clock.nowIso(),
+          outcome: `Refused before anything was done: ${error.reason}`,
+        });
+        throw error;
+      }
+
+      // Anything else may or may not have landed. We do not know, and neither
+      // does anyone else here — only the system of record does. Mark it and say
+      // so. Never retry automatically: a retry of an action that succeeded is a
       // duplicate consumer-facing effect.
       await this.parked.transitionParkedAction({
         id: action.id,
@@ -536,6 +643,48 @@ export class ExecutionService {
   }
 
   /**
+   * Answer a commit from the parked action's real status.
+   *
+   * Three different negative conditions used to be reported as `already_done`
+   * without anyone confirming the action had ever reached `committed`: the
+   * ledger refusing the approval, a lost claim race, and a lost transition
+   * race. None of them means "somebody else committed it", and in a product
+   * whose entire value is that the record is true, "This action was already
+   * committed" about a write that never happened is the worst sentence the API
+   * can say. So the status is re-read and the answer comes from the record.
+   */
+  private async answerFromStatus(
+    id: Id<"parkedAction">,
+    context: string,
+  ): Promise<ExecuteOutcome> {
+    const current = await this.parked.getParkedAction(id);
+
+    if (current?.status === "committed") {
+      return {
+        kind: "already_done",
+        parkedActionId: id,
+        resultSummary: current.resultSummary,
+      };
+    }
+    if (current?.status === "committing" || current?.status === "indeterminate") {
+      return {
+        kind: "indeterminate",
+        parkedActionId: id,
+        message:
+          "This action was started and its outcome was never recorded. It has NOT been retried, because it may already have taken effect. Verify in the system of record before acting.",
+      };
+    }
+
+    // Everything else — pending, voided, rejected, expired, or gone. Nothing
+    // happened, and the caller must not be told otherwise.
+    throw new DeniedError(
+      "approval.already_used",
+      `${context} Nothing was done, and this action cannot be committed again. Its record reads "${current?.status ?? "missing"}"; raise a fresh request if the work is still wanted.`,
+      { parkedActionId: id, status: current?.status ?? "missing" },
+    );
+  }
+
+  /**
    * Sweep commits that were left in flight by a worker that died.
    *
    * Marks them indeterminate — never retries them. There is no safe automatic
@@ -548,7 +697,14 @@ export class ExecutionService {
     const stranded: ParkedAction[] = [];
 
     for (const action of inFlight) {
-      if (action.createdAt > cutoff) continue;
+      // Measure from when the commit went in flight, not from when the action
+      // was parked. `createdAt` is when a human was *asked*, normally hours
+      // earlier, so sweeping on it declares every live commit abandoned the
+      // moment it starts. The fallback keeps rows written before the column
+      // existed behaving exactly as they do today rather than becoming
+      // invisible to the sweep.
+      const startedAt = action.committingAt ?? action.createdAt;
+      if (startedAt > cutoff) continue;
       const marked = await this.parked.transitionParkedAction({
         id: action.id,
         expectedStatus: "committing",

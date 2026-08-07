@@ -11,7 +11,8 @@
 
 **Criteria in scope:** Security (Common Criteria), Availability,
 Confidentiality, Processing Integrity. Privacy is mapped separately in
-`data-inventory.md` and `subject-rights-runbook.md`.
+`data-inventory.md` and `subject-rights-runbook.md` — note that the latter is a
+specification and not a capability: no subject-rights command exists (B7).
 
 **Legend:**
 `Platform` — satisfied by this codebase.
@@ -37,7 +38,7 @@ Confidentiality, Processing Integrity. Privacy is mapped separately in
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
-| CC2.1 Quality information | Platform | Operating record and audit chain; structured logs with correlation ids |
+| CC2.1 Quality information | Shared | Operating record and audit chain, both carrying the caller's correlation id. **Not the logs:** there is no HTTP request log and no metrics are emitted (S9, S9a) — a successful request writes no log line at all |
 | CC2.2 Internal communication | Shared | Console surfaces queues, breaches, and denials; escalation paths are MVW's |
 | CC2.3 External communication | MVW | MVW customer and regulator communication |
 
@@ -73,7 +74,7 @@ Confidentiality, Processing Integrity. Privacy is mapped separately in
 | CC6.2 Registration and authorisation | Shared | Directory-group provisioning; access follows the HR lifecycle |
 | CC6.3 Access modification and removal | Shared | Group removal removes access; service accounts individually revocable |
 | CC6.4 Physical access | MVW | Cloud provider and MVW facilities |
-| CC6.5 Asset disposal | Shared | Retention job with recorded purges (`retention-and-deletion.md`) |
+| CC6.5 Asset disposal | Shared | Retention job with recorded purges, covering two of the fourteen rules — `retention-and-deletion.md` §1 marks which, §5 says what the rest wait on |
 | CC6.6 External threat protection | Shared | Egress allowlist, boundary screen, sandbox defaulting to disabled; network controls are MVW's |
 | CC6.7 Transmission restriction | Shared | TLS in transit; redaction before egress; no card data (ADR 0009) |
 | CC6.8 Malicious software | **Gap** | No container image scanning yet — see not-production-grade list |
@@ -83,7 +84,7 @@ Confidentiality, Processing Integrity. Privacy is mapped separately in
 | Criterion | Status | Evidence |
 | --- | --- | --- |
 | CC7.1 Vulnerability detection | Platform | Dependency scanning and SBOM in CI; severity-based SLAs (`vulnerability-policy.md`) |
-| CC7.2 Monitoring for anomalies | Shared | Structured logs, metrics, traces, denial-rate alerting; MVW operates the stack |
+| CC7.2 Monitoring for anomalies | Gap | Metrics, traces, and denial-rate alerting are specified in `docs/ops/observability-and-cost.md` and **none is emitted** (S9, S9a). What exists is a set of CLI checks that exit non-zero on the condition they check for, which a scheduler can alert on |
 | CC7.3 Incident evaluation | Platform | `docs/ops/incident-process.md`, including what to do when the AI is wrong |
 | CC7.4 Incident response | Shared | Containment controls stop in-flight work in seconds without a deploy |
 | CC7.5 Recovery | **Partial** | Backup and restore procedure documented with a drill script; **the drill has not been executed on real infrastructure** |

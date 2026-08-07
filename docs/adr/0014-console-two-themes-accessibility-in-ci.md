@@ -1,7 +1,12 @@
 # ADR 0014 — Console: two themes, no component framework, accessibility enforced in CI
 
-**Status:** Accepted
+**Status:** Superseded in part by ADR 0017
 **Date:** 2026-08-06
+
+> ADR 0017 withdraws this record's prohibition on glass, blur, and gradient, and
+> replaces its single theme preference with three. Everything else here still
+> holds: two themes and no third, no component framework, no CSS framework,
+> native elements first, and accessibility enforced in CI rather than reviewed.
 
 ## Context
 

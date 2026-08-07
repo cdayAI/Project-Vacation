@@ -28,7 +28,7 @@ describe("ImprovementQueue", () => {
     const buttons = screen.queryAllByRole("button");
     for (const button of buttons) {
       // Every button on this screen is a table sort control and nothing else.
-      expect(button.className).toContain("pv-table-sort");
+      expect(button.className).toContain("pv-dt-sort");
     }
   });
 

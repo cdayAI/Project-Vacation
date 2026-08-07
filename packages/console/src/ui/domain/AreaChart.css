@@ -1,0 +1,19 @@
+/* Stacked area bands.
+
+   The fill is held below full strength so that the gridlines behind it stay
+   readable — an operator measuring a band against the axis is the whole reason
+   the gridlines are there. The edge line is drawn at full strength on top,
+   which is what keeps the boundary between two bands visible in greyscale,
+   where two adjacent fills can land at the same lightness. */
+
+.pv-area-band {
+  fill-opacity: 0.65;
+  stroke: none;
+}
+
+.pv-area-edge {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

@@ -86,6 +86,24 @@ export function assertSpendAmount(amountUsd: number): void {
   }
 }
 
+/**
+ * Snap a running spend total onto the scale `external_spend_meter.spent_usd`
+ * stores, which is `numeric(20, 10)`.
+ *
+ * Stated here beside the column for the same reason as the assertions above.
+ * Postgres accumulates the meter as exact decimal, inside the row it has
+ * locked. The in-memory adapter has only binary doubles, whose error
+ * accumulates: three hundred reports of one cent leave the meter reading
+ * 2.99999999999998, and `spent >= ceiling` in the admission chain then lets an
+ * agent that has spent its entire $3.00 ceiling carry on spending. Snapping
+ * each running total back onto the column's grid puts it where exact decimal
+ * arithmetic would have left it, so the two adapters return the same figure
+ * and the meter no longer depends on the order the reports arrived in.
+ */
+export function toStoredUsd(amountUsd: number): number {
+  return Number(amountUsd.toFixed(10));
+}
+
 /** The digest form the platform uses everywhere, `sha256:<64 hex>`. */
 export function assertDigestForm(field: string, value: string): void {
   if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) {
@@ -514,6 +532,91 @@ CREATE INDEX IF NOT EXISTS external_rate_denial_window_idx
   ON external_rate_denial (agent_id, denial_class, at);
 `;
 
+/**
+ * Two columns a parked action needed and did not have.
+ *
+ * Additive and separate from `0016_external`, because a released migration is
+ * an immutable artifact: the runner checksums applied SQL and refuses the whole
+ * run if it changed, which is the control that stops two deployments believing
+ * they share a schema when they do not.
+ *
+ * **`mode`** — the commit path asserted `write` unconditionally, so an
+ * operation the operator rated high-consequence but registered as a *read* was
+ * parked, approved by a human, and then refused at the last step by the
+ * connector router for a mode mismatch. Binding the mode to the record at
+ * parking time is what makes the commit perform the thing that was approved
+ * rather than a thing the code assumed. Existing rows are all writes, because
+ * that is the only mode the old commit path could reach, so the backfill is
+ * correct rather than merely convenient.
+ *
+ * **`committing_at`** — the stale-commit sweeper measured staleness from
+ * `created_at`, which is when a human was *asked*, not when the work began. A
+ * commit normally starts hours after parking, so every real in-flight action
+ * looked stale the moment it started and would have been declared indeterminate
+ * by the first sweep. Nothing called the sweeper, so the defect was latent; it
+ * becomes live the moment a scheduler exists, which is why this lands first.
+ * The sweep reads `COALESCE(committing_at, created_at)` so rows written before
+ * this migration keep exactly today's behaviour instead of becoming invisible.
+ */
+const EXTERNAL_PARKED_MODE_SQL = `
+ALTER TABLE external_parked_action
+  ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'write';
+
+ALTER TABLE external_parked_action
+  ADD COLUMN IF NOT EXISTS committing_at text;
+
+ALTER TABLE external_parked_action
+  DROP CONSTRAINT IF EXISTS external_parked_action_mode_known;
+ALTER TABLE external_parked_action
+  ADD CONSTRAINT external_parked_action_mode_known CHECK (mode IN ('read','write'));
+
+ALTER TABLE external_parked_action
+  DROP CONSTRAINT IF EXISTS external_parked_action_committing_at_utc;
+ALTER TABLE external_parked_action
+  ADD CONSTRAINT external_parked_action_committing_at_utc CHECK (
+    committing_at IS NULL OR committing_at ~ '${ISO_UTC_SQL}'
+  );
+
+-- The sweep's query. Partial on the one status it can move, because there will
+-- eventually be far more settled actions than in-flight ones.
+CREATE INDEX IF NOT EXISTS external_parked_action_committing_idx
+  ON external_parked_action (committing_at)
+  WHERE status = 'committing';
+`;
+
+/**
+ * The status the two-phase commit path writes, which the table refused.
+ *
+ * `committing` was added to `ParkedActionStatus` and to the sweeper — 0017
+ * indexes `WHERE status = 'committing'` — but the CHECK constraint enumerating
+ * the statuses was never widened to admit it. On Postgres that made step 5 of
+ * `ExecutionService.commit`, the conditional move into the in-flight state,
+ * violate `external_parked_action_status_known` on every governed write: the
+ * failure surfaced as `record.unavailable` and no approved write could ever be
+ * committed against a real database.
+ *
+ * It was invisible because the memory adapter has no constraint to violate and
+ * the contract suite never asked either store to enter `committing`. That is
+ * the shape of gap this constraint now closes for good — the enumeration here
+ * and `ParkedActionStatus` in `types.ts` are the same list, stated once in SQL
+ * and once in TypeScript, and `store.contract.test.ts` now drives every
+ * transition the commit path performs through both adapters.
+ *
+ * Separate from 0017 rather than folded into it, for the reason 0017 is
+ * separate from 0016: an applied migration is an immutable artifact, and
+ * editing its SQL makes the code lie about what a deployed database contains.
+ */
+const EXTERNAL_PARKED_COMMITTING_SQL = `
+ALTER TABLE external_parked_action
+  DROP CONSTRAINT IF EXISTS external_parked_action_status_known;
+ALTER TABLE external_parked_action
+  ADD CONSTRAINT external_parked_action_status_known CHECK (
+    status IN ('pending','approved','committing','committed','rejected','voided','expired','indeterminate')
+  );
+`;
+
 export const MIGRATIONS: readonly { readonly id: string; readonly sql: string }[] = [
   { id: "0016_external", sql: EXTERNAL_SQL },
+  { id: "0017_external_parked_mode", sql: EXTERNAL_PARKED_MODE_SQL },
+  { id: "0018_external_parked_committing", sql: EXTERNAL_PARKED_COMMITTING_SQL },
 ];

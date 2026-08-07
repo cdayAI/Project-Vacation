@@ -1,0 +1,52 @@
+/* Badge — a status, stated.
+
+   Never interactive, which is the whole line between this and Chip: a badge is
+   the system telling the operator what something is, a chip is something the
+   operator can do.
+
+   Every badge carries a mark as well as a tint. That is not decoration — it is
+   the requirement that colour never carries meaning alone, and the case that
+   proves it is the regulator pack: the evidence export is printed, and a
+   printed page has no colour at all. */
+
+.pv-ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  max-width: 100%;
+  padding-inline: var(--pv-space-8);
+  border: 1px solid var(--pv-tone-border);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-tone-surface);
+  color: var(--pv-tone-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pv-ui-badge[data-size="sm"] {
+  min-height: var(--pv-space-20);
+  font-size: var(--pv-type-micro-size);
+  line-height: var(--pv-type-micro-line);
+  font-weight: var(--pv-type-micro-weight);
+  letter-spacing: var(--pv-type-micro-tracking);
+  text-transform: uppercase;
+}
+
+.pv-ui-badge[data-size="md"] {
+  min-height: var(--pv-target-min);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+}
+
+/* For a dense table cell, where a filled tint on every row turns the column
+   into a stripe and stops meaning anything. */
+.pv-ui-badge[data-emphasis="outline"] {
+  background-color: transparent;
+}
+
+.pv-ui-badge-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

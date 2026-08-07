@@ -1,0 +1,1165 @@
+/* =============================================================================
+   Screens — the shipped operator surfaces.
+
+   =============================================================================
+
+   This file styles the classes emitted by `src/components/` and `src/views/`:
+   the seventeen screens an operator actually reaches. It is separate from
+   `src/ui/`, which is the component library the gallery at `/design`
+   demonstrates and which carries its own per-component stylesheets.
+
+   **Why two.** The library was built to the design specification from
+   scratch; the screens predate it and have not been migrated onto it. That
+   migration is real, remaining work — see `docs/handover/not-production-grade.md`.
+   Until it happens the screens still have to be styled correctly rather than
+   rendered as unstyled markup, and this is that file. It is deliberately not a
+   second component library: no class here is exported, reused across packages,
+   or documented as an API. It is the stylesheet for a layer that is on its way
+   out.
+
+   **Every value comes from tokens.css.** A raw colour or a raw pixel size here
+   is a bug: it will be right in one theme and wrong in the other, right at one
+   density and wrong at the other, and no test will catch it. Light/dark and
+   comfortable/compact are handled entirely by the token layer, which is why
+   this file mentions neither.
+
+   Class prefixes:
+     pv-dt-*      the sortable table in components/DataTable
+     everything else, the layout and text utilities the views share
+   ========================================================================== */
+
+/* -----------------------------------------------------------------------------
+   1. Layout
+   -------------------------------------------------------------------------- */
+
+.pv-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-24);
+  min-width: 0;
+}
+
+.pv-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+}
+
+.pv-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-8);
+}
+
+.pv-space-above {
+  margin-block-start: var(--pv-space-12);
+}
+
+.pv-space-above-wide {
+  margin-block-start: var(--pv-space-24);
+}
+
+.pv-space-below {
+  margin-block-end: var(--pv-space-16);
+}
+
+/* -----------------------------------------------------------------------------
+   2. Page furniture
+   -------------------------------------------------------------------------- */
+
+.pv-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+}
+
+.pv-page-header h1 {
+  font-size: var(--pv-type-title-lg-size);
+  line-height: var(--pv-type-title-lg-line);
+  font-weight: var(--pv-type-title-lg-weight);
+  letter-spacing: var(--pv-type-title-lg-tracking);
+  color: var(--pv-content-primary);
+}
+
+/* The lede is a sentence of orientation, not a subtitle. Held to the reading
+   measure so it stays one or two lines on a wide monitor rather than running
+   the full width of a 1440px table. */
+.pv-page-lede {
+  max-inline-size: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-lg-size);
+  line-height: var(--pv-type-body-lg-line);
+}
+
+.pv-page-lede.pv-mono {
+  font-size: var(--pv-type-body-size);
+}
+
+.pv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--pv-space-16);
+  padding: var(--pv-space-12) var(--pv-space-16);
+  border-radius: var(--pv-radius-card);
+  /* Sticky, so it is one of the surfaces the page scrolls *under* — which is
+     the only condition under which a blurred backdrop shows anything at all. */
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
+}
+
+/* -----------------------------------------------------------------------------
+   3. Panels
+   -------------------------------------------------------------------------- */
+
+.pv-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+  padding: var(--pv-space-20);
+  border-radius: var(--pv-radius-card);
+  min-width: 0;
+}
+
+.pv-panel-heading {
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  letter-spacing: var(--pv-type-title-tracking);
+  color: var(--pv-content-primary);
+}
+
+.pv-panel h3 {
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  color: var(--pv-content-primary);
+}
+
+/* -----------------------------------------------------------------------------
+   4. Text
+   -------------------------------------------------------------------------- */
+
+/* Secondary text: labels, timestamps, provenance. Held at the caption step and
+   at `content-secondary` rather than `content-tertiary`, because tertiary is
+   for text that is genuinely optional and most of what wears this class is
+   the sentence explaining why a value is missing. */
+.pv-meta {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-caption {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+}
+
+.pv-lede-text {
+  max-inline-size: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+}
+
+.pv-mono {
+  font-family: var(--pv-font-mono);
+  font-variant-ligatures: none;
+  overflow-wrap: anywhere;
+}
+
+.pv-numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A value the platform cannot source. Distinguished from a value that is
+   simply small: italic and tertiary, so it does not read as data. */
+.pv-absent {
+  color: var(--pv-content-tertiary);
+  font-style: italic;
+}
+
+/* A digest is compared character by character or not at all, so it never
+   truncates and never ligates. It wraps anywhere rather than forcing the
+   table to scroll. */
+.pv-digest {
+  font-family: var(--pv-font-mono);
+  font-variant-ligatures: none;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  overflow-wrap: anywhere;
+  color: var(--pv-content-primary);
+}
+
+/* A quoted passage from a governed document. The rule down the leading edge
+   is the visual claim that these are somebody else's words. */
+.pv-excerpt {
+  margin: 0;
+  padding-inline-start: var(--pv-space-16);
+  border-inline-start: 3px solid var(--pv-border-strong);
+  color: var(--pv-content-primary);
+  max-inline-size: var(--pv-reading-measure);
+}
+
+.pv-prose-list,
+.pv-banner-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding-inline-start: var(--pv-space-20);
+  list-style: disc;
+  max-inline-size: var(--pv-reading-measure);
+}
+
+.pv-prose-list li,
+.pv-banner-list li {
+  color: var(--pv-content-primary);
+}
+
+.pv-sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* -----------------------------------------------------------------------------
+   5. The table
+   -------------------------------------------------------------------------- */
+
+/* The scroll container, not the table. It is focusable and labelled by the
+   caption, so a keyboard user can scroll a wide table without a pointer
+   (WCAG 2.1.1). */
+.pv-dt-scroll {
+  overflow-x: auto;
+  border-radius: var(--pv-radius-card);
+}
+
+.pv-dt-scroll:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: calc(var(--pv-focus-ring-offset) * -1);
+}
+
+.pv-dt {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-dt caption {
+  text-align: start;
+  padding: var(--pv-space-12) var(--pv-space-16);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  border-bottom: 1px solid var(--pv-border-subtle);
+}
+
+.pv-dt th,
+.pv-dt td {
+  padding: var(--pv-space-8) var(--pv-space-16);
+  text-align: start;
+  vertical-align: top;
+  border-bottom: 1px solid var(--pv-border-subtle);
+}
+
+.pv-dt thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--pv-bg-subtle);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+  border-bottom: 1px solid var(--pv-border-strong);
+  padding: 0;
+}
+
+.pv-dt-plain-header {
+  padding: var(--pv-space-8) var(--pv-space-16) !important;
+}
+
+.pv-dt tbody th {
+  font-weight: var(--pv-type-body-strong-weight);
+  color: var(--pv-content-primary);
+}
+
+.pv-dt tbody tr:last-child th,
+.pv-dt tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* No transition on a row, deliberately. Sorting re-renders instantly: an
+   animated sort makes an operator wait to read the answer they asked for. */
+.pv-dt tbody tr:hover {
+  background: var(--pv-bg-subtle);
+}
+
+.pv-dt-numeric {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The whole header cell is the hit target, not a glyph inside it. */
+.pv-dt-sort {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  inline-size: 100%;
+  min-block-size: var(--pv-target-min);
+  padding: var(--pv-space-8) var(--pv-space-16);
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.pv-dt-numeric .pv-dt-sort {
+  justify-content: flex-end;
+}
+
+.pv-dt-sort:hover {
+  color: var(--pv-content-primary);
+}
+
+.pv-dt-sort:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: calc(var(--pv-focus-ring-offset) * -1);
+}
+
+.pv-dt-sort-indicator {
+  color: var(--pv-content-tertiary);
+}
+
+/* A breached row is tinted and carries a bar down its leading edge. Both are
+   redundant with the word "Past due" in the age cell — colour is never the
+   only channel (WCAG 1.4.1). */
+.pv-row-breached > :first-child {
+  box-shadow: inset 3px 0 0 0 var(--pv-status-danger);
+}
+
+.pv-row-breached {
+  background: var(--pv-status-danger-surface);
+}
+
+.pv-row-breached:hover {
+  background: var(--pv-status-danger-surface);
+}
+
+.pv-row-denied > :first-child {
+  box-shadow: inset 3px 0 0 0 var(--pv-status-denied);
+}
+
+.pv-row-denied {
+  background: var(--pv-status-denied-surface);
+}
+
+/* -----------------------------------------------------------------------------
+   6. Definition lists
+   -------------------------------------------------------------------------- */
+
+.pv-dl {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) 1fr;
+  gap: var(--pv-space-4) var(--pv-space-16);
+  align-items: start;
+}
+
+.pv-dl > div {
+  display: contents;
+}
+
+.pv-dl dt {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-body-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+}
+
+.pv-dl dd {
+  color: var(--pv-content-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 40rem) {
+  .pv-dl {
+    grid-template-columns: 1fr;
+    gap: var(--pv-space-4);
+  }
+
+  .pv-dl dd {
+    margin-block-end: var(--pv-space-8);
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   7. Step and citation trails
+   -------------------------------------------------------------------------- */
+
+.pv-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+  list-style: none;
+}
+
+.pv-step,
+.pv-citation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-16);
+  background: var(--pv-bg-subtle);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  min-width: 0;
+}
+
+.pv-citation-stale {
+  border-color: var(--pv-status-warning-border);
+}
+
+.pv-step-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pv-space-8);
+}
+
+.pv-step-seq {
+  color: var(--pv-content-tertiary);
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-type-caption-size);
+}
+
+/* -----------------------------------------------------------------------------
+   8. Badges and pills
+   -------------------------------------------------------------------------- */
+
+.pv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pv-space-4);
+  padding: 2px var(--pv-space-8);
+  border-radius: var(--pv-radius-pill);
+  border: 1px solid transparent;
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  font-weight: var(--pv-type-body-strong-weight);
+  white-space: nowrap;
+}
+
+/* The glyph is aria-hidden and exists so tone survives greyscale and a
+   colour-vision deficiency: ▲ warning, ✕ failure, ⊟ refusal, ✓ success. */
+.pv-badge-glyph {
+  font-size: 0.875em;
+}
+
+.pv-badge-neutral {
+  background: var(--pv-status-neutral-surface);
+  border-color: var(--pv-status-neutral-border);
+  color: var(--pv-status-neutral);
+}
+
+.pv-badge-info {
+  background: var(--pv-status-info-surface);
+  border-color: var(--pv-status-info-border);
+  color: var(--pv-status-info);
+}
+
+.pv-badge-success {
+  background: var(--pv-status-success-surface);
+  border-color: var(--pv-status-success-border);
+  color: var(--pv-status-success);
+}
+
+.pv-badge-warning {
+  background: var(--pv-status-warning-surface);
+  border-color: var(--pv-status-warning-border);
+  color: var(--pv-status-warning);
+}
+
+.pv-badge-danger {
+  background: var(--pv-status-danger-surface);
+  border-color: var(--pv-status-danger-border);
+  color: var(--pv-status-danger);
+}
+
+/* Refusal is its own tone, not a shade of failure. A run stopped by a control
+   did not malfunction, and it must not look as though it did. */
+.pv-badge-denied {
+  background: var(--pv-status-denied-surface);
+  border-color: var(--pv-status-denied-border);
+  color: var(--pv-status-denied);
+}
+
+/* -----------------------------------------------------------------------------
+   9. Callouts
+   -------------------------------------------------------------------------- */
+
+.pv-callout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-border-subtle);
+  border-inline-start-width: 3px;
+  border-radius: var(--pv-radius-control);
+  background: var(--pv-surface);
+  max-inline-size: var(--pv-reading-measure);
+}
+
+.pv-callout-title {
+  font-weight: var(--pv-type-body-strong-weight);
+  color: var(--pv-content-primary);
+}
+
+.pv-callout-info {
+  background: var(--pv-status-info-surface);
+  border-color: var(--pv-status-info-border);
+  border-inline-start-color: var(--pv-status-info);
+}
+
+.pv-callout-success {
+  background: var(--pv-status-success-surface);
+  border-color: var(--pv-status-success-border);
+  border-inline-start-color: var(--pv-status-success);
+}
+
+.pv-callout-warning {
+  background: var(--pv-status-warning-surface);
+  border-color: var(--pv-status-warning-border);
+  border-inline-start-color: var(--pv-status-warning);
+}
+
+.pv-callout-danger {
+  background: var(--pv-status-danger-surface);
+  border-color: var(--pv-status-danger-border);
+  border-inline-start-color: var(--pv-status-danger);
+}
+
+.pv-callout-denied {
+  background: var(--pv-status-denied-surface);
+  border-color: var(--pv-status-denied-border);
+  border-inline-start-color: var(--pv-status-denied);
+}
+
+.pv-callout-neutral {
+  background: var(--pv-status-neutral-surface);
+  border-color: var(--pv-status-neutral-border);
+  border-inline-start-color: var(--pv-status-neutral);
+}
+
+/* -----------------------------------------------------------------------------
+   10. Forms
+   -------------------------------------------------------------------------- */
+
+.pv-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+}
+
+.pv-field-label {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+}
+
+.pv-field-hint {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+}
+
+.pv-field-error {
+  color: var(--pv-status-danger);
+  font-size: var(--pv-type-caption-size);
+}
+
+.pv-select,
+.pv-input,
+.pv-textarea {
+  min-block-size: var(--pv-control-height-md);
+  padding: var(--pv-control-padding-block) var(--pv-control-padding-inline);
+  background: var(--pv-surface);
+  color: var(--pv-content-primary);
+  border: 1px solid var(--pv-border-control);
+  border-radius: var(--pv-radius-control);
+  font: inherit;
+}
+
+.pv-textarea {
+  min-block-size: calc(var(--pv-control-height-md) * 2.5);
+  resize: vertical;
+}
+
+.pv-select:focus-visible,
+.pv-input:focus-visible,
+.pv-textarea:focus-visible,
+.pv-checkbox:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+}
+
+.pv-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  min-block-size: var(--pv-target-min);
+}
+
+.pv-checkbox {
+  inline-size: var(--pv-space-16);
+  block-size: var(--pv-space-16);
+  accent-color: var(--pv-accent);
+}
+
+.pv-filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--pv-space-16);
+}
+
+/* -----------------------------------------------------------------------------
+   11. Buttons
+   -------------------------------------------------------------------------- */
+
+.pv-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pv-space-8);
+  min-block-size: var(--pv-control-height-md);
+  min-inline-size: var(--pv-target-min);
+  padding: var(--pv-control-padding-block) var(--pv-space-16);
+  border-radius: var(--pv-radius-control);
+  border: 1px solid var(--pv-border-strong);
+  background: var(--pv-surface);
+  color: var(--pv-content-primary);
+  font: inherit;
+  font-weight: var(--pv-type-body-strong-weight);
+  cursor: pointer;
+}
+
+.pv-button:focus-visible {
+  outline: var(--pv-focus-ring-width) solid var(--pv-focus-ring);
+  outline-offset: var(--pv-focus-ring-offset);
+}
+
+.pv-button[aria-disabled="true"] {
+  /* Reachable rather than removed from the tab order: the sentence saying why
+     it cannot be used is only discoverable if the control can be focused. */
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pv-button-primary {
+  background: var(--pv-accent);
+  border-color: var(--pv-accent);
+  color: var(--pv-accent-contrast);
+}
+
+.pv-button-primary:hover:not([aria-disabled="true"]) {
+  background: var(--pv-accent-hover);
+  border-color: var(--pv-accent-hover);
+}
+
+/* Reject carries the same size and the same visual weight as Approve.
+   Neither is styled as the easy path — design spec §3.2. */
+.pv-button-danger {
+  background: var(--pv-surface);
+  border-color: var(--pv-status-danger-border);
+  color: var(--pv-status-danger);
+}
+
+.pv-button-secondary {
+  background: var(--pv-surface);
+}
+
+/* -----------------------------------------------------------------------------
+   12. Dialogs
+   -------------------------------------------------------------------------- */
+
+.pv-dialog {
+  max-inline-size: min(40rem, calc(100vw - var(--pv-space-32)));
+  padding: var(--pv-space-24);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-sheet);
+  background: var(--pv-surface-raised);
+  color: var(--pv-content-primary);
+  box-shadow: var(--pv-elevation-3);
+}
+
+.pv-dialog::backdrop {
+  background: var(--pv-scrim);
+}
+
+.pv-dialog-title {
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+}
+
+.pv-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-12);
+  margin-block: var(--pv-space-16);
+}
+
+.pv-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--pv-space-8);
+}
+
+/* -----------------------------------------------------------------------------
+   13. Empty and refusal states
+   -------------------------------------------------------------------------- */
+
+.pv-empty,
+.pv-denial {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-32);
+  border: 1px dashed var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background: var(--pv-bg-subtle);
+  text-align: center;
+  align-items: center;
+}
+
+.pv-denial {
+  border-style: solid;
+  border-color: var(--pv-status-denied-border);
+  background: var(--pv-status-denied-surface);
+  text-align: start;
+  align-items: flex-start;
+}
+
+.pv-denial-heading {
+  font-size: var(--pv-type-title-size);
+  line-height: var(--pv-type-title-line);
+  font-weight: var(--pv-type-title-weight);
+  color: var(--pv-status-denied);
+}
+
+.pv-empty-body {
+  max-inline-size: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+}
+
+/* -----------------------------------------------------------------------------
+   14. Metric tiles
+   -------------------------------------------------------------------------- */
+
+.pv-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--pv-space-16);
+}
+
+.pv-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  padding: var(--pv-space-16);
+  background: var(--pv-surface);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+}
+
+.pv-metric-label {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+}
+
+.pv-metric-value {
+  font-size: var(--pv-type-display-size);
+  line-height: var(--pv-type-display-line);
+  font-weight: var(--pv-type-display-weight);
+  letter-spacing: var(--pv-type-display-tracking);
+  font-variant-numeric: tabular-nums;
+  color: var(--pv-content-primary);
+}
+
+.pv-metric-change,
+.pv-metric-judgement,
+.pv-metric-source {
+  font-size: var(--pv-type-caption-size);
+  color: var(--pv-content-secondary);
+}
+
+.pv-metric-source-label {
+  color: var(--pv-content-tertiary);
+}
+
+/* Direction is never the same thing as goodness: a cost that fell is good and
+   a completion rate that fell is not, so the judgement is a separate class
+   from the direction and the view decides which applies. */
+.pv-metric-good {
+  color: var(--pv-status-success);
+}
+
+.pv-metric-bad {
+  color: var(--pv-status-danger);
+}
+
+.pv-metric-neutral {
+  color: var(--pv-content-secondary);
+}
+
+.pv-metric-glyph {
+  font-size: 0.875em;
+}
+
+/* -----------------------------------------------------------------------------
+   15. Screen-specific pieces
+   -------------------------------------------------------------------------- */
+
+/* The rendered artifact an approver reads before deciding. Monospaced and
+   preserved exactly: it is the thing the digest is taken over, so reflowing
+   it would show something other than what is being signed. */
+.pv-artifact {
+  margin: 0;
+  padding: var(--pv-space-16);
+  background: var(--pv-bg-subtle);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-body-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-block-size: 28rem;
+  overflow-y: auto;
+}
+
+.pv-compare {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: var(--pv-space-16);
+}
+
+.pv-compare-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-16);
+  background: var(--pv-bg-subtle);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-control);
+  min-width: 0;
+}
+
+.pv-compare-pane-after {
+  border-color: var(--pv-status-info-border);
+}
+
+.pv-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+  list-style: none;
+}
+
+.pv-token {
+  padding: 2px var(--pv-space-8);
+  background: var(--pv-bg-subtle);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-pill);
+  font-family: var(--pv-font-mono);
+  font-size: var(--pv-type-caption-size);
+}
+
+/* The work queue's age cell. The band tints the relative age only — the word
+   beside it ("Past due", "Due soon") is what actually carries the state. */
+.pv-age time {
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-age-breached time {
+  color: var(--pv-status-danger);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-age-due_soon time {
+  color: var(--pv-status-warning);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-age-no_target time,
+.pv-age-not_waiting time {
+  color: var(--pv-content-tertiary);
+}
+
+/* -----------------------------------------------------------------------------
+   16. Glass
+
+   The screens layer does not add a `pv-glass` class in seventeen views; it
+   composes the recipe here, so glass is a property of the surface rather than
+   something a view has to remember. Everything in this list is a *container*.
+
+   **No blurred backdrop is ever attached to a row, a cell, or a badge.** A
+   `backdrop-filter` is a full-surface repaint, and the console's tables run to
+   ten thousand rows: one filter per row is the difference between a table that
+   scrolls and a table that does not. Containers blur, contents tint.
+   -------------------------------------------------------------------------- */
+
+.pv-panel,
+.pv-toolbar,
+.pv-dt-scroll,
+.pv-callout,
+.pv-dialog,
+.pv-metric,
+.pv-empty,
+.pv-denial,
+.pv-step,
+.pv-citation,
+.pv-compare-pane,
+.pv-artifact {
+  position: relative;
+  background-color: var(--pv-glass-bg);
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+  border: 1px solid var(--pv-glass-border-color);
+  box-shadow: var(--pv-glass-highlight), var(--pv-glass-lens), var(--pv-elevation-1);
+  isolation: isolate;
+}
+
+/* The rim. Same construction as theme/glass.css — a gradient painted into a
+   1px mask ring — repeated here rather than shared, because the selector list
+   above is the thing that differs and a shared class would put us back to
+   editing seventeen views. */
+.pv-panel::before,
+.pv-toolbar::before,
+.pv-dt-scroll::before,
+.pv-callout::before,
+.pv-dialog::before,
+.pv-metric::before,
+.pv-empty::before,
+.pv-denial::before,
+.pv-step::before,
+.pv-citation::before,
+.pv-compare-pane::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    to bottom,
+    var(--pv-glass-rim),
+    transparent 40%,
+    transparent 60%,
+    var(--pv-glass-rim)
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* The specular band, on the surfaces large enough to show one. A sheen across
+   a 40px callout is a smear; across a panel it is the highlight that makes the
+   surface read as curved. */
+.pv-panel::after,
+.pv-dialog::after,
+.pv-metric::after,
+.pv-empty::after,
+.pv-denial::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    var(--pv-glass-sheen) 42%,
+    transparent 62%
+  );
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Content sits above both decorative layers. Without this the rim's stacking
+   context puts a 1px gradient over the first line of every panel. */
+.pv-panel > *,
+.pv-toolbar > *,
+.pv-callout > *,
+.pv-dialog > *,
+.pv-metric > *,
+.pv-empty > *,
+.pv-denial > *,
+.pv-step > *,
+.pv-citation > *,
+.pv-compare-pane > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Nested glass keeps the tint and the lens and drops the filter: a step card
+   inside a panel inside a page would otherwise stack three full-surface
+   repaints to render one card. */
+.pv-panel .pv-step,
+.pv-panel .pv-citation,
+.pv-panel .pv-callout,
+.pv-panel .pv-dt-scroll,
+.pv-panel .pv-compare-pane,
+.pv-panel .pv-artifact,
+.pv-panel .pv-metric,
+.pv-dialog .pv-callout,
+.pv-dialog .pv-artifact {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* The status callouts keep their tone. Tone is the whole job of a callout, so
+   the tinted fill wins over the glass fill and only the lens is shared —
+   a refusal that reads as "some panel" is a refusal nobody registers. */
+.pv-callout-info,
+.pv-callout-success,
+.pv-callout-warning,
+.pv-callout-danger,
+.pv-callout-denied,
+.pv-callout-neutral,
+.pv-denial {
+  backdrop-filter: var(--pv-glass-blur);
+  -webkit-backdrop-filter: var(--pv-glass-blur);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .pv-panel::after,
+  .pv-dialog::after,
+  .pv-metric::after {
+    transition: opacity var(--pv-motion-slow, 240ms) var(--pv-motion-ease, ease-out);
+  }
+
+  .pv-panel:hover::after,
+  .pv-dialog:hover::after,
+  .pv-metric:hover::after {
+    opacity: 0.8;
+  }
+}
+
+/* A table's own fill stays solid under its glass container. Text on a moving
+   surface over a blurred backdrop is the one place where translucency stops
+   being decoration and starts costing an operator a misread row. */
+.pv-dt thead th {
+  background-color: var(--pv-glass-scrim);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.pv-dt tbody {
+  background-color: var(--pv-glass-scrim);
+}
+
+/* Without a backdrop-filter behind them, the rim and the sheen are drawn over
+   an opaque surface and read as rendering artefacts rather than as glass. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .pv-panel,
+  .pv-toolbar,
+  .pv-dt-scroll,
+  .pv-dialog,
+  .pv-metric,
+  .pv-step,
+  .pv-citation,
+  .pv-compare-pane,
+  .pv-artifact {
+    background-color: var(--pv-surface-raised);
+    border-color: var(--pv-border-subtle);
+  }
+
+  .pv-panel::before,
+  .pv-toolbar::before,
+  .pv-dt-scroll::before,
+  .pv-callout::before,
+  .pv-dialog::before,
+  .pv-metric::before,
+  .pv-empty::before,
+  .pv-denial::before,
+  .pv-step::before,
+  .pv-citation::before,
+  .pv-compare-pane::before,
+  .pv-panel::after,
+  .pv-dialog::after,
+  .pv-metric::after,
+  .pv-empty::after,
+  .pv-denial::after {
+    display: none;
+  }
+}
+
+/* Reduced transparency: the tokens already resolve to designed solids, and the
+   decorative layers come off with them. This is a floor an operator sets, and
+   nothing in this file is allowed to reach back over it. */
+@media (prefers-reduced-transparency: reduce) {
+  .pv-panel::before,
+  .pv-toolbar::before,
+  .pv-dt-scroll::before,
+  .pv-callout::before,
+  .pv-dialog::before,
+  .pv-metric::before,
+  .pv-empty::before,
+  .pv-denial::before,
+  .pv-step::before,
+  .pv-citation::before,
+  .pv-compare-pane::before,
+  .pv-panel::after,
+  .pv-dialog::after,
+  .pv-metric::after,
+  .pv-empty::after,
+  .pv-denial::after {
+    display: none;
+  }
+}
+
+:root[data-transparency="reduced"] .pv-panel::before,
+:root[data-transparency="reduced"] .pv-toolbar::before,
+:root[data-transparency="reduced"] .pv-dt-scroll::before,
+:root[data-transparency="reduced"] .pv-callout::before,
+:root[data-transparency="reduced"] .pv-dialog::before,
+:root[data-transparency="reduced"] .pv-metric::before,
+:root[data-transparency="reduced"] .pv-empty::before,
+:root[data-transparency="reduced"] .pv-denial::before,
+:root[data-transparency="reduced"] .pv-step::before,
+:root[data-transparency="reduced"] .pv-citation::before,
+:root[data-transparency="reduced"] .pv-compare-pane::before,
+:root[data-transparency="reduced"] .pv-panel::after,
+:root[data-transparency="reduced"] .pv-dialog::after,
+:root[data-transparency="reduced"] .pv-metric::after,
+:root[data-transparency="reduced"] .pv-empty::after,
+:root[data-transparency="reduced"] .pv-denial::after {
+  display: none;
+}

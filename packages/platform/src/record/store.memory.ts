@@ -3,14 +3,20 @@ import { DeniedError, InvalidInputError } from "../kernel/errors.js";
 import type { Id, IdGenerator } from "../kernel/ids.js";
 import { canonicalJson } from "../kernel/canonical.js";
 import type { MemoryDb } from "../store/db.js";
-import { assertIsoUtc, assertOptionalIsoUtc, isTerminalStepStatus } from "./migrations.js";
-import type { RunStore } from "./port.js";
+import {
+  assertIsoUtc,
+  assertOptionalIsoUtc,
+  isTerminalStepStatus,
+  toStoredUsd,
+} from "./migrations.js";
+import { RUN_COUNT_CAP, type RunStore } from "./port.js";
 import type {
   CostEntry,
   CostSummary,
   NewRun,
   NewStep,
   Run,
+  RunCostRollup,
   RunFilter,
   RunPatch,
   Step,
@@ -164,7 +170,14 @@ export class MemoryRunStore implements RunStore {
   async countRuns(filter: RunFilter = {}): Promise<number> {
     // Deliberately ignores limit and offset: a count that respected the page
     // size could never tell a caller how many pages there are.
-    return this.db.rows<Run>(RUNS).filter((run) => matchesRunFilter(run, filter)).length;
+    //
+    // Capped at the same bound as the Postgres adapter, and for the contract
+    // rather than for performance — an in-memory filter is cheap. A fake that
+    // returned an uncapped figure would let a caller depend on exactness the
+    // real store stops providing, which is the whole failure mode this
+    // repository's paired adapters exist to prevent.
+    const matched = this.db.rows<Run>(RUNS).filter((run) => matchesRunFilter(run, filter)).length;
+    return Math.min(matched, RUN_COUNT_CAP + 1);
   }
 
   async appendStep(step: NewStep): Promise<Step> {
@@ -301,8 +314,13 @@ export class MemoryRunStore implements RunStore {
     let totalUsd = 0;
     for (const entry of this.db.rows<CostEntry>(COSTS)) {
       if (entry.runId !== runId) continue;
-      totalUsd += entry.amountUsd;
-      byCategory[entry.category] = (byCategory[entry.category] ?? 0) + entry.amountUsd;
+      // Snapped to the column's scale after each addition, so this total is
+      // the one Postgres's exact decimal SUM produces rather than a binary
+      // approximation of it. See `toStoredUsd`.
+      totalUsd = toStoredUsd(totalUsd + entry.amountUsd);
+      byCategory[entry.category] = toStoredUsd(
+        (byCategory[entry.category] ?? 0) + entry.amountUsd,
+      );
     }
     return { totalUsd, byCategory };
   }
@@ -315,7 +333,78 @@ export class MemoryRunStore implements RunStore {
     return this.db
       .rows<CostEntry>(COSTS)
       .filter((entry) => entry.recordedAt >= since)
-      .reduce((total, entry) => total + entry.amountUsd, 0);
+      .reduce((total, entry) => toStoredUsd(total + entry.amountUsd), 0);
+  }
+
+  async costRollupSince(since: string): Promise<readonly RunCostRollup[]> {
+    assertIsoUtc("since", since);
+
+    const runs = this.db.table<Run>(RUNS);
+    const accumulator = new Map<
+      string,
+      { rollup: RunCostRollup; byCategory: Record<string, number> }
+    >();
+
+    for (const entry of this.db.rows<CostEntry>(COSTS)) {
+      if (entry.recordedAt < since) continue;
+
+      let held = accumulator.get(entry.runId);
+      if (!held) {
+        const run = runs.get(entry.runId);
+        if (!run) {
+          // Unreachable: `recordCost` refuses spend against a run that is not
+          // in the record, and nothing deletes a run. Kept because a cost
+          // entry with no run would otherwise silently vanish from a report
+          // that is supposed to reconcile with the spend meter.
+          throw new DeniedError(
+            "record.unavailable",
+            `Cost is recorded against run ${entry.runId}, which is not in the operating record.`,
+            { runId: entry.runId },
+          );
+        }
+        const byCategory: Record<string, number> = {};
+        held = {
+          byCategory,
+          rollup: {
+            runId: run.id,
+            kind: run.kind,
+            status: run.status,
+            mode: run.mode,
+            roleId: run.roleId,
+            roleVersion: run.roleVersion,
+            workflowInstanceId: run.workflowInstanceId,
+            totalUsd: 0,
+            byCategory,
+            entries: 0,
+            lastRecordedAt: entry.recordedAt,
+          },
+        };
+        accumulator.set(entry.runId, held);
+      }
+
+      // Snapped after each addition for the same reason `costForRun` snaps:
+      // these totals are compared against the figure Postgres produces with
+      // exact decimal arithmetic, and unsnapped binary sums drift off it.
+      held.byCategory[entry.category] = toStoredUsd(
+        (held.byCategory[entry.category] ?? 0) + entry.amountUsd,
+      );
+      held.rollup = {
+        ...held.rollup,
+        totalUsd: toStoredUsd(held.rollup.totalUsd + entry.amountUsd),
+        entries: held.rollup.entries + 1,
+        lastRecordedAt:
+          entry.recordedAt > held.rollup.lastRecordedAt
+            ? entry.recordedAt
+            : held.rollup.lastRecordedAt,
+        byCategory: held.byCategory,
+      };
+    }
+
+    // Most expensive first. The one row that answers "loop or volume?" is then
+    // the first row, which is the whole point of reading this during an alert.
+    return [...accumulator.values()]
+      .map((held) => held.rollup)
+      .sort((a, b) => b.totalUsd - a.totalUsd || a.runId.localeCompare(b.runId));
   }
 
   async listCostEntries(runId: Id<"run">): Promise<readonly CostEntry[]> {

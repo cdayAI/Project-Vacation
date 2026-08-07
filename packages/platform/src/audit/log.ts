@@ -4,7 +4,8 @@ import { DeniedError } from "../kernel/errors.js";
 import type { Digest } from "../kernel/hash.js";
 import { isDigest } from "../kernel/hash.js";
 import type { IdGenerator } from "../kernel/ids.js";
-import { containsSecret } from "../kernel/redact.js";
+import { GENESIS_PREVIOUS_HASH, verifyChain } from "./chain.js";
+import { containsSecret, looksLikeCardNumber } from "../kernel/redact.js";
 import type { AuditStore } from "./port.js";
 import { computeEntryHash } from "./chain.js";
 import type { AuditEntry, AuditEventType, AuditFilter, NewAuditEntry } from "./types.js";
@@ -31,6 +32,30 @@ import type { AuditEntry, AuditEventType, AuditFilter, NewAuditEntry } from "./t
  * Generous enough that no legitimate decision comes close, small enough that a
  * seven-year chain stays cheap to store and quick to verify.
  */
+/**
+ * Email addresses and telephone numbers, the two shapes that are never a
+ * reference.
+ *
+ * Deliberately narrow, and narrowed once more after it fired on a digest. A
+ * sha256 hex string contains long digit runs by chance, so a pattern that
+ * matched bare digits refused the very values this rule wants callers to write.
+ * The telephone half therefore requires punctuation or a country prefix —
+ * something a person typed — and digests are skipped outright at the call site.
+ * A broad heuristic here is not "safer": a refused audit write refuses the
+ * action it was recording, so over-refusal costs accountability rather than
+ * buying privacy.
+ */
+const LOOKS_PERSONAL = new RegExp(
+  [
+    // An email address.
+    "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}",
+    // A telephone number as a human writes one: a country prefix, or digit
+    // groups separated by spaces, dots, hyphens or brackets.
+    "\\+\\d[\\d \\-().]{7,}\\d",
+    "\\d{3}[ \\-.()]+\\d{3}[ \\-.()]+\\d{4}",
+  ].join("|"),
+);
+
 const MAX_ENTRY_CONTENT_BYTES = 16 * 1024;
 
 export class AuditLog {
@@ -162,6 +187,23 @@ export class AuditLog {
           { field: `subject.${key}`, eventType: content.eventType },
         );
       }
+      // Defence in depth, not the primary control.
+      //
+      // Callers that take a subject from an untrusted source reduce it to
+      // opaque references before it gets here, which is where that belongs —
+      // this chain is append-only and kept for seven years, so a value written
+      // by mistake cannot be taken out again. This check exists because "the
+      // caller does it" is a convention, and a convention is one careless new
+      // caller away from being false. It catches the two shapes that are
+      // unambiguously a person rather than a reference.
+      // A digest is already the answer this rule is asking for.
+      if (!isDigest(value) && LOOKS_PERSONAL.test(value)) {
+        throw new DeniedError(
+          "record.unavailable",
+          `Audit subject.${key} looks like personal contact details rather than an opaque reference, and was refused. The chain records who a decision was about by identifier or digest, never by name, email, or telephone number — it cannot be edited afterwards to remove one.`,
+          { field: `subject.${key}`, eventType: content.eventType },
+        );
+      }
     }
 
     for (const [key, value] of Object.entries(content.decision ?? {})) {
@@ -190,6 +232,27 @@ export class AuditLog {
           );
         }
       }
+      // The same rule, for the other JSON type sixteen digits can arrive in.
+      //
+      // The string branch above ran and the numeric one did not, so
+      // `{ paymentInstrument: 4111111111111111 }` passed the type check and was
+      // written straight into the chain. That is worse than the log-sink case:
+      // the chain is append-only and stated to be retained for years, and its
+      // own retention design prunes a contiguous prefix and never edits a
+      // middle — so a card number landing here could not be taken out again
+      // without breaking verification for every entry after it.
+      //
+      // `looksLikeCardNumber` starts at fourteen digits rather than thirteen,
+      // for the measured reason recorded next to it: at thirteen it would
+      // refuse about one epoch-millisecond value in ten, and a refused audit
+      // write refuses the action it was recording.
+      if (type === "number" && looksLikeCardNumber(value as number)) {
+        throw new DeniedError(
+          "record.unavailable",
+          `Audit decision.${key} is a number shaped like a card number and was refused. The audit log records decisions, not instruments; record a digest or a masked reference instead.`,
+          { field: `decision.${key}`, eventType: content.eventType },
+        );
+      }
     }
   }
 
@@ -207,6 +270,40 @@ export class AuditLog {
 
   head(): Promise<AuditEntry | null> {
     return this.store.auditHead();
+  }
+
+  /**
+   * The furthest this chain has ever reached.
+   *
+   * Every verifier that has a store must pass this in. `head()` describes what
+   * survives; this describes what there was, and the gap between them is the
+   * only evidence that entries were deleted from the end.
+   */
+  watermark(): Promise<{ readonly maxSeq: number; readonly headHash: string } | null> {
+    return this.store.auditWatermark();
+  }
+
+  /**
+   * Verify the whole chain against what this store knows it should hold.
+   *
+   * The supported way to verify a live deployment, and the reason it exists is
+   * that the alternative is a trap: `verifyChain(entries)` is
+   * storage-independent by design — an auditor verifying an exported archive
+   * has entries and nothing else — so a caller who reaches for it directly gets
+   * a verifier that cannot see head truncation and says INTACT about an emptied
+   * table. Reading the entries and the watermark together is the only way to
+   * ask the question that matters on a running system, so it is the method the
+   * CLI, the API and the tests use.
+   */
+  async verify(options: { readonly fromSeq?: number; readonly toSeq?: number } = {}) {
+    const [chain, mark] = await Promise.all([
+      this.store.readAuditChain(options.fromSeq, options.toSeq),
+      this.store.auditWatermark(),
+    ]);
+    // A partial read is not evidence of truncation: an operator asking for
+    // entries 5..10 has deliberately excluded the rest.
+    const bounded = options.fromSeq !== undefined || options.toSeq !== undefined;
+    return verifyChain(chain, GENESIS_PREVIOUS_HASH, bounded ? null : mark);
   }
 }
 

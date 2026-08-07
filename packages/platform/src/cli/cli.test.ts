@@ -154,6 +154,48 @@ describe("operator command line", () => {
     expect(result.stderr).toMatch(/Postgres store only/);
   });
 
+  it("reports the schema rather than falling through, which its own help promised", async () => {
+    // `db status` was advertised in USAGE and fell through to "Unknown db
+    // subcommand". A command line that lies in its own help text is the first
+    // thing an operator reads and the first thing that teaches them not to
+    // trust the rest of it.
+    const result = await cli(["db", "status"]);
+    expect(result.code).toBe(78); // EX_CONFIG: no schema in this deployment
+    expect(result.stderr).not.toMatch(/Unknown db subcommand/);
+    // Not "up to date": there is no database here, which is a different answer.
+    expect(result.stderr).toMatch(/no schema/);
+    expect(result.stderr).toMatch(/PV_STORE/);
+  });
+
+  it("answers every command the runbooks send an operator to", async () => {
+    // Each of these was "Unknown command" while a runbook told a woken
+    // responder to run it. Asserted as processes rather than as source, because
+    // the exit code and the stdout/stderr split are the properties that make
+    // them usable during an incident, and neither is visible from inside.
+    for (const command of [
+      ["cost", "report"],
+      ["approvals", "list"],
+      ["models", "degradation"],
+      ["engine", "timers", "--overdue"],
+    ]) {
+      const result = await cli(command);
+      expect(result.stderr, command.join(" ")).not.toMatch(/Unknown command/);
+      expect(result.code, command.join(" ")).toBe(0);
+    }
+  }, 60_000);
+
+  it("keeps each report's stdout parseable so it can be filed as evidence", async () => {
+    for (const command of [
+      ["cost", "report", "--json"],
+      ["approvals", "list", "--json"],
+      ["models", "degradation", "--json"],
+      ["engine", "timers", "--json"],
+    ]) {
+      const result = await cli(command);
+      expect(() => JSON.parse(result.stdout), command.join(" ")).not.toThrow();
+    }
+  }, 60_000);
+
   it("runs the demonstration and exits zero with an intact chain", async () => {
     const result = await cli(["demo", "run"]);
     expect(result.code).toBe(0);

@@ -1,0 +1,97 @@
+/* FilterBar — which view, which filters, how many results.
+
+   Sticky under the top bar, and never glass: it sits directly over a scrolling
+   virtualized table, which is the one surface spec §1.5 forbids a blur behind.
+   A solid bar over a moving list is also simply easier to read.
+
+   The specified height is a minimum rather than a fixed height. A queue with
+   six active filters wraps to two rows, and a fixed 56px would clip them —
+   which is how a filter an operator cannot see stays applied to a table they
+   are trying to explain. */
+
+.pv-filter-bar {
+  position: sticky;
+  inset-block-start: var(--pv-shell-top-bar-height);
+  /* Above the table's own sticky header, and below the anchored-surface layer
+     the filter builder opens into — a popover that renders behind the bar that
+     opened it is the classic sticky-header bug. */
+  z-index: 10;
+
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pv-space-12);
+  min-block-size: var(--pv-shell-filter-bar-height);
+  padding: var(--pv-space-8) var(--pv-shell-gutter);
+  border-block-end: 1px solid var(--pv-border-subtle);
+  background-color: var(--pv-surface);
+  color: var(--pv-content-primary);
+}
+
+.pv-filter-bar-views,
+.pv-filter-bar-active {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pv-filter-bar-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pv-space-8);
+  min-width: 0;
+}
+
+/* Separates the saved views from the filters built on top of them. Without it
+   the two groups read as one long row of pills that behave differently. */
+.pv-filter-bar-views + .pv-filter-bar-filters {
+  padding-inline-start: var(--pv-space-12);
+  border-inline-start: 1px solid var(--pv-border-subtle);
+}
+
+.pv-filter-bar-filter-count {
+  margin-inline-start: var(--pv-space-4);
+  padding-inline: var(--pv-space-4);
+  border-radius: var(--pv-radius-pill);
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pv-filter-bar-filter-label {
+  color: var(--pv-content-secondary);
+}
+
+.pv-filter-bar-filter-value {
+  color: var(--pv-content-primary);
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+.pv-filter-bar-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-12);
+  /* Pushed to the trailing edge, and the first thing to wrap when the bar runs
+     out of room — the count is the least urgent of the three groups. */
+  margin-inline-start: auto;
+}
+
+.pv-filter-bar-count {
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Read-only keeps the filters legible as statements of what is being shown. */
+.pv-filter-bar[data-read-only] .pv-filter-bar-filter-label {
+  color: var(--pv-content-primary);
+}

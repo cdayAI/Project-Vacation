@@ -37,6 +37,42 @@ export type HumanInvolvement =
   | "human_only";
 
 /**
+ * What an approver is told, declared once beside the action.
+ *
+ * An approval screen that composed these sentences at render time would put
+ * the description of a consequence in the presentation layer, where nobody
+ * reviews it and where two screens can disagree about what an action does.
+ * Declaring them here means the risk committee reads the consequence in the
+ * same file as the risk tier, and the console renders exactly what was
+ * reviewed.
+ *
+ * `reversal` is deliberately *not* a second copy of `reversible`. The boolean
+ * says whether the effect can be undone; this says how, or what makes it
+ * permanent. An approver needs the procedure, not a repeat of the flag.
+ */
+export interface ApprovalGuidance {
+  /**
+   * The ask as an imperative phrase: "Send a message to an owner".
+   *
+   * Composed with the approval's subject into one plain-language line. Never
+   * a serialised payload, and never the machine name of the action.
+   */
+  readonly ask: string;
+  /**
+   * Concrete consequences of approving. At most four, because a list longer
+   * than that is read as boilerplate and stops being read at all.
+   */
+  readonly effects: readonly string[];
+  /** What happens instead when it is rejected. One line. */
+  readonly ifRejected: string;
+  /** How the effect is undone, or what makes it permanent. */
+  readonly reversal: string;
+}
+
+/** The ceiling on `effects`. See `ApprovalGuidance`. */
+export const MAX_APPROVAL_EFFECTS = 4;
+
+/**
  * A registered action.
  *
  * Registration is the mechanism that makes "per-action authorization" real:
@@ -71,6 +107,22 @@ export interface ActionDescriptor {
   readonly approvalsRequired: number;
   /** Ties the action to an integration so the integration kill switch reaches it. */
   readonly integration?: string | undefined;
+  /**
+   * True when approving this changes what the platform itself will do next,
+   * rather than authorising work on one case.
+   *
+   * The approval screen badges these differently — a system change and a piece
+   * of casework are two different trust situations, and an approver who cannot
+   * tell them apart at a glance is being asked to read carefully every time.
+   * Derived from this flag rather than from the shape of the summary string,
+   * because prose is not a classification.
+   */
+  readonly changesPlatformBehaviour: boolean;
+  /**
+   * What an approver is shown. Required for anything that parks for approval;
+   * see `defineAction`.
+   */
+  readonly approvalGuidance?: ApprovalGuidance | undefined;
 }
 
 /** What the caller wants to do, at the moment it wants to do it. */

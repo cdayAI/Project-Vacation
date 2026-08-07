@@ -98,6 +98,40 @@ export function formatCountdown(iso: string, now: Date): Countdown {
   return { expired: false, text: `${parts.join(" ")} remaining`, totalMs: remaining };
 }
 
+/**
+ * How long ago `iso` was, in the compact form the work queue's age column uses.
+ *
+ * Two units at most: "2d 4h" rather than "2d 4h 17m". The third unit is never
+ * the one anybody triages on, and it makes the column jitter every minute in a
+ * table an operator is trying to read down.
+ *
+ * A future instant reads "not yet" rather than a negative age. Clock skew
+ * between the browser and the platform is small but real, and "-3s" in an age
+ * column reads as a bug in the queue rather than as a difference of opinion
+ * about the time.
+ */
+export function formatAge(iso: string, now: Date): string {
+  const started = new Date(iso).getTime();
+  if (Number.isNaN(started)) return NOT_RECORDED;
+
+  const elapsed = now.getTime() - started;
+  if (elapsed < 0) return "not yet";
+
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const remainderMinutes = minutes - hours * 60;
+    return remainderMinutes === 0 ? `${hours}h` : `${hours}h ${remainderMinutes}m`;
+  }
+
+  const days = Math.floor(hours / 24);
+  const remainderHours = hours - days * 24;
+  return remainderHours === 0 ? `${days}d` : `${days}d ${remainderHours}h`;
+}
+
 /** A whole-number count of items, with the noun agreeing. */
 export function pluralise(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;

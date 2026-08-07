@@ -256,6 +256,40 @@ export class PgObservationStore implements ObservationStore {
     return Number(rows[0]?.count ?? 0);
   }
 
+  async purgeObservationsBefore(cutoff: IsoTimestamp, limit: number): Promise<number> {
+    assertIsoUtc("cutoff", cutoff);
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new InvalidInputError(
+        `Purge limit must be a positive whole number, not ${String(limit)}. An unbounded purge is what the batch cap exists to prevent.`,
+        "limit",
+      );
+    }
+    return this.guard("purgeObservationsBefore", async () => {
+      // The subquery is what bounds the batch. `DELETE ... WHERE recorded_at <
+      // $1` with no limit would take row locks across seven years of history in
+      // one statement, on a table the console reads on every improvement view.
+      //
+      // `ORDER BY recorded_at, ordinal` makes the batch the oldest rows rather
+      // than whatever the planner reaches first, so repeated capped runs
+      // converge on an empty backlog. `SKIP LOCKED` keeps a purge from blocking
+      // behind a row somebody else is holding — a skipped row is simply purged
+      // on the next pass, which is what "resumes" means here.
+      const rows = await this.db.query<{ id: string }>(
+        `DELETE FROM improvement_observation
+          WHERE id IN (
+            SELECT id FROM improvement_observation
+             WHERE recorded_at < $1
+             ORDER BY recorded_at ASC, ordinal ASC
+             LIMIT $2
+             FOR UPDATE SKIP LOCKED
+          )
+          RETURNING id`,
+        [cutoff, limit],
+      );
+      return rows.length;
+    });
+  }
+
   private async guard<T>(operation: string, fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();

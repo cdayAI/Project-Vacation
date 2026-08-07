@@ -1,0 +1,87 @@
+/* =============================================================================
+   The context panel's slot in the shell grid.
+
+   The Panel component draws the surface; this file places it, and decides what
+   happens to the column when the panel is collapsed or has become a sheet.
+   ========================================================================== */
+
+.pv-context-slot {
+  grid-area: panel;
+  display: flex;
+  min-block-size: 0;
+}
+
+/* In overlay mode the slot holds a sheet, which portals itself. The column
+   itself must take no width at all, or the content would be laid out around a
+   panel that is not there. */
+.pv-context-slot[data-mode="overlay"] {
+  display: contents;
+}
+
+section.pv-context-panel {
+  block-size: 100%;
+  overflow-y: auto;
+  /* Only the inline-start hairline: the panel runs to three edges of the
+     window. */
+  border-block: 0;
+  border-inline-end: 0;
+  border-radius: 0;
+}
+
+/* Collapsed: a 48px strip holding the one control that brings it back.
+   Solid rather than glass on purpose — with the panel gone there are only two
+   blurred surfaces left, and spending the third on a strip of furniture is not
+   what §1.5's budget is for. */
+.pv-context-strip {
+  display: flex;
+  justify-content: center;
+  inline-size: 100%;
+  padding-block-start: var(--pv-space-8);
+  border-inline-start: 1px solid var(--pv-border-subtle);
+  background-color: var(--pv-surface);
+}
+
+.pv-context-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--pv-control-height-md);
+  block-size: var(--pv-control-height-md);
+  border: 1px solid transparent;
+  border-radius: var(--pv-radius-control);
+  background: transparent;
+  color: var(--pv-content-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--pv-motion-micro) var(--pv-ease-entry),
+    color var(--pv-motion-micro) var(--pv-ease-entry);
+}
+
+.pv-context-expand:hover {
+  background-color: var(--pv-bg-subtle);
+  color: var(--pv-content-primary);
+}
+
+.pv-context-expand:active {
+  border-color: var(--pv-border-strong);
+}
+
+.pv-context-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-16);
+}
+
+.pv-context-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-8);
+  color: var(--pv-content-secondary);
+}
+
+.pv-context-empty-title {
+  color: var(--pv-content-primary);
+  font-size: var(--pv-type-body-strong-size);
+  line-height: var(--pv-type-body-strong-line);
+  font-weight: var(--pv-type-body-strong-weight);
+}

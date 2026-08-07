@@ -1,0 +1,150 @@
+/* =============================================================================
+   Sheet — full height, docked to an edge.
+
+   Only the two corners facing the middle of the screen are rounded: a sheet
+   with four rounded corners is a modal that has wandered to the side, and it
+   stops reading as attached to the edge of the window.
+   ========================================================================== */
+
+.pv-sheet-host {
+  align-items: stretch;
+}
+
+.pv-sheet-host-end {
+  justify-content: flex-end;
+}
+
+.pv-sheet-host-start {
+  justify-content: flex-start;
+}
+
+.pv-sheet {
+  inline-size: 100%;
+  block-size: 100%;
+  max-block-size: 100%;
+}
+
+.pv-sheet-md {
+  max-inline-size: 30rem; /* 480 — a record and its timeline */
+}
+
+.pv-sheet-lg {
+  /* 720: the reading measure, because the evidence chain is prose and citations
+     and this is the width prose is legible at. */
+  max-inline-size: var(--pv-reading-measure);
+}
+
+.pv-sheet-full {
+  /* Leaves the rail visible so the operator can still see where they are. */
+  max-inline-size: calc(100% - var(--pv-shell-rail-width));
+}
+
+.pv-sheet-host-end .pv-sheet {
+  border-start-start-radius: var(--pv-radius-sheet);
+  border-end-start-radius: var(--pv-radius-sheet);
+}
+
+.pv-sheet-host-start .pv-sheet {
+  border-start-end-radius: var(--pv-radius-sheet);
+  border-end-end-radius: var(--pv-radius-sheet);
+}
+
+/* The default entrance when no origin was given: in from the edge it is docked
+   to. dialogHost.css reads these two variables, and an inline value written by
+   the origin machinery overrides them — so "grew out of the row" and "slid in
+   from the edge" are the same transition with different numbers.
+
+   Under prefers-reduced-motion the origin machinery writes nothing and
+   dialogHost.css forces `transform: none`, so this becomes a plain fade. */
+.pv-sheet-host-end .pv-sheet {
+  --pv-origin-x: 100%;
+}
+
+.pv-sheet-host-start .pv-sheet {
+  --pv-origin-x: -100%;
+}
+
+/* -----------------------------------------------------------------------------
+   Header
+   -------------------------------------------------------------------------- */
+
+.pv-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pv-space-16);
+  padding: var(--pv-space-20) var(--pv-space-24) var(--pv-space-16);
+  border-bottom: 1px solid var(--pv-border-subtle);
+  flex: none;
+}
+
+.pv-sheet-heading-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+}
+
+.pv-sheet-header-trailing {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  flex: none;
+}
+
+.pv-sheet-title {
+  margin: 0;
+  font-size: var(--pv-type-title-lg-size);
+  line-height: var(--pv-type-title-lg-line);
+  font-weight: var(--pv-type-title-lg-weight);
+  letter-spacing: var(--pv-type-title-lg-tracking);
+  color: var(--pv-content-primary);
+}
+
+.pv-sheet-title:focus-visible {
+  outline: none;
+}
+
+.pv-sheet-description {
+  margin: 0;
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+
+/* -----------------------------------------------------------------------------
+   Body and footer
+   -------------------------------------------------------------------------- */
+
+.pv-sheet-body {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  padding: var(--pv-space-20) var(--pv-space-24);
+  overflow-y: auto;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-body-size);
+  line-height: var(--pv-type-body-line);
+}
+
+.pv-sheet-body :where(p) {
+  max-width: var(--pv-reading-measure);
+  color: var(--pv-content-primary);
+}
+
+.pv-sheet[data-state] .pv-sheet-body {
+  /* An audit chain is long. Scrolling it must not drag the page behind it once
+     the sheet's own scroll reaches the end. */
+  overscroll-behavior: contain;
+}
+
+.pv-sheet-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--pv-space-8);
+  padding: var(--pv-space-16) var(--pv-space-24);
+  border-top: 1px solid var(--pv-border-subtle);
+  flex: none;
+}

@@ -34,7 +34,9 @@ choice, not an accident of what has been built so far.
 
 **Never held, anywhere:** primary account numbers, expiry dates, CVV, or track
 data (ADR 0009). Enforced by the absence of any card field, by Luhn-checked
-redaction, and by the audit log refusing PAN-shaped content.
+redaction, and by the audit log refusing PAN-shaped content — as text and as a
+JSON number, since a card number written as `4111111111111111` rather than
+`"4111111111111111"` is the same card number.
 
 ---
 
@@ -56,21 +58,29 @@ and adding one is a reviewable change, not a configuration detail.
 
 ## 3. Retention
 
-Retention is enforced in code, not by policy alone — see
-`retention-and-deletion.md` for the mechanism and the purge job.
+Two of these periods are enforced by a job that runs — D10 and D11 — and the
+rest are policy the code does not yet discharge. `retention-and-deletion.md` §2
+describes the mechanism and §5 names every row that is not yet enforced and what
+each is waiting on. The **Enforced** column below says which is which, so this
+table cannot be read as a claim it does not make.
 
-| Data | Retention | Why this figure |
-| --- | --- | --- |
-| Audit chain (D2) | 7 years, `PV_AUDIT_RETENTION_DAYS` | Aligns with consumer-lending record-keeping norms. **MVW legal must confirm**; this is an engineering default, not legal advice |
-| Operating record (D1) | 7 years | Kept with the audit chain so evidence stays coherent |
-| Consent (D5) | 7 years after the relationship ends | Consent evidence must outlive the contact it authorised |
-| Outbound messages (D6) | 7 years | Contact-compliance evidence |
-| Model invocations (D9) | 2 years | Cost and quality analysis; no evidentiary requirement beyond the audit entry |
-| Improvement observations (D10) | 2 years | Quality trend analysis |
-| Staff identity (D4) | Employment + 90 days | Investigation window after departure |
-| Discovery observations (D11) | 30-day hard ceiling, default 7 | Short by design; the shortest window that supports sequence mining |
-| Logs (D12) | 90 days | Operational need only |
-| Backups (D13) | 35 days | Covers the documented RPO with margin |
+`PV_AUDIT_RETENTION_DAYS` is the deployment's overall period: it clamps every
+rule below and can only shorten one, never lengthen it. It does not cause the
+audit chain to be pruned — nothing does, and `retention-and-deletion.md` §3
+explains why the platform must not.
+
+| Data | Retention | Enforced | Why this figure |
+| --- | --- | --- | --- |
+| Audit chain (D2) | 7 years, `PV_AUDIT_RETENTION_DAYS` | Kept, never pruned | Aligns with consumer-lending record-keeping norms. **MVW legal must confirm**; this is an engineering default, not legal advice |
+| Operating record (D1) | `PV_AUDIT_RETENTION_DAYS` | No — §5 there | Kept with the audit chain so evidence stays coherent |
+| Consent (D5) | 7 years after the relationship ends | No — §5 there | Consent evidence must outlive the contact it authorised |
+| Outbound messages (D6) | 7 years | No — §5 there | Contact-compliance evidence |
+| Model invocations (D9) | 2 years | No — §5 there | Cost and quality analysis; no evidentiary requirement beyond the audit entry |
+| Improvement observations (D10) | 2 years | **Yes** | Quality trend analysis |
+| Staff identity (D4) | Employment + 90 days | No — §5 there | Investigation window after departure |
+| Discovery observations (D11) | 30-day hard ceiling, default 7 | **Yes** | Short by design; the shortest window that supports sequence mining |
+| Logs (D12) | 90 days | Sink-side | Operational need only |
+| Backups (D13) | 35 days | Sink-side | Covers the documented RPO with margin |
 
 ---
 

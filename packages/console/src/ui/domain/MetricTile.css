@@ -1,0 +1,101 @@
+/* MetricTile — one number, and what it is doing.
+
+   The hierarchy inside the box is deliberate and inverted from a card: the
+   label is the small text, the value is the largest thing on the tile, and the
+   comparison sits under it in caption. An executive reads value, then arrow,
+   then basis, in that order, and the type sizes are what make that order
+   happen without anyone being told. */
+
+.pv-metric-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  padding: var(--pv-space-16);
+  border: 1px solid var(--pv-border-subtle);
+  border-radius: var(--pv-radius-card);
+  background-color: var(--pv-surface);
+  box-shadow: var(--pv-elevation-1);
+  color: var(--pv-content-primary);
+}
+
+.pv-metric-tile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pv-space-8);
+}
+
+.pv-metric-tile-label {
+  margin: 0;
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+}
+
+.pv-metric-tile-value {
+  margin: 0;
+  font-size: var(--pv-type-display-size);
+  line-height: var(--pv-type-display-line);
+  font-weight: var(--pv-type-display-weight);
+  letter-spacing: var(--pv-type-display-tracking);
+  /* Digits must not change width as the value updates, or a dashboard on a
+     wall jitters every time a number lands. base.css gives [data-numeric] the
+     tabular figures; this is the element that carries it. */
+}
+
+.pv-metric-tile-denominator {
+  margin: 0;
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-metric-tile-trend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--pv-space-4);
+  margin: 0;
+  padding-block-start: var(--pv-space-4);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+/* The tone says whether the movement is welcome, and the arrow says which way
+   it moved. Neither is alone: an operator who cannot separate the two hues
+   still has the arrow, and a screen reader still has the word. */
+.pv-metric-tile-trend[data-tone="good"] {
+  color: var(--pv-status-success);
+}
+
+.pv-metric-tile-trend[data-tone="bad"] {
+  color: var(--pv-status-danger);
+}
+
+.pv-metric-tile-trend[data-tone="neutral"] {
+  color: var(--pv-content-secondary);
+}
+
+.pv-metric-tile-change {
+  font-weight: var(--pv-type-body-strong-weight);
+}
+
+/* The basis is never in the trend's colour: it is not the good news or the bad
+   news, it is what the comparison was against. */
+.pv-metric-tile-basis {
+  color: var(--pv-content-tertiary);
+}
+
+.pv-metric-tile-history {
+  padding-block-start: var(--pv-space-8);
+}
+
+/* Read-only is a designed state, not a dimmed one: the numbers get *more*
+   contrast, because in the read-only state they are the whole content. */
+.pv-metric-tile[data-read-only] .pv-metric-tile-denominator {
+  color: var(--pv-content-secondary);
+}

@@ -665,3 +665,34 @@ export interface InstanceDescription {
     readonly basis: string;
   }[];
 }
+
+/**
+ * One timer, seen from outside the case it belongs to.
+ *
+ * `describeInstance` answers "what is this case waiting for" and needs the case
+ * first. This answers the opposite question — "which cases are waiting on a
+ * clock, and has that clock passed" — which is the one an operator has when a
+ * deadline timer is reported late and they do not yet know whose deadline it
+ * was.
+ *
+ * `subject` carries the opaque references the run was opened against, e.g.
+ * `{ contractId: "ctr_..." }`. It is what makes "identify the affected
+ * contracts immediately" a step somebody can actually take, and it is never a
+ * name, an address, or an account number — see `Run.subject`.
+ */
+export interface PendingTimer {
+  readonly instanceId: Id<"workflowInstance">;
+  readonly workflow: string;
+  readonly definitionVersion: number;
+  readonly runId: Id<"run">;
+  readonly correlationId: string;
+  readonly subject: Readonly<Record<string, string>>;
+  readonly status: InstanceStatus;
+  readonly step: string;
+  /** Plain language: "the rescission window to close". */
+  readonly waitingFor: string;
+  readonly firesAt: IsoTimestamp;
+  /** Milliseconds past `firesAt`. Negative for a timer that is not due yet. */
+  readonly lateByMs: number;
+  readonly stuckReason?: string | undefined;
+}

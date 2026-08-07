@@ -1,0 +1,92 @@
+/* Field — the label, hint, error, and read-only marker around a control, and
+   the wiring between them. */
+
+.pv-ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pv-space-4);
+  min-width: 0;
+  /* A fieldset carries a default border, padding, and min-width: min-content in
+     every engine. The last one is the dangerous one: it stops a fieldset from
+     shrinking inside a flex row and silently overflows the panel. */
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.pv-ui-field-header {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-8);
+  min-height: var(--pv-type-label-line);
+}
+
+.pv-ui-field-label {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-label-size);
+  line-height: var(--pv-type-label-line);
+  font-weight: var(--pv-type-label-weight);
+  letter-spacing: var(--pv-type-label-tracking);
+  /* A legend is not a flex item in some engines and floats out of the header
+     row unless it is told to behave like ordinary content. */
+  float: none;
+  padding: 0;
+}
+
+/* Written as a word, not an asterisk. An asterisk means "required" only to
+   people who have been told what it means, and a screen reader reads it as
+   "star". */
+.pv-ui-field-requirement {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}
+
+.pv-ui-field-hint {
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  max-width: var(--pv-reading-measure);
+}
+
+/* Always present, even with nothing in it. A live region has to exist in the
+   DOM *before* its content changes for the change to be announced; created and
+   populated in the same paint, it is silent in most screen readers. Empty it
+   has no box of its own, so it costs no layout. */
+.pv-ui-field-message:empty {
+  display: none;
+}
+
+.pv-ui-field-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pv-space-4);
+  color: var(--pv-status-danger);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  max-width: var(--pv-reading-measure);
+}
+
+/* The icon keeps the message legible where the tint cannot be trusted: a
+   greyscale print of a regulator pack, a monochrome display, a reader who
+   cannot separate the two hues. The words carry the meaning; the mark carries
+   the category.
+
+   The offset centres a 12px mark in the caption's line box. Derived rather than
+   eyeballed, so it stays right if the caption step ever changes. */
+.pv-ui-field-error-icon {
+  margin-block-start: calc((var(--pv-type-caption-line) - var(--pv-space-12)) / 2);
+}
+
+.pv-ui-field-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--pv-space-8);
+  color: var(--pv-content-tertiary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+}

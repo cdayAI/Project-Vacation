@@ -17,6 +17,9 @@
  * to stay out of PCI scope and never to accept card data (see
  * docs/adr/0009-no-card-data.md); redacting PANs means an operator who pastes
  * one into a free-text field does not silently drag the deployment into scope.
+ * That check runs on numbers as well as on text — see `looksLikeCardNumber` —
+ * because JSON has two ways to write sixteen digits and only one of them is a
+ * string.
  */
 
 export const REDACTED = "[redacted]";
@@ -27,6 +30,33 @@ interface Pattern {
   /** Optional extra test; the match is only redacted when this returns true. */
   readonly confirm?: (match: string) => boolean;
 }
+
+/**
+ * Digit floor for the numeric card-number check.
+ *
+ * Fourteen, not thirteen, and the difference is measured rather than taste.
+ * Luhn accepts one integer in ten, so applying the text rule's 13–19 window to
+ * a bare number would refuse roughly ten per cent of raw epoch-millisecond
+ * readings — 2,000 of 20,000 consecutive values from 1775000000000. Epoch
+ * milliseconds are thirteen digits until the year 2286 and are a value this
+ * platform genuinely writes into decisions and log lines, so a thirteen-digit
+ * floor would refuse legitimate governance writes at that rate, and a refused
+ * audit write refuses the action it was recording. Accountability lost, no
+ * privacy bought.
+ *
+ * The cost of the choice, stated plainly: a thirteen-digit card number written
+ * as a bare integer is not detected. That class is old-format Visa, and this
+ * check is defence in depth behind ADR 0009 — the platform accepts no card
+ * field at all — so under-detecting here is the cheaper direction to be wrong
+ * in. Written as text, a thirteen-digit PAN is still caught, because a string
+ * carries surrounding context that a bare number does not.
+ *
+ * What the floor does *not* solve: epoch microseconds are sixteen digits and
+ * collide at the same one-in-ten rate. Nothing in this platform writes
+ * microseconds today. Anything that starts to should write an ISO timestamp or
+ * milliseconds, or one write in ten will be refused.
+ */
+export const MIN_NUMERIC_PAN_DIGITS = 14;
 
 /** Luhn check, used to avoid redacting every 16-digit number in sight. */
 export function passesLuhn(digits: string): boolean {
@@ -92,6 +122,32 @@ const PATTERNS: readonly Pattern[] = [
     confirm: (match) => passesLuhn(match),
   },
 ];
+
+/**
+ * True when a numeric value is card-number shaped.
+ *
+ * The string patterns above never see a JSON number: `{"pan": 4111111111111111}`
+ * is not text, so `redactText` cannot match it and the audit log's string check
+ * cannot refuse it. Both modules claim to reject card numbers, and a claim that
+ * holds only for one of the two JSON types a caller might use is a claim that
+ * is narrower than it reads.
+ *
+ * Integers only, and safe integers only: past `Number.MAX_SAFE_INTEGER` the
+ * decimal digits are no longer the digits the caller wrote, so testing them
+ * would be testing an artefact of floating point. `bigint` is accepted because
+ * the logger stringifies it and would otherwise carry a PAN through untouched.
+ */
+export function looksLikeCardNumber(value: number | bigint): boolean {
+  let digits: string;
+  if (typeof value === "bigint") {
+    digits = (value < 0n ? -value : value).toString();
+  } else {
+    if (!Number.isSafeInteger(value)) return false;
+    digits = Math.abs(value).toString();
+  }
+  if (digits.length < MIN_NUMERIC_PAN_DIGITS || digits.length > 19) return false;
+  return passesLuhn(digits);
+}
 
 export interface RedactionResult {
   /** The text with every match replaced. */
@@ -164,8 +220,15 @@ export function redactValue(value: unknown, depth = 0): unknown {
   if (value === null || value === undefined) return value;
 
   if (typeof value === "string") return redactText(value).text;
-  if (typeof value === "number" || typeof value === "boolean") return value;
-  if (typeof value === "bigint") return `${value.toString()}n`;
+  // A number reached the sink untouched until this line existed, so an
+  // integration response or support payload carrying `{"accountRef":
+  // 4111111111111111}` was logged verbatim — and the key does not have to be
+  // named `pan` for that to happen.
+  if (typeof value === "number") return looksLikeCardNumber(value) ? REDACTED : value;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "bigint") {
+    return looksLikeCardNumber(value) ? REDACTED : `${value.toString()}n`;
+  }
   if (typeof value === "function" || typeof value === "symbol") return "[unloggable]";
 
   if (Array.isArray(value)) {

@@ -1,0 +1,24 @@
+/* DateRange — two typed dates that have to make sense together. */
+
+.pv-ui-date-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: var(--pv-space-16);
+}
+
+.pv-ui-date-range-part {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* The resolved span, written out under the two fields: "14 days, 12 Jun to
+   25 Jun 2026". Two dates side by side do not tell an operator how long the
+   window is, and the length is usually the thing the decision turns on. */
+.pv-ui-date-range-summary {
+  color: var(--pv-content-secondary);
+  font-size: var(--pv-type-caption-size);
+  line-height: var(--pv-type-caption-line);
+  letter-spacing: var(--pv-type-caption-tracking);
+  font-variant-numeric: tabular-nums;
+}
