@@ -1,16 +1,11 @@
+import type { ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type { EvaluationView, ImprovementProposalView } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DefinitionList,
-  EvaluationPill,
-  type DefinitionItem,
-} from "../components";
 import { formatCount, formatDateTime, formatPercent, formatPercentagePoints, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import { Badge, Callout, IconAlert, Panel } from "../ui";
 
 /**
  * One improvement proposal, laid out for a decision that should take seconds.
@@ -28,6 +23,55 @@ import { Link } from "../routing";
  * screen somebody lands on from a link, and it is the screen where an assumption
  * that "reviewing it" and "applying it" are the same act would do damage.
  */
+
+interface DefinitionItem {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`: a screen reader announces "definition list, N items" and pairs
+ * each term with its description, which a two-column grid of divs does not.
+ * Each pair is wrapped in a `display: contents` div so the layout can take its
+ * columns without severing that pairing.
+ *
+ * Local because `src/ui` has no definition list to give, and this screen wants
+ * three of them.
+ */
+function DefinitionList({ items }: { readonly items: readonly DefinitionItem[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * The verdict, with the number that produced it kept in the words.
+ *
+ * "Below the threshold" alone invites the next question and answers none of
+ * it; the threshold is the role owner's decision and the badge is where a
+ * reader meets it. A bare pass/fail chip here would be a downgrade.
+ *
+ * The failing side takes the warning mark rather than the `danger` tone's own
+ * cross: the evaluation ran and reported, so nothing here failed — a result
+ * under the bar is a thing to weigh, not a breakage.
+ */
+function EvaluationBadge({ evaluation }: { readonly evaluation: EvaluationView }) {
+  const threshold = `${(evaluation.threshold * 100).toFixed(0)}% threshold`;
+  return evaluation.meetsThreshold ? (
+    <Badge tone="success">Meets the {threshold}</Badge>
+  ) : (
+    <Badge tone="danger" icon={<IconAlert size="sm" />}>
+      Below the {threshold}
+    </Badge>
+  );
+}
 
 export interface ImprovementProposalProps {
   readonly proposal: ImprovementProposalView;
@@ -104,33 +148,28 @@ export function ImprovementProposal({ proposal }: ImprovementProposalProps) {
       {/* ---------------------------------------------------------------
           1. Exactly what changes
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="proposal-change">
-        <h2 className="pv-panel-heading" id="proposal-change">
-          What would change
-        </h2>
-
+      <Panel title="What would change">
         <p>{proposal.rationale}</p>
 
         <div className="pv-compare pv-space-above">
-          <section className="pv-compare-pane" aria-labelledby="proposal-before">
-            <h3 id="proposal-before">Before — what runs today</h3>
+          {/* Panels rather than plain blocks: each pane is a named region an
+              approver can jump straight to, and that name is what a screen
+              reader reads out before the artifact itself. The artifact stays a
+              plain <p>, because it is the thing the digest is taken over and
+              reflowing it would show something other than what is signed. */}
+          <Panel title="Before — what runs today" titleLevel={3}>
             <p className="pv-artifact">{proposal.before}</p>
-          </section>
-          <section className="pv-compare-pane pv-compare-pane-after" aria-labelledby="proposal-after">
-            <h3 id="proposal-after">After — what would run if approved</h3>
+          </Panel>
+          <Panel title="After — what would run if approved" titleLevel={3}>
             <p className="pv-artifact">{proposal.after}</p>
-          </section>
+          </Panel>
         </div>
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           2. What the curated set says about it
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="proposal-evaluation">
-        <h2 className="pv-panel-heading" id="proposal-evaluation">
-          Measured effect
-        </h2>
-
+      <Panel title="Measured effect">
         {delta === undefined ? (
           <p>
             This proposal has not been evaluated. Without a before and after against the curated
@@ -146,25 +185,20 @@ export function ImprovementProposal({ proposal }: ImprovementProposalProps) {
             </p>
 
             <div className="pv-compare">
-              <section className="pv-compare-pane" aria-labelledby="proposal-eval-before">
-                <h3 id="proposal-eval-before">Before</h3>
+              <Panel title="Before" titleLevel={3}>
                 {before === undefined ? (
                   <p className="pv-meta">No evaluation was recorded before the change.</p>
                 ) : (
                   <EvaluationFacts evaluation={before} />
                 )}
-              </section>
-              <section
-                className="pv-compare-pane pv-compare-pane-after"
-                aria-labelledby="proposal-eval-after"
-              >
-                <h3 id="proposal-eval-after">After</h3>
+              </Panel>
+              <Panel title="After" titleLevel={3}>
                 {after === undefined ? (
                   <p className="pv-meta">No evaluation was recorded after the change.</p>
                 ) : (
                   <EvaluationFacts evaluation={after} />
                 )}
-              </section>
+              </Panel>
             </div>
 
             <p className="pv-meta">
@@ -174,16 +208,12 @@ export function ImprovementProposal({ proposal }: ImprovementProposalProps) {
             </p>
           </div>
         )}
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           3. How far it reaches
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="proposal-blast-radius">
-        <h2 className="pv-panel-heading" id="proposal-blast-radius">
-          Blast radius
-        </h2>
-
+      <Panel title="Blast radius">
         <p className="pv-lede-text">
           Had this been in force for the last thirty days, it would have applied to{" "}
           <strong>{formatCount(proposal.blastRadius.runsInLastThirtyDays)}</strong> runs.
@@ -229,19 +259,13 @@ export function ImprovementProposal({ proposal }: ImprovementProposalProps) {
             },
           ]}
         />
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="proposal-provenance">
-        <h2 className="pv-panel-heading" id="proposal-provenance">
-          Where this came from
-        </h2>
+      <Panel title="Where this came from">
         <DefinitionList items={provenanceItems} />
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="proposal-deciding">
-        <h2 className="pv-panel-heading" id="proposal-deciding">
-          Deciding this
-        </h2>
+      <Panel title="Deciding this">
         <p>
           Approval happens in the approvals queue, against the proposal digest, so that the artifact
           an approver read is provably the artifact their decision covers. There is no approve
@@ -250,7 +274,7 @@ export function ImprovementProposal({ proposal }: ImprovementProposalProps) {
         <p>
           <Link to="/approvals">Go to the approvals queue</Link>
         </p>
-      </section>
+      </Panel>
     </div>
   );
 }
@@ -258,7 +282,7 @@ export function ImprovementProposal({ proposal }: ImprovementProposalProps) {
 function EvaluationFacts({ evaluation }: { readonly evaluation: EvaluationView }) {
   return (
     <div className="pv-stack-tight">
-      <EvaluationPill evaluation={evaluation} />
+      <EvaluationBadge evaluation={evaluation} />
       <DefinitionList
         items={[
           { term: "Accuracy", description: formatPercent(evaluation.accuracy) },

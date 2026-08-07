@@ -1,6 +1,5 @@
 import { useId } from "react";
 import type { DenialView } from "../api/contract";
-import { DefinitionList, type DefinitionItem } from "../components";
 
 /**
  * A refusal, rendered as an outcome.
@@ -16,6 +15,13 @@ import { DefinitionList, type DefinitionItem } from "../components";
  * There is no red toast anywhere in this console for a denial. A toast
  * disappears, and the reason a decision was refused is exactly the thing an
  * operator will be asked to explain later.
+ *
+ * The markup is written here rather than taken from `src/ui` on purpose. The
+ * library's nearest shape is `ErrorState`, whose two tones are Error and
+ * Degraded and which insists on a reference code — routing a refusal through it
+ * would paint governance as breakage, which is the one thing this file exists to
+ * prevent. A shared component would have to be locked to the denied tone and
+ * would still never announce as an alert.
  */
 
 /**
@@ -93,10 +99,7 @@ export function Denial({ denial, attempted, headingLevel = 2 }: DenialProps) {
   // aria-labelledby pointing at whichever one the browser found first.
   const headingId = useId();
 
-  const detailItems: DefinitionItem[] = Object.entries(denial.detail).map(([key, value]) => ({
-    term: key,
-    description: <span className="pv-mono">{String(value)}</span>,
-  }));
+  const detailEntries = Object.entries(denial.detail);
 
   return (
     <section className="pv-denial" aria-labelledby={headingId}>
@@ -119,10 +122,23 @@ export function Denial({ denial, attempted, headingLevel = 2 }: DenialProps) {
         </p>
       </div>
 
-      {detailItems.length > 0 && (
+      {detailEntries.length > 0 && (
         <div className="pv-stack-tight">
           <p className="pv-meta">Details recorded with the refusal</p>
-          <DefinitionList items={detailItems} />
+          {/* A real <dl>: a screen reader announces "definition list, N items"
+              and pairs each key with its value, which a grid of divs does not.
+              The pair wrapper carries `display: contents`, so the two-column
+              layout does not sever that pairing to get its columns. */}
+          <dl className="pv-dl">
+            {detailEntries.map(([key, value]) => (
+              <div key={key}>
+                <dt>{key}</dt>
+                <dd>
+                  <span className="pv-mono">{String(value)}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
         </div>
       )}
 

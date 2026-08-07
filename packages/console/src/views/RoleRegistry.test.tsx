@@ -1,10 +1,24 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { RoleView } from "../api/contract";
 import { expectNoAccessibilityViolations, renderSurface } from "../test/axe";
 import { roles } from "../test/fixtures";
 import { RoleRegistry } from "./RoleRegistry";
+
+/**
+ * The availability filter is a listbox combobox rather than a native `<select>`,
+ * so choosing is open-then-pick. Asserting the trigger's text afterwards keeps
+ * what `selectOptions` used to give for free: proof that the control committed
+ * the choice and says so, not merely that the list re-rendered.
+ */
+async function filterAvailability(user: UserEvent, optionName: string): Promise<void> {
+  const availability = screen.getByRole("combobox", { name: "Availability" });
+  await user.click(availability);
+  await user.click(screen.getByRole("option", { name: optionName }));
+  expect(availability).toHaveTextContent(optionName);
+}
 
 describe("RoleRegistry", () => {
   it("lists every role with a link to its detail", () => {
@@ -67,7 +81,7 @@ describe("RoleRegistry", () => {
     const user = userEvent.setup();
     renderSurface(<RoleRegistry roles={roles} />);
 
-    await user.selectOptions(screen.getByLabelText("Availability"), "disabled");
+    await filterAvailability(user, "Disabled only");
 
     const table = screen.getByRole("table");
     expect(within(table).getAllByRole("row")).toHaveLength(2); // header plus one
@@ -78,10 +92,15 @@ describe("RoleRegistry", () => {
     const user = userEvent.setup();
     renderSurface(<RoleRegistry roles={roles} />);
 
-    await user.selectOptions(screen.getByLabelText("Availability"), "enabled");
+    await filterAvailability(user, "Available only");
 
     const table = screen.getByRole("table");
-    expect(within(table).getAllByRole("row")).toHaveLength(4); // header plus three
+    const available = roles.filter((role) => !role.disabled);
+    expect(within(table).getAllByRole("row")).toHaveLength(available.length + 1);
+    // The filter kept what it should have kept, not merely the right count.
+    for (const role of available) {
+      expect(within(table).getByRole("link", { name: role.name })).toBeInTheDocument();
+    }
   });
 
   it("says the registry is empty rather than showing a blank area", () => {
@@ -96,7 +115,7 @@ describe("RoleRegistry", () => {
     const availableOnly = roles.filter((role) => !role.disabled);
     renderSurface(<RoleRegistry roles={availableOnly} />);
 
-    await user.selectOptions(screen.getByLabelText("Availability"), "disabled");
+    await filterAvailability(user, "Disabled only");
 
     expect(
       screen.getByRole("heading", { name: "No role matches this filter" }),

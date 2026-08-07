@@ -82,7 +82,9 @@ describe("RoleDetail", () => {
   it("shows the promotion history newest first, with who changed it", () => {
     renderSurface(<RoleDetail versions={rescissionRoleVersions} />);
 
-    const history = screen.getByRole("region", { name: /Version history/ });
+    // The caption names the table, and the table is what these assertions are
+    // about — the scroll container it used to sit in is not a landmark any more.
+    const history = screen.getByRole("grid", { name: /Version history/ });
     const rows = within(history).getAllByRole("row");
     // Header plus three versions.
     expect(rows).toHaveLength(4);

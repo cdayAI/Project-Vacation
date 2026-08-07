@@ -1,21 +1,13 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
-import type { ApprovalView, DenialView } from "../api/contract";
+import type { ApprovalView, DenialView, RiskTier } from "../api/contract";
 import { isDenial } from "../api/client";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Button,
-  Callout,
-  DefinitionList,
-  Dialog,
-  Field,
-  RiskPill,
-  type DefinitionItem,
-} from "../components";
 import { formatCountdown, formatDateTime } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import type { StatusTone } from "../theme/tokens";
+import { Badge, Button, Callout, Card, IconAlert, Modal, Panel, Textarea } from "../ui";
 import { useNow } from "../useNow";
 import { Denial } from "./Denial";
 
@@ -33,6 +25,8 @@ import { Denial } from "./Denial";
  *     binds to that digest (ADR 0005), so the artifact the approver read and
  *     the artifact their decision covers can be compared by eye. A digest
  *     shortened to eight characters would defeat the reason it is on screen.
+ *     It is a plain `<span>` for that reason too: nothing may wrap it, split it
+ *     across elements, or slip a decorative mark inside it.
  *
  *   - Irreversibility and risk tier are stated in words, near the top, before
  *     the decide controls rather than beside them.
@@ -48,9 +42,78 @@ import { Denial } from "./Denial";
 
 const EXPIRING_SOON_MS = 15 * 60 * 1000;
 
+type Decision = "granted" | "rejected";
+
+interface RiskPresentation {
+  readonly label: string;
+  readonly tone: StatusTone;
+  /** Set only where the tone's own mark would say the wrong thing. */
+  readonly icon?: ReactNode;
+}
+
+/**
+ * Risk tier, in words. The tone and the mark are redundant channels layered on
+ * top of the label, never the carrier — the tier still reads in greyscale and
+ * on the printed evidence export (WCAG 1.4.1).
+ *
+ * `prohibited` takes the `denied` tone rather than `danger`: a tier the
+ * platform will not run is a control doing its job, not a fault.
+ * `high_consequence` keeps the alert mark instead of accepting `danger`'s
+ * cross, because the tier warns about what the action will do and does not
+ * report that something has gone wrong.
+ *
+ * It lives in this file because the library has no home for the console's
+ * status vocabulary yet. Five other views carry the same map and want the same
+ * one; `src/ui/domain` is where it belongs.
+ */
+const RISK: Readonly<Record<RiskTier, RiskPresentation>> = {
+  routine: { label: "Routine", tone: "neutral" },
+  sensitive: { label: "Sensitive", tone: "info" },
+  high_consequence: { label: "High consequence", tone: "danger", icon: <IconAlert size="sm" /> },
+  prohibited: { label: "Prohibited", tone: "denied" },
+};
+
+function RiskBadge({ risk }: { readonly risk: RiskTier }) {
+  const presentation = RISK[risk];
+  // "Routine risk", not "Routine": the bare label sitting beside an action
+  // description reads as a property of the action rather than of its tier.
+  return (
+    <Badge tone={presentation.tone} icon={presentation.icon}>
+      {presentation.label} risk
+    </Badge>
+  );
+}
+
+interface DefinitionItem {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`: a screen reader announces "definition list, N items" and pairs
+ * each term with its description, which a two-column grid of divs does not.
+ * Each pair is wrapped in a `display: contents` div so the layout can take its
+ * columns without severing that pairing.
+ *
+ * Local for the same reason as `RiskBadge` — most of the detail views want this
+ * exact shape and `src/ui` has no definition list to give them.
+ */
+function DefinitionList({ items }: { readonly items: readonly DefinitionItem[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export interface ApprovalDetailProps {
   readonly approval: ApprovalView;
-  readonly onDecide?: (decision: "granted" | "rejected", note: string) => void;
+  readonly onDecide?: (decision: Decision, note: string) => void;
   readonly submitting?: boolean;
   /** A refusal of the decision itself, rendered as an outcome rather than an error. */
   readonly decisionDenial?: DenialView;
@@ -65,7 +128,12 @@ export function ApprovalDetail({
   decisionError,
 }: ApprovalDetailProps) {
   const now = useNow(1000);
-  const [pendingDecision, setPendingDecision] = useState<"granted" | "rejected" | null>(null);
+  // Which decision is being confirmed is held apart from whether the dialog is
+  // open, because the modal unmounts only once its exit transition has
+  // finished. A single nullable value would flip the title from "Confirm your
+  // rejection" to "Confirm your approval" while the dialog is still fading.
+  const [decision, setDecision] = useState<Decision>("granted");
+  const [confirming, setConfirming] = useState(false);
   const [note, setNote] = useState("");
   const [noteError, setNoteError] = useState<string | undefined>(undefined);
 
@@ -97,22 +165,22 @@ export function ApprovalDetail({
     description: entry.value,
   }));
 
-  function openDialog(decision: "granted" | "rejected"): void {
+  function openDialog(next: Decision): void {
     setNote("");
     setNoteError(undefined);
-    setPendingDecision(decision);
+    setDecision(next);
+    setConfirming(true);
   }
 
   function confirm(): void {
-    if (pendingDecision === null) return;
     // A rejection without a reason leaves the requester nothing to act on, and
     // leaves the audit record without the one thing a reader will want.
-    if (pendingDecision === "rejected" && note.trim() === "") {
+    if (decision === "rejected" && note.trim() === "") {
       setNoteError("Say why you are rejecting this. The requester and the audit record both need it.");
       return;
     }
-    onDecide?.(pendingDecision, note.trim());
-    setPendingDecision(null);
+    onDecide?.(decision, note.trim());
+    setConfirming(false);
   }
 
   return (
@@ -128,26 +196,16 @@ export function ApprovalDetail({
       {/* ---------------------------------------------------------------
           What is being authorised
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="approval-what">
-        <h2 className="pv-panel-heading" id="approval-what">
-          What you are authorising
-        </h2>
-
+      <Panel title="What you are authorising">
         <div className="pv-stack">
           <div className="pv-row">
-            <RiskPill risk={approval.risk} />
+            <RiskBadge risk={approval.risk} />
             {approval.reversible ? (
               <Badge tone="neutral">Reversible</Badge>
             ) : (
-              <Badge tone="warning" glyph="▲">
-                Irreversible
-              </Badge>
+              <Badge tone="warning">Irreversible</Badge>
             )}
-            {approval.requiresStepUp && (
-              <Badge tone="info" glyph="◆">
-                Re-authentication required
-              </Badge>
-            )}
+            {approval.requiresStepUp && <Badge tone="info">Re-authentication required</Badge>}
           </div>
 
           <p>{approval.summary}</p>
@@ -171,15 +229,12 @@ export function ApprovalDetail({
             </Callout>
           )}
         </div>
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           The proposal, field by field
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="approval-proposal">
-        <h2 className="pv-panel-heading" id="approval-proposal">
-          The proposal
-        </h2>
+      <Panel title="The proposal">
         {proposalItems.length === 0 ? (
           <p>
             This proposal carries no fields. That is unusual — check with whoever raised it
@@ -200,16 +255,12 @@ export function ApprovalDetail({
             <span className="pv-digest">{approval.proposalDigest}</span>
           </p>
         </div>
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           Who has to decide, and who already has
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="approval-progress">
-        <h2 className="pv-panel-heading" id="approval-progress">
-          Decision progress
-        </h2>
-
+      <Panel title="Decision progress">
         <DefinitionList
           items={[
             {
@@ -270,38 +321,36 @@ export function ApprovalDetail({
           <p className="pv-meta">Nobody has decided yet.</p>
         ) : (
           <ul className="pv-steps">
-            {approval.decisions.map((decision) => (
-              <li className="pv-step" key={`${decision.actor.actorId}-${decision.decidedAt}`}>
-                <div className="pv-step-heading">
-                  <strong>{decision.actor.displayName}</strong>
-                  {decision.decision === "granted" ? (
-                    <Badge tone="success" glyph="✓">
-                      Granted
-                    </Badge>
-                  ) : (
-                    <Badge tone="danger" glyph="✕">
-                      Rejected
-                    </Badge>
-                  )}
-                  <time className="pv-meta" dateTime={decision.decidedAt}>
-                    {formatDateTime(decision.decidedAt)}
-                  </time>
-                </div>
-                {decision.note !== undefined && <p>{decision.note}</p>}
+            {approval.decisions.map((entry) => (
+              <li key={`${entry.actor.actorId}-${entry.decidedAt}`}>
+                {/* A card, not a panel: a second approver reading four prior
+                    decisions should get four records, not four more region
+                    landmarks between them and the decide controls. */}
+                <Card title={entry.actor.displayName} titleLevel={4}>
+                  <div className="pv-stack-tight">
+                    <div className="pv-row">
+                      {entry.decision === "granted" ? (
+                        <Badge tone="success">Granted</Badge>
+                      ) : (
+                        <Badge tone="danger">Rejected</Badge>
+                      )}
+                      <time className="pv-meta" dateTime={entry.decidedAt}>
+                        {formatDateTime(entry.decidedAt)}
+                      </time>
+                    </div>
+                    {entry.note !== undefined && <p>{entry.note}</p>}
+                  </div>
+                </Card>
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           Decide
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="approval-decide">
-        <h2 className="pv-panel-heading" id="approval-decide">
-          Your decision
-        </h2>
-
+      <Panel title="Your decision">
         {decisionDenial !== undefined && (
           <div className="pv-space-below">
             <Denial denial={decisionDenial} attempted="recording your decision" headingLevel={3} />
@@ -322,9 +371,14 @@ export function ApprovalDetail({
         )}
 
         {blockingReason !== null && (
-          <p id="approval-decide-blocked" className="pv-callout pv-callout-info">
-            {blockingReason}
-          </p>
+          // The id sits on the wrapper because the callout owns its own markup
+          // and the buttons' aria-describedby has to point at something.
+          // Naming the whole block also means the tone word the callout
+          // contributes is announced with the reason rather than left in the
+          // border colour, where a screen reader gets nothing from it.
+          <div id="approval-decide-blocked">
+            <Callout tone="info" title={blockingReason} />
+          </div>
         )}
 
         {submitting && (
@@ -333,6 +387,8 @@ export function ApprovalDetail({
           </p>
         )}
 
+        {/* Reject carries the same size and weight as Approve. Neither answer is
+            styled as the easy path (spec §3.2). */}
         <div className="pv-row pv-space-above">
           <Button
             variant="primary"
@@ -357,33 +413,36 @@ export function ApprovalDetail({
           boundary. The platform re-checks eligibility, the proposal digest, and every other
           control at the chokepoint when the decision is submitted.
         </p>
-      </section>
+      </Panel>
 
-      <Dialog
-        open={pendingDecision !== null}
-        title={pendingDecision === "rejected" ? "Confirm your rejection" : "Confirm your approval"}
-        onClose={() => setPendingDecision(null)}
+      <Modal
+        open={confirming}
+        title={decision === "rejected" ? "Confirm your rejection" : "Confirm your approval"}
+        onClose={() => setConfirming(false)}
+        // The actions below already carry the way out, and a third dismissal
+        // control competing with them is one more thing to read on the screen
+        // where reading matters most.
+        hideCloseButton
+        // A stray click on the scrim would discard a typed rejection reason,
+        // which is the one thing in here the operator cannot get back.
+        dismissOnOutsideClick={false}
         actions={
           <>
-            <Button variant="secondary" onClick={() => setPendingDecision(null)}>
+            <Button variant="secondary" onClick={() => setConfirming(false)}>
               Cancel
             </Button>
-            <Button
-              variant={pendingDecision === "rejected" ? "danger" : "primary"}
-              onClick={confirm}
-            >
-              {pendingDecision === "rejected" ? "Record my rejection" : "Record my approval"}
+            <Button variant={decision === "rejected" ? "danger" : "primary"} onClick={confirm}>
+              {decision === "rejected" ? "Record my rejection" : "Record my approval"}
             </Button>
           </>
         }
       >
         <p>
-          {pendingDecision === "rejected"
+          {decision === "rejected"
             ? "You are rejecting this action. It will not run."
             : "You are approving this action, and your name goes on the record against it."}
         </p>
         <DefinitionList
-          stacked
           items={[
             { term: "Action", description: approval.actionDescription },
             {
@@ -399,29 +458,20 @@ export function ApprovalDetail({
           ]}
         />
 
-        {approval.requiresStepUp && pendingDecision === "granted" && (
+        {approval.requiresStepUp && decision === "granted" && (
           <Callout tone="info" title="Re-authentication follows">
             <p>You will be asked to prove your identity again before this is recorded.</p>
           </Callout>
         )}
 
-        <Field
-          label={pendingDecision === "rejected" ? "Why are you rejecting this?" : "Note (optional)"}
+        <Textarea
+          label={decision === "rejected" ? "Why are you rejecting this?" : "Note (optional)"}
           hint="Recorded with your decision and visible to everyone who reads this approval."
           error={noteError}
-        >
-          {(control) => (
-            <textarea
-              id={control.id}
-              className="pv-textarea"
-              aria-describedby={control.describedBy}
-              aria-invalid={control.invalid}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-            />
-          )}
-        </Field>
-      </Dialog>
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+        />
+      </Modal>
     </div>
   );
 }
@@ -450,7 +500,7 @@ export function ApprovalDetailRoute({ approvalId }: { readonly approvalId: strin
   // recognised rather than applied twice. The client never retries on its own.
   const idempotencyKey = useRef<string>(newIdempotencyKey());
 
-  async function decide(decision: "granted" | "rejected", note: string): Promise<void> {
+  async function decide(decision: Decision, note: string): Promise<void> {
     setSubmitting(true);
     setDecisionError(undefined);
     setDecisionDenial(undefined);

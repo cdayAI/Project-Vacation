@@ -1,18 +1,20 @@
+import { useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
-import type { ApprovalView } from "../api/contract";
+import type { ApprovalView, RiskTier } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DataTable,
-  EmptyState,
-  RiskPill,
-  riskLabel,
-  type Column,
-} from "../components";
 import { formatCountdown, formatDateTime, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import type { StatusTone } from "../theme/tokens";
+import {
+  Badge,
+  Callout,
+  EmptyState,
+  IconAlert,
+  Table,
+  type TableColumn,
+  type TableSort,
+} from "../ui";
 import { useNow } from "../useNow";
 
 /**
@@ -24,6 +26,93 @@ import { useNow } from "../useNow";
  * action on this screen is "open it and read it".
  */
 
+interface RiskPresentation {
+  readonly label: string;
+  readonly tone: StatusTone;
+  /**
+   * Left unset where the tone's own mark already says the right thing. It is
+   * set for `high_consequence` because that tone's default mark is a cross,
+   * which reads as "this failed" rather than "read this carefully" — the
+   * triangle is the shape the risk vocabulary has always used for a warning
+   * an operator has to weigh.
+   */
+  readonly icon?: ReactNode;
+}
+
+/**
+ * The four risk tiers, in words.
+ *
+ * The label carries the meaning; the tone and the mark are redundant channels
+ * on top of it (WCAG 1.4.1). `prohibited` is `denied` rather than `danger`
+ * because a tier the platform will not act in is governance working, and
+ * painting it the colour of a breach teaches operators to read control as
+ * breakage.
+ */
+const RISK: Readonly<Record<RiskTier, RiskPresentation>> = {
+  routine: { label: "Routine", tone: "neutral" },
+  sensitive: { label: "Sensitive", tone: "info" },
+  high_consequence: { label: "High consequence", tone: "danger", icon: <IconAlert size="sm" /> },
+  prohibited: { label: "Prohibited", tone: "denied" },
+};
+
+function riskLabel(risk: RiskTier): string {
+  return RISK[risk].label;
+}
+
+/**
+ * The tier, as a badge.
+ *
+ * Reads "High consequence risk", not "High consequence" — the noun is what
+ * makes the badge legible on a row beside six other badges, and the bare label
+ * is kept for sorting, where the noun would only pad every key by five
+ * characters.
+ */
+function RiskBadge({ risk }: { readonly risk: RiskTier }) {
+  const presentation = RISK[risk];
+  return (
+    <Badge tone={presentation.tone} icon={presentation.icon}>
+      {presentation.label} risk
+    </Badge>
+  );
+}
+
+/** Most urgent first. The queue exists to be worked from the top. */
+const INITIAL_SORT: TableSort = { columnKey: "expiresAt", direction: "ascending" };
+
+/**
+ * Order the rows the table has been told it is showing.
+ *
+ * The table sorts for itself only while it owns the sort state, and it starts
+ * that state at "unsorted" — which would put this queue in whatever order the
+ * server happened to return, with nothing on screen admitting it. Holding the
+ * state here instead is what lets the screen open on the expiry column *and*
+ * say so in `aria-sort`. The comparison matches the table's own: numbers
+ * numerically, everything else with a numeric, case-insensitive collation, and
+ * ties broken by original position so the order is stable.
+ */
+function orderBy<T>(
+  rows: readonly T[],
+  columns: readonly TableColumn<T>[],
+  sort: TableSort | null,
+): readonly T[] {
+  const sortValue = sort === null ? undefined : columns.find((c) => c.key === sort.columnKey)?.sortValue;
+  if (sort === null || sortValue === undefined) return rows;
+
+  const direction = sort.direction === "ascending" ? 1 : -1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const a = sortValue(left.row);
+      const b = sortValue(right.row);
+      const result =
+        typeof a === "number" && typeof b === "number"
+          ? a - b
+          : String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+      return result !== 0 ? result * direction : left.index - right.index;
+    })
+    .map((entry) => entry.row);
+}
+
 export interface ApprovalsQueueProps {
   readonly approvals: readonly ApprovalView[];
   readonly total?: number;
@@ -34,22 +123,26 @@ export function ApprovalsQueue({ approvals, total }: ApprovalsQueueProps) {
   // every second for a number nobody is staring at is waste.
   const now = useNow(30_000);
 
+  const [sort, setSort] = useState<TableSort | null>(INITIAL_SORT);
+
   const expiringSoon = approvals.filter((approval) => {
     const countdown = formatCountdown(approval.expiresAt, now);
     return !countdown.expired && countdown.totalMs < 60 * 60 * 1000;
   }).length;
 
-  const columns: readonly Column<ApprovalView>[] = [
+  const columns: readonly TableColumn<ApprovalView>[] = [
     {
       key: "action",
       header: "Action awaiting a decision",
       rowHeader: true,
+      alwaysVisible: true,
+      width: 320,
       sortValue: (approval) => approval.ask,
       // The ask, in plain language, is the row (design spec §3.2). The action
       // registry's description of the *class* of action goes underneath: it is
       // the same sentence on every row of that kind, so leading with it makes
       // four different decisions look like one repeated four times.
-      render: (approval) => (
+      cell: (approval) => (
         <span className="pv-stack-tight">
           <Link to={`/approvals/${approval.approvalId}`}>{approval.ask}</Link>
           <span className="pv-caption">{approval.actionDescription}</span>
@@ -60,28 +153,25 @@ export function ApprovalsQueue({ approvals, total }: ApprovalsQueueProps) {
     {
       key: "risk",
       header: "Risk",
+      width: 180,
       sortValue: (approval) => riskLabel(approval.risk),
-      render: (approval) => <RiskPill risk={approval.risk} />,
+      cell: (approval) => <RiskBadge risk={approval.risk} />,
     },
     {
       key: "reversible",
       header: "Reversible",
+      width: 200,
       sortValue: (approval) => (approval.reversible ? 1 : 0),
-      render: (approval) =>
-        approval.reversible ? (
-          <span>Yes</span>
-        ) : (
-          <Badge tone="warning" glyph="▲">
-            No — cannot be undone
-          </Badge>
-        ),
+      cell: (approval) =>
+        approval.reversible ? <span>Yes</span> : <Badge tone="warning">No — cannot be undone</Badge>,
     },
     {
       key: "progress",
       header: "Approvals",
+      width: 120,
       numeric: true,
       sortValue: (approval) => approval.approvalsGranted - approval.approvalsRequired,
-      render: (approval) => (
+      cell: (approval) => (
         <span>
           {approval.approvalsGranted} of {approval.approvalsRequired}
         </span>
@@ -90,8 +180,9 @@ export function ApprovalsQueue({ approvals, total }: ApprovalsQueueProps) {
     {
       key: "requestedBy",
       header: "Raised by",
+      width: 180,
       sortValue: (approval) => approval.requestedBy.displayName,
-      render: (approval) => (
+      cell: (approval) => (
         <span className="pv-stack-tight">
           <span>{approval.requestedBy.displayName}</span>
           <time className="pv-meta" dateTime={approval.requestedAt}>
@@ -103,18 +194,13 @@ export function ApprovalsQueue({ approvals, total }: ApprovalsQueueProps) {
     {
       key: "expiresAt",
       header: "Expires",
+      width: 200,
       sortValue: (approval) => approval.expiresAt,
-      render: (approval) => {
+      cell: (approval) => {
         const countdown = formatCountdown(approval.expiresAt, now);
         return (
           <span className="pv-stack-tight">
-            {countdown.expired ? (
-              <Badge tone="warning" glyph="▲">
-                Expired
-              </Badge>
-            ) : (
-              <span>{countdown.text}</span>
-            )}
+            {countdown.expired ? <Badge tone="warning">Expired</Badge> : <span>{countdown.text}</span>}
             <time className="pv-meta" dateTime={approval.expiresAt}>
               {formatDateTime(approval.expiresAt)}
             </time>
@@ -125,8 +211,9 @@ export function ApprovalsQueue({ approvals, total }: ApprovalsQueueProps) {
     {
       key: "viewerMayDecide",
       header: "You",
+      width: 220,
       sortValue: (approval) => (approval.viewerMayDecide ? 0 : 1),
-      render: (approval) =>
+      cell: (approval) =>
         approval.viewerMayDecide ? (
           <span>May decide</span>
         ) : (
@@ -175,12 +262,19 @@ export function ApprovalsQueue({ approvals, total }: ApprovalsQueueProps) {
           headingLevel={2}
         />
       ) : (
-        <DataTable
+        <Table
           caption={`Approvals awaiting a decision, ${pluralise(approvals.length, "row", "rows")}.`}
+          tableId="approvals-queue"
           columns={columns}
-          rows={approvals}
+          rows={orderBy(approvals, columns, sort)}
           rowKey={(approval) => approval.approvalId}
-          defaultSort={{ columnKey: "expiresAt", direction: "ascending" }}
+          rowNoun="approvals"
+          // The server's count, not the mounted window's: a virtualized table
+          // that reports what it rendered tells an operator the queue is
+          // shorter than it is.
+          totalRowCount={total}
+          sort={sort}
+          onSortChange={setSort}
         />
       )}
     </div>

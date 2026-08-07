@@ -1,21 +1,24 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type { AuditEntryView, AuditVerificationView } from "../api/contract";
 import { useResource } from "../api/useResource";
+import { formatCount, formatDateTime, pluralise } from "../format";
+import { ResourceView } from "../ResourceView";
+import { Link } from "../routing";
 import {
   Badge,
   Button,
   Callout,
-  DataTable,
-  DefinitionList,
+  DatePicker,
   EmptyState,
-  Field,
-  type Column,
-  type DefinitionItem,
-} from "../components";
-import { formatCount, formatDateTime, pluralise } from "../format";
-import { ResourceView } from "../ResourceView";
-import { Link } from "../routing";
+  Input,
+  Panel,
+  Select,
+  Table,
+  type ListOption,
+  type TableColumn,
+  type TableSort,
+} from "../ui";
 
 /**
  * The audit and evidence view.
@@ -191,6 +194,89 @@ export function eventLabel(eventType: string): string {
   return EVENT_LABEL[eventType] ?? eventType;
 }
 
+/**
+ * The filter's options, one flat list.
+ *
+ * The library's listbox has no `<optgroup>`, so the family rides on each option
+ * as its second line instead of on a divider above it. That keeps the grouping
+ * where it was doing its work — a reader who knows only that they are after a
+ * governance decision can still find one — and it is announced with the option
+ * rather than only when the cursor crosses a boundary, which is the one thing a
+ * native `<optgroup>` never does reliably.
+ *
+ * The empty value leads, and it is a real option rather than a placeholder: "no
+ * event-type filter" is a choice the reader can return to, and a placeholder is
+ * something you can only leave.
+ */
+const EVENT_OPTIONS: readonly ListOption[] = [
+  { value: "", label: "Anything" },
+  ...EVENT_GROUPS.flatMap((group) =>
+    group.options.map((option) => ({
+      value: option,
+      label: eventLabel(option),
+      description: group.label,
+    })),
+  ),
+];
+
+interface DefinitionItem {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`, with each pair wrapped in a `<div>` so the grid can lay it out
+ * without breaking the term/description association. Screen readers announce
+ * "definition list, N items" and pair each term with its description, which a
+ * two-column grid of divs does not.
+ */
+function DefinitionList({ items }: { readonly items: readonly DefinitionItem[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * Order the rows the table has been told it is showing.
+ *
+ * The table sorts for itself only while it owns the sort state, and it starts
+ * that state at "unsorted". This table opens sorted — earliest break first,
+ * which is the only order in which a broken chain reads — so the state is held
+ * here and the ordering done here, which is also what puts the direction into
+ * `aria-sort` on the first paint rather than after the first click.
+ */
+function orderBy<T>(
+  rows: readonly T[],
+  columns: readonly TableColumn<T>[],
+  sort: TableSort | null,
+): readonly T[] {
+  const sortValue =
+    sort === null ? undefined : columns.find((column) => column.key === sort.columnKey)?.sortValue;
+  if (sort === null || sortValue === undefined) return rows;
+
+  const direction = sort.direction === "ascending" ? 1 : -1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const a = sortValue(left.row);
+      const b = sortValue(right.row);
+      const result =
+        typeof a === "number" && typeof b === "number"
+          ? a - b
+          : String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+      // Stable: equal keys keep the order they arrived in.
+      return result !== 0 ? result * direction : left.index - right.index;
+    })
+    .map((entry) => entry.row);
+}
+
 export interface AuditFilters {
   readonly eventType: string;
   readonly actorId: string;
@@ -232,6 +318,10 @@ export function AuditEvidence({
   // record on every keystroke. Applying is an explicit act, which is also what
   // makes the filter set quotable: what is on screen is what was asked for.
   const [draft, setDraft] = useState<AuditFilters>(filters);
+  const [breakSort, setBreakSort] = useState<TableSort | null>({
+    columnKey: "seq",
+    direction: "ascending",
+  });
 
   function apply(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -243,30 +333,29 @@ export function AuditEvidence({
     onFiltersChange(NO_AUDIT_FILTERS);
   }
 
-  const breakColumns: readonly Column<AuditVerificationView["breaks"][number]>[] = [
+  const breakColumns: readonly TableColumn<AuditVerificationView["breaks"][number]>[] = [
     {
       key: "seq",
       header: "Entry number",
       rowHeader: true,
       numeric: true,
+      width: 160,
       sortValue: (problem) => problem.seq,
-      render: (problem) => <span>{formatCount(problem.seq)}</span>,
+      cell: (problem) => <span>{formatCount(problem.seq)}</span>,
     },
     {
       key: "kind",
       header: "Kind of break",
+      width: 240,
       sortValue: (problem) => problem.kind,
-      render: (problem) => (
-        <Badge tone="danger" glyph="▲">
-          {problem.kind.replace(/_/g, " ")}
-        </Badge>
-      ),
+      cell: (problem) => <Badge tone="danger">{problem.kind.replace(/_/g, " ")}</Badge>,
     },
     {
       key: "detail",
       header: "What it means",
+      width: 420,
       sortValue: (problem) => problem.detail,
-      render: (problem) => <span>{problem.detail}</span>,
+      cell: (problem) => <span>{problem.detail}</span>,
     },
   ];
 
@@ -283,27 +372,14 @@ export function AuditEvidence({
       {/* ---------------------------------------------------------------
           Is the record intact? Everything else depends on the answer.
           --------------------------------------------------------------- */}
-      <section
-        className={
-          verification.intact
-            ? "pv-panel pv-panel-verified"
-            : "pv-panel pv-panel-alarm"
-        }
-        aria-labelledby="audit-verification"
-      >
-        <h2 className="pv-panel-heading" id="audit-verification">
-          Is this record intact?
-        </h2>
-
+      <Panel title="Is this record intact?">
         {verification.intact ? (
           <>
             <p className="pv-lede-text">
-              <Badge tone="success" glyph="✓">
-                Verified intact
-              </Badge>{" "}
-              Every one of the {formatCount(verification.entriesChecked)} entries checked links
-              correctly to the one before it. Nothing has been removed, inserted, back-dated, or
-              altered since it was written.
+              <Badge tone="success">Verified intact</Badge> Every one of the{" "}
+              {formatCount(verification.entriesChecked)} entries checked links correctly to the one
+              before it. Nothing has been removed, inserted, back-dated, or altered since it was
+              written.
             </p>
             <DefinitionList
               items={[
@@ -351,12 +427,15 @@ export function AuditEvidence({
             </Callout>
 
             <div className="pv-space-above">
-              <DataTable
+              <Table
                 caption={`Breaks found in the record, ${pluralise(verification.breaks.length, "break", "breaks")}, earliest first.`}
+                tableId="audit-verification-breaks"
                 columns={breakColumns}
-                rows={verification.breaks}
+                rows={orderBy(verification.breaks, breakColumns, breakSort)}
                 rowKey={(problem) => `${problem.kind}-${problem.seq}`}
-                defaultSort={{ columnKey: "seq", direction: "ascending" }}
+                rowNoun="breaks"
+                sort={breakSort}
+                onSortChange={setBreakSort}
               />
             </div>
 
@@ -369,15 +448,12 @@ export function AuditEvidence({
             </p>
           </>
         )}
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           The question every compliance officer asks about this log.
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="audit-what-is-recorded">
-        <h2 className="pv-panel-heading" id="audit-what-is-recorded">
-          What this record contains, and what it does not
-        </h2>
+      <Panel title="What this record contains, and what it does not">
         <p>
           Each entry records the decision that was made, who or what made it, and a{" "}
           <strong>fingerprint</strong> of the information it was made from &mdash; a short code
@@ -389,108 +465,55 @@ export function AuditEvidence({
           an original, fetch it from its system of record and check its fingerprint against the one
           recorded here; if they match, it is the document the decision was made from.
         </p>
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           Filters
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="audit-filters">
-        <h2 className="pv-panel-heading" id="audit-filters">
-          Find entries
-        </h2>
-
+      <Panel title="Find entries">
         <form className="pv-filter-form" onSubmit={apply}>
           <div className="pv-toolbar">
-            <Field label="What happened">
-              {(control) => (
-                <select
-                  id={control.id}
-                  className="pv-select"
-                  value={draft.eventType}
-                  onChange={(event) => setDraft({ ...draft, eventType: event.target.value })}
-                >
-                  <option value="">Anything</option>
-                  {EVENT_GROUPS.map((group) => (
-                    <optgroup key={group.label} label={group.label}>
-                      {group.options.map((option) => (
-                        <option key={option} value={option}>
-                          {eventLabel(option)}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              )}
-            </Field>
+            <Select
+              label="What happened"
+              options={EVENT_OPTIONS}
+              value={draft.eventType}
+              onChange={(eventType) => setDraft({ ...draft, eventType })}
+            />
 
-            <Field
+            <Input
               label="Who or what did it"
               hint="A person or agent identifier, such as act_7f3a91c2."
-            >
-              {(control) => (
-                <input
-                  id={control.id}
-                  className="pv-input"
-                  type="text"
-                  aria-describedby={control.describedBy}
-                  value={draft.actorId}
-                  onChange={(event) => setDraft({ ...draft, actorId: event.target.value })}
-                />
-              )}
-            </Field>
+              value={draft.actorId}
+              onChange={(event) => setDraft({ ...draft, actorId: event.target.value })}
+            />
 
-            <Field label="Piece of work" hint="A run identifier, such as run_01k3m9x2p7.">
-              {(control) => (
-                <input
-                  id={control.id}
-                  className="pv-input"
-                  type="text"
-                  aria-describedby={control.describedBy}
-                  value={draft.runId}
-                  onChange={(event) => setDraft({ ...draft, runId: event.target.value })}
-                />
-              )}
-            </Field>
+            <Input
+              label="Piece of work"
+              hint="A run identifier, such as run_01k3m9x2p7."
+              value={draft.runId}
+              onChange={(event) => setDraft({ ...draft, runId: event.target.value })}
+            />
 
-            <Field
+            <Input
               label="What it was about"
               hint="A contract, loan, association, or role identifier."
-            >
-              {(control) => (
-                <input
-                  id={control.id}
-                  className="pv-input"
-                  type="text"
-                  aria-describedby={control.describedBy}
-                  value={draft.subject}
-                  onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
-                />
-              )}
-            </Field>
+              value={draft.subject}
+              onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
+            />
 
-            <Field label="Recorded on or after">
-              {(control) => (
-                <input
-                  id={control.id}
-                  className="pv-input"
-                  type="date"
-                  value={draft.from}
-                  onChange={(event) => setDraft({ ...draft, from: event.target.value })}
-                />
-              )}
-            </Field>
+            {/* The API takes ISO dates and an empty string means "no bound", so
+                null and "" are the same fact told to two different layers. */}
+            <DatePicker
+              label="Recorded on or after"
+              value={draft.from === "" ? null : draft.from}
+              onChange={(from) => setDraft({ ...draft, from: from ?? "" })}
+            />
 
-            <Field label="Recorded on or before">
-              {(control) => (
-                <input
-                  id={control.id}
-                  className="pv-input"
-                  type="date"
-                  value={draft.to}
-                  onChange={(event) => setDraft({ ...draft, to: event.target.value })}
-                />
-              )}
-            </Field>
+            <DatePicker
+              label="Recorded on or before"
+              value={draft.to === "" ? null : draft.to}
+              onChange={(to) => setDraft({ ...draft, to: to ?? "" })}
+            />
           </div>
 
           <div className="pv-row">
@@ -502,7 +525,7 @@ export function AuditEvidence({
             </Button>
           </div>
         </form>
-      </section>
+      </Panel>
 
       <p role="status" className="pv-meta">
         Showing {pluralise(entries.length, "entry", "entries")}
@@ -630,7 +653,7 @@ function AuditEntry({ entry }: { readonly entry: AuditEntryView }) {
           <span className="pv-mono">{entry.eventType}</span>
         </Badge>
       </div>
-      <DefinitionList items={items} stacked />
+      <DefinitionList items={items} />
     </li>
   );
 }

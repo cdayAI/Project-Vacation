@@ -27,7 +27,9 @@ describe("RunDetail", () => {
     // breakdown, and the step that actually incurred it.
     expect(screen.getAllByText("$0.0184")).toHaveLength(3);
     expect(screen.getByRole("columnheader", { name: /Category/ })).toBeInTheDocument();
-    const costTable = screen.getByRole("table");
+    // A grid rather than a table: the row cursor makes it a widget, and the
+    // columnheader / rowheader semantics inside it are unchanged.
+    const costTable = screen.getByRole("grid");
     // Every category the run reports, not a selection of them: a breakdown
     // that omits a line does not add up to the total above it.
     for (const category of Object.keys(runWithRefusedStep.costByCategory)) {
@@ -70,7 +72,16 @@ describe("RunDetail", () => {
 
   it("uses the denial tone rather than the failure tone for a refusal", () => {
     const { container } = renderSurface(<RunDetail run={runWithRefusedStep} />);
-    expect(container.querySelectorAll(".pv-callout-denied").length).toBeGreaterThan(0);
+    const denied = [...container.querySelectorAll('.pv-notice[data-tone="denied"]')];
+    expect(denied.length).toBeGreaterThan(0);
+    // And it is the refusals that are drawn that way, rather than some other
+    // block on the page happening to carry the tone. Counting denied notices
+    // alone would still pass if the two refusals were painted as failures and
+    // something unrelated was painted as a refusal.
+    for (const sentence of ["This run was refused", "This step was refused"]) {
+      const notice = screen.getByText(sentence).closest(".pv-notice");
+      expect(notice).toHaveAttribute("data-tone", "denied");
+    }
   });
 
   it("renders citations with document, version, and effective date", () => {

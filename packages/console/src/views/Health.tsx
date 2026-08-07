@@ -1,17 +1,16 @@
+import type { ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type { HealthView as HealthViewModel } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DataTable,
-  DefinitionList,
-  type Column,
-  type DefinitionItem,
-} from "../components";
+// The containment table is the one thing on this screen still drawn by the old
+// component layer. See the note above it: `ui/surfaces/Table` has no
+// `rowClassName`, and that class is what makes a stopped row readable as
+// stopped from across the room.
+import { DataTable, type Column } from "../components";
 import { formatCount, formatDateTime, formatUsd, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import { Badge, Callout, Panel } from "../ui";
 
 /**
  * Platform health and configuration.
@@ -47,6 +46,30 @@ const STATUS_PRESENTATION: Readonly<
       "The platform cannot serve work. Anything attempted now will be refused rather than half-completed.",
   },
 };
+
+interface DefinitionItem {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`, with each pair wrapped in a `<div>` so the grid can lay it out
+ * without breaking the term/description association. Screen readers announce
+ * "definition list, N items" and pair each term with its description, which a
+ * two-column grid of divs does not.
+ */
+function DefinitionList({ items }: { readonly items: readonly DefinitionItem[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 export interface HealthProps {
   readonly health: HealthViewModel;
@@ -85,11 +108,11 @@ export function Health({ health }: HealthProps) {
             <span className="pv-mono">{health.sandboxMode}</span>
           </span>
           {health.sandboxIsContained ? (
-            <Badge tone="success" glyph="✓">
+            <Badge tone="success">
               Contained — code the platform runs is isolated from this host
             </Badge>
           ) : (
-            <Badge tone="danger" glyph="▲">
+            <Badge tone="danger">
               Not contained — code the platform runs is not isolated from this host
             </Badge>
           )}
@@ -100,9 +123,7 @@ export function Health({ health }: HealthProps) {
       term: "Work discovery",
       description: health.discoveryEnabled ? (
         <span className="pv-stack-tight">
-          <Badge tone="warning" glyph="▲">
-            Enabled
-          </Badge>
+          <Badge tone="warning">Enabled</Badge>
           <span>
             It ships disabled, so somebody switched this on deliberately.{" "}
             <Link to="/discovery">See what it is collecting and why it ships off</Link>.
@@ -110,9 +131,7 @@ export function Health({ health }: HealthProps) {
         </span>
       ) : (
         <span className="pv-stack-tight">
-          <Badge tone="neutral" glyph="○">
-            Disabled — the shipped state
-          </Badge>
+          <Badge tone="neutral">Disabled — the shipped state</Badge>
           <span>
             <Link to="/discovery">Why it ships off</Link>
           </span>
@@ -151,13 +170,9 @@ export function Health({ health }: HealthProps) {
       sortValue: (entry) => (entry.engaged ? 0 : 1),
       render: (entry) =>
         entry.engaged ? (
-          <Badge tone="danger" glyph="⊘">
-            Stopped
-          </Badge>
+          <Badge tone="danger">Stopped</Badge>
         ) : (
-          <Badge tone="success" glyph="✓">
-            Running
-          </Badge>
+          <Badge tone="success">Running</Badge>
         ),
     },
     {
@@ -194,15 +209,9 @@ export function Health({ health }: HealthProps) {
         </p>
       </div>
 
-      <section
-        className={health.status === "ok" ? "pv-panel pv-panel-verified" : "pv-panel pv-panel-alarm"}
-        aria-labelledby="health-status"
-      >
-        <h2 className="pv-panel-heading" id="health-status">
-          {status.label}
-        </h2>
+      <Panel title={status.label}>
         <p className="pv-lede-text">{status.sentence}</p>
-      </section>
+      </Panel>
 
       {health.warnings.length > 0 && (
         <Callout
@@ -232,21 +241,14 @@ export function Health({ health }: HealthProps) {
         </Callout>
       )}
 
-      <section className="pv-panel" aria-labelledby="health-configuration">
-        <h2 className="pv-panel-heading" id="health-configuration">
-          Configuration
-        </h2>
+      <Panel title="Configuration">
         <DefinitionList items={configurationItems} />
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           The audit chain
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="health-audit">
-        <h2 className="pv-panel-heading" id="health-audit">
-          Audit record
-        </h2>
-
+      <Panel title="Audit record">
         {verification === undefined ? (
           <Callout tone="warning" title="The audit chain has not been verified">
             <p>
@@ -261,11 +263,9 @@ export function Health({ health }: HealthProps) {
         ) : verification.intact ? (
           <div className="pv-stack">
             <p className="pv-lede-text">
-              <Badge tone="success" glyph="✓">
-                Verified intact
-              </Badge>{" "}
-              All {formatCount(verification.entriesChecked)} entries checked link correctly to the
-              entry before them.
+              <Badge tone="success">Verified intact</Badge> All{" "}
+              {formatCount(verification.entriesChecked)} entries checked link correctly to the entry
+              before them.
             </p>
             <DefinitionList
               items={[
@@ -319,7 +319,7 @@ export function Health({ health }: HealthProps) {
             </p>
           </Callout>
         )}
-      </section>
+      </Panel>
 
       {/* ---------------------------------------------------------------
           External agents — the four rows an operator needs unasked
@@ -329,11 +329,7 @@ export function Health({ health }: HealthProps) {
       {/* ---------------------------------------------------------------
           Containment
           --------------------------------------------------------------- */}
-      <section className="pv-panel" aria-labelledby="health-containment">
-        <h2 className="pv-panel-heading" id="health-containment">
-          Containment switches
-        </h2>
-
+      <Panel title="Containment switches">
         {health.containment.length === 0 ? (
           <p>
             No switch has ever been set on this deployment, so nothing is stopped.{" "}
@@ -346,6 +342,12 @@ export function Health({ health }: HealthProps) {
                 ? `${pluralise(health.containment.length, "switch", "switches")} on record, none engaged.`
                 : `${pluralise(engagedSwitches.length, "switch is", "switches are")} engaged. Anything they cover is stopped.`}
             </p>
+            {/* Still the old DataTable, deliberately. `rowClassName` is what
+                paints a stopped row in the denied tone with a bar down its
+                leading edge, and `ui/surfaces/Table` has no equivalent: it
+                hardcodes the row's class. Pushing the tone into a cell instead
+                would be a weaker claim — the whole row is what reads as
+                stopped. Swap this the moment Table takes a `rowClassName`. */}
             <DataTable
               caption={`Containment switches known to the platform, ${pluralise(health.containment.length, "switch", "switches")}.`}
               columns={containmentColumns}
@@ -359,7 +361,7 @@ export function Health({ health }: HealthProps) {
             </p>
           </div>
         )}
-      </section>
+      </Panel>
     </div>
   );
 }
@@ -382,11 +384,7 @@ function ExternalAgentHealth({
   readonly externalAgents: HealthViewModel["externalAgents"];
 }) {
   return (
-    <section className="pv-panel" aria-labelledby="health-external-agents">
-      <h2 className="pv-panel-heading" id="health-external-agents">
-        External agents
-      </h2>
-
+    <Panel title="External agents">
       {externalAgents === undefined ? (
         <Callout tone="warning" title="This deployment does not report on external agents">
           <p>
@@ -397,9 +395,7 @@ function ExternalAgentHealth({
         </Callout>
       ) : !externalAgents.planeEnabled ? (
         <p>
-          <Badge tone="neutral" glyph="○">
-            Not enabled — the shipped state
-          </Badge>{" "}
+          <Badge tone="neutral">Not enabled — the shipped state</Badge>{" "}
           No agent running outside this platform is governed here. Nothing is being refused and
           nothing is being recorded, because there is nothing enrolled to refuse or record.
         </p>
@@ -419,9 +415,7 @@ function ExternalAgentHealth({
             </Callout>
           ) : (
             <p className="pv-lede-text">
-              <Badge tone="success" glyph="✓">
-                Enabled
-              </Badge>{" "}
+              <Badge tone="success">Enabled</Badge>{" "}
               {formatCount(externalAgents.enrolledCount)} enrolled,{" "}
               {formatCount(externalAgents.activeCount)} of them active.
             </p>
@@ -438,7 +432,7 @@ function ExternalAgentHealth({
                     </span>
                   ) : (
                     <span className="pv-stack-tight">
-                      <Badge tone="danger" glyph="⊘">
+                      <Badge tone="danger">
                         {pluralise(externalAgents.contained.length, "agent is", "agents are")}{" "}
                         contained
                       </Badge>
@@ -468,7 +462,7 @@ function ExternalAgentHealth({
                     <span>None. Every enrolled agent is inside its ceiling for the current period.</span>
                   ) : (
                     <span className="pv-stack-tight">
-                      <Badge tone="danger" glyph="▲">
+                      <Badge tone="danger">
                         {pluralise(externalAgents.overBudget.length, "agent is", "agents are")} over
                         budget
                       </Badge>
@@ -500,7 +494,7 @@ function ExternalAgentHealth({
                     </span>
                   ) : (
                     <span className="pv-stack-tight">
-                      <Badge tone="warning" glyph="▲">
+                      <Badge tone="warning">
                         {pluralise(
                           externalAgents.credentialsNearingExpiry.length,
                           "credential expires",
@@ -536,7 +530,7 @@ function ExternalAgentHealth({
           </p>
         </div>
       )}
-    </section>
+    </Panel>
   );
 }
 

@@ -1,22 +1,24 @@
+import { useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
-import type { EvaluationView, RoleView } from "../api/contract";
+import type { EvaluationView, RiskTier, RoleView } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DataTable,
-  DefinitionList,
-  EmptyState,
-  EvaluationPill,
-  RiskPill,
-  RoleStatusPill,
-  roleStatusLabel,
-  type Column,
-  type DefinitionItem,
-} from "../components";
 import { formatDateTime, formatPercent, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import type { StatusTone } from "../theme/tokens";
+import {
+  Badge,
+  Callout,
+  EmptyState,
+  IconAlert,
+  IconBlocked,
+  IconCircle,
+  MarkUndo,
+  Panel,
+  Table,
+  type TableColumn,
+  type TableSort,
+} from "../ui";
 
 /**
  * One agent role, in full, with its history.
@@ -33,12 +35,164 @@ import { Link } from "../routing";
  * and assume.
  */
 
+// ---------------------------------------------------------------------------
+// The status vocabulary this screen speaks
+// ---------------------------------------------------------------------------
+
+/**
+ * A status, in words, with a tone and a mark laid on top of the words rather
+ * than in place of them. The label is what survives greyscale and a printed
+ * evidence export, so it is the carrier (WCAG 1.4.1).
+ *
+ * A mark is named explicitly only where the tone's own default would say
+ * something different from what the status means. `Badge` keys its default mark
+ * by tone alone, so a disabled role and a role that failed would arrive at the
+ * same cross — and "stopped on purpose" is not "broken".
+ */
+interface Presentation {
+  readonly label: string;
+  readonly tone: StatusTone;
+  readonly icon?: ReactNode;
+}
+
+/**
+ * Role lifecycle status.
+ *
+ * "Disabled" is deliberately the loudest of the five. A disabled role is not a
+ * dormant one — it has been stopped, usually for a reason someone recorded —
+ * and a registry that renders it in the same grey as "draft" hides the single
+ * most operationally significant thing about it.
+ */
+const ROLE_STATUS: Readonly<Record<RoleView["status"], Presentation>> = {
+  draft: { label: "Draft", tone: "neutral", icon: <IconCircle size="sm" /> },
+  proposed: { label: "Proposed", tone: "info" },
+  promoted: { label: "In service", tone: "success" },
+  disabled: { label: "Disabled", tone: "danger", icon: <IconBlocked size="sm" /> },
+  reverted: { label: "Reverted", tone: "warning", icon: <MarkUndo size="sm" /> },
+};
+
+function roleStatusLabel(status: RoleView["status"]): string {
+  return ROLE_STATUS[status].label;
+}
+
+function RoleStatusBadge({ status }: { readonly status: RoleView["status"] }) {
+  const presentation = ROLE_STATUS[status];
+  return (
+    <Badge tone={presentation.tone} icon={presentation.icon}>
+      {presentation.label}
+    </Badge>
+  );
+}
+
+const RISK: Readonly<Record<RiskTier, Presentation>> = {
+  routine: { label: "Routine", tone: "neutral" },
+  sensitive: { label: "Sensitive", tone: "info" },
+  high_consequence: { label: "High consequence", tone: "danger", icon: <IconAlert size="sm" /> },
+  // Not "danger": a tier nothing may reach is the ceiling working, not a fault.
+  prohibited: { label: "Prohibited", tone: "denied" },
+};
+
+/** The pill says "Routine risk"; the bare label is for sorting and prose. */
+function RiskBadge({ risk }: { readonly risk: RiskTier }) {
+  const presentation = RISK[risk];
+  return (
+    <Badge tone={presentation.tone} icon={presentation.icon}>
+      {presentation.label} risk
+    </Badge>
+  );
+}
+
+/**
+ * Whether an evaluation cleared the threshold set for it.
+ *
+ * The threshold is named in the label rather than left to a colour, because
+ * "below threshold" and "below threshold against what bar" are different facts
+ * and only one of them can be argued with.
+ */
+function EvaluationBadge({ evaluation }: { readonly evaluation: EvaluationView }) {
+  return evaluation.meetsThreshold ? (
+    <Badge tone="success">Meets the {(evaluation.threshold * 100).toFixed(0)}% threshold</Badge>
+  ) : (
+    <Badge tone="danger" icon={<IconAlert size="sm" />}>
+      Below the {(evaluation.threshold * 100).toFixed(0)}% threshold
+    </Badge>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+interface Fact {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`, each pair wrapped in a `<div>` so the grid can lay the two
+ * columns out without putting anything between a `<dt>` and its `<dd>`.
+ *
+ * A grid of plain divs would look identical and announce nothing: a screen
+ * reader says "definition list, eight items" here and pairs each term with its
+ * description, which is what makes this readable without sight of the columns.
+ */
+function FactList({ items }: { readonly items: readonly Fact[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** Newest first. A promotion history is read from the end that happened last. */
+const HISTORY_SORT: TableSort = { columnKey: "version", direction: "descending" };
+
+/**
+ * Order the rows the table has been told it is showing.
+ *
+ * The table sorts for itself only while it owns the sort state, and it starts
+ * that state at "unsorted" — which would list these versions in whatever order
+ * the API returned while `aria-sort` correctly said nothing was sorted. Holding
+ * the state here is what lets the screen open newest-first *and* announce that
+ * it has. The comparison matches the table's own: numbers numerically,
+ * everything else with a numeric case-insensitive collation, ties broken by
+ * original position so the order is stable.
+ */
+function orderBy<T>(
+  rows: readonly T[],
+  columns: readonly TableColumn<T>[],
+  sort: TableSort | null,
+): readonly T[] {
+  const sortValue =
+    sort === null ? undefined : columns.find((column) => column.key === sort.columnKey)?.sortValue;
+  if (sort === null || sortValue === undefined) return rows;
+
+  const direction = sort.direction === "ascending" ? 1 : -1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const a = sortValue(left.row);
+      const b = sortValue(right.row);
+      const result =
+        typeof a === "number" && typeof b === "number"
+          ? a - b
+          : String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+      return result !== 0 ? result * direction : left.index - right.index;
+    })
+    .map((entry) => entry.row);
+}
+
 export interface RoleDetailProps {
   /** Every version of one role. Order does not matter; the view sorts. */
   readonly versions: readonly RoleView[];
 }
 
 export function RoleDetail({ versions }: RoleDetailProps) {
+  const [historySort, setHistorySort] = useState<TableSort | null>(HISTORY_SORT);
+
   const ordered = [...versions].sort((left, right) => right.version - left.version);
   const current = ordered[0];
 
@@ -54,7 +208,7 @@ export function RoleDetail({ versions }: RoleDetailProps) {
         <EmptyState
           title="Nothing to show"
           body="The platform holds no version record for this role. Either it was never registered, or the identifier in the address is wrong."
-          action={<Link to="/roles">Back to the role registry</Link>}
+          actions={<Link to="/roles">Back to the role registry</Link>}
           headingLevel={2}
         />
       </div>
@@ -63,12 +217,12 @@ export function RoleDetail({ versions }: RoleDetailProps) {
 
   const evaluation = current.latestEvaluation;
 
-  const definitionItems: DefinitionItem[] = [
+  const definitionItems: readonly Fact[] = [
     { term: "Role", description: <span className="pv-mono">{current.roleId}</span> },
     { term: "Purpose", description: current.purpose },
     { term: "Version", description: `Version ${current.version}` },
-    { term: "Lifecycle status", description: <RoleStatusPill status={current.status} /> },
-    { term: "Risk ceiling", description: <RiskPill risk={current.riskCeiling} /> },
+    { term: "Lifecycle status", description: <RoleStatusBadge status={current.status} /> },
+    { term: "Risk ceiling", description: <RiskBadge risk={current.riskCeiling} /> },
     { term: "Human involvement", description: current.humanInvolvement },
     { term: "Model task", description: <span className="pv-mono">{current.modelTask}</span> },
     {
@@ -82,34 +236,39 @@ export function RoleDetail({ versions }: RoleDetailProps) {
     },
   ];
 
-  const historyColumns: readonly Column<RoleView>[] = [
+  const historyColumns: readonly TableColumn<RoleView>[] = [
     {
       key: "version",
       header: "Version",
       rowHeader: true,
+      alwaysVisible: true,
       numeric: true,
+      width: 110,
       sortValue: (version) => version.version,
-      render: (version) => <span>{version.version}</span>,
+      cell: (version) => <span>{version.version}</span>,
     },
     {
       key: "status",
       header: "What happened",
+      width: 170,
       sortValue: (version) => roleStatusLabel(version.status),
-      render: (version) => <RoleStatusPill status={version.status} />,
+      cell: (version) => <RoleStatusBadge status={version.status} />,
     },
     {
       key: "updatedAt",
       header: "When",
+      width: 190,
       sortValue: (version) => version.updatedAt,
-      render: (version) => (
+      cell: (version) => (
         <time dateTime={version.updatedAt}>{formatDateTime(version.updatedAt)}</time>
       ),
     },
     {
       key: "updatedBy",
       header: "Who",
+      width: 220,
       sortValue: (version) => version.updatedBy.displayName,
-      render: (version) => (
+      cell: (version) => (
         <span className="pv-stack-tight">
           <span>{version.updatedBy.displayName}</span>
           <span className="pv-meta">{version.updatedBy.roles.join(", ")}</span>
@@ -119,8 +278,9 @@ export function RoleDetail({ versions }: RoleDetailProps) {
     {
       key: "evaluation",
       header: "Evaluation at the time",
+      width: 230,
       sortValue: (version) => version.latestEvaluation?.accuracy ?? -1,
-      render: (version) => {
+      cell: (version) => {
         const versionEvaluation = version.latestEvaluation;
         if (versionEvaluation === undefined) {
           return <span className="pv-meta">Not evaluated</span>;
@@ -134,7 +294,7 @@ export function RoleDetail({ versions }: RoleDetailProps) {
             {versionEvaluation.meetsThreshold ? (
               <span className="pv-meta">Met threshold</span>
             ) : (
-              <Badge tone="danger" glyph="▲">
+              <Badge tone="danger" icon={<IconAlert size="sm" />}>
                 Below threshold
               </Badge>
             )}
@@ -145,8 +305,9 @@ export function RoleDetail({ versions }: RoleDetailProps) {
     {
       key: "modelId",
       header: "Model",
+      width: 220,
       sortValue: (version) => version.latestEvaluation?.modelId ?? "",
-      render: (version) =>
+      cell: (version) =>
         version.latestEvaluation === undefined ? (
           <span className="pv-meta">Not recorded</span>
         ) : (
@@ -201,18 +362,11 @@ export function RoleDetail({ versions }: RoleDetailProps) {
         </Callout>
       )}
 
-      <section className="pv-panel" aria-labelledby="role-definition">
-        <h2 className="pv-panel-heading" id="role-definition">
-          What this role is
-        </h2>
-        <DefinitionList items={definitionItems} />
-      </section>
+      <Panel title="What this role is">
+        <FactList items={definitionItems} />
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="role-authority">
-        <h2 className="pv-panel-heading" id="role-authority">
-          What it is permitted to do
-        </h2>
-
+      <Panel title="What it is permitted to do">
         <h3>Permitted actions</h3>
         <p className="pv-meta">
           Anything not on this list is refused at the authorization chokepoint, whether or not this
@@ -248,42 +402,38 @@ export function RoleDetail({ versions }: RoleDetailProps) {
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="role-evaluation">
-        <h2 className="pv-panel-heading" id="role-evaluation">
-          Latest evaluation
-        </h2>
+      <Panel title="Latest evaluation">
         {evaluation === undefined ? (
           <p className="pv-meta">No evaluation has been recorded for this version.</p>
         ) : (
           <EvaluationDetail evaluation={evaluation} />
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="role-history">
-        <h2 className="pv-panel-heading" id="role-history">
-          Promotion history
-        </h2>
-        <p className="pv-meta">
-          Every version of this role, newest first, with who changed it and what the curated set
-          said at the time. A reverted version is one that was promoted and then taken back out.
-        </p>
+      <Panel
+        title="Promotion history"
+        description="Every version of this role, newest first, with who changed it and what the curated set said at the time. A reverted version is one that was promoted and then taken back out."
+      >
         {ordered.length === 1 ? (
           <p>
             This role has one version. It has been promoted once and never revised, reverted, or
             disabled since.
           </p>
         ) : (
-          <DataTable
+          <Table
             caption={`Version history for ${current.name}, ${pluralise(ordered.length, "version", "versions")}.`}
+            tableId="role-detail-history"
             columns={historyColumns}
-            rows={ordered}
+            rows={orderBy(ordered, historyColumns, historySort)}
             rowKey={(version) => `${version.roleId}-v${version.version}`}
-            defaultSort={{ columnKey: "version", direction: "descending" }}
+            rowNoun="versions"
+            sort={historySort}
+            onSortChange={setHistorySort}
           />
         )}
-      </section>
+      </Panel>
     </div>
   );
 }
@@ -292,11 +442,11 @@ function EvaluationDetail({ evaluation }: { readonly evaluation: EvaluationView 
   return (
     <div className="pv-stack">
       <div className="pv-row">
-        <EvaluationPill evaluation={evaluation} />
+        <EvaluationBadge evaluation={evaluation} />
         <Badge tone="neutral">{formatPercent(evaluation.accuracy)} accurate</Badge>
       </div>
 
-      <DefinitionList
+      <FactList
         items={[
           { term: "Curated set", description: evaluation.goldenSetName },
           {

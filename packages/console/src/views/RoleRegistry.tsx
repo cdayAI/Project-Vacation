@@ -1,22 +1,20 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
-import type { RoleView } from "../api/contract";
+import type { RiskTier, RoleView } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DataTable,
-  EmptyState,
-  Field,
-  RiskPill,
-  RoleStatusPill,
-  riskLabel,
-  roleStatusLabel,
-  type Column,
-} from "../components";
+// Still the old DataTable, deliberately, and it is the only thing on this
+// screen that has not moved. `rowClassName` is what paints the whole row of a
+// disabled role, and `ui/surfaces/Table` has no equivalent — it hardcodes the
+// row's class and offers only selection and cursor state. Marking the badge
+// instead of the row would be a weaker claim than the one the registry makes:
+// a disabled role is not a normal row with one loud cell in it. Swap this the
+// moment Table takes a `rowClassName`.
+import { DataTable, type Column } from "../components";
 import { formatDateTime, formatPercent, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import type { StatusTone } from "../theme/tokens";
+import { Badge, Callout, EmptyState, IconAlert, IconBlocked, IconCircle, MarkUndo, Select } from "../ui";
 
 /**
  * The role registry.
@@ -36,13 +34,93 @@ import { Link } from "../routing";
  * and whether one clears the other are all shown rather than reduced to a tick.
  */
 
+// ---------------------------------------------------------------------------
+// The status vocabulary this screen speaks
+// ---------------------------------------------------------------------------
+
+/**
+ * A status, in words, with a tone and a mark laid on top of the words rather
+ * than in place of them. The label is what survives greyscale and a printed
+ * evidence export, so it is the carrier (WCAG 1.4.1).
+ *
+ * A mark is named explicitly only where the tone's own default would say
+ * something different from what the status means. `Badge` keys its default mark
+ * by tone alone, so four separate danger badges appear in a single row of this
+ * table — disabled, high consequence, below threshold — and would arrive at one
+ * indistinguishable cross unless the shapes are asked for.
+ */
+interface Presentation {
+  readonly label: string;
+  readonly tone: StatusTone;
+  readonly icon?: ReactNode;
+}
+
+/**
+ * Role lifecycle status.
+ *
+ * "Disabled" is deliberately the loudest of the five. A disabled role is not a
+ * dormant one — it has been stopped, usually for a reason someone recorded —
+ * and a registry that renders it in the same grey as "draft" hides the single
+ * most operationally significant thing about it.
+ */
+const ROLE_STATUS: Readonly<Record<RoleView["status"], Presentation>> = {
+  draft: { label: "Draft", tone: "neutral", icon: <IconCircle size="sm" /> },
+  proposed: { label: "Proposed", tone: "info" },
+  promoted: { label: "In service", tone: "success" },
+  disabled: { label: "Disabled", tone: "danger", icon: <IconBlocked size="sm" /> },
+  reverted: { label: "Reverted", tone: "warning", icon: <MarkUndo size="sm" /> },
+};
+
+function roleStatusLabel(status: RoleView["status"]): string {
+  return ROLE_STATUS[status].label;
+}
+
+function RoleStatusBadge({ status }: { readonly status: RoleView["status"] }) {
+  const presentation = ROLE_STATUS[status];
+  return (
+    <Badge tone={presentation.tone} icon={presentation.icon}>
+      {presentation.label}
+    </Badge>
+  );
+}
+
+const RISK: Readonly<Record<RiskTier, Presentation>> = {
+  routine: { label: "Routine", tone: "neutral" },
+  sensitive: { label: "Sensitive", tone: "info" },
+  high_consequence: { label: "High consequence", tone: "danger", icon: <IconAlert size="sm" /> },
+  // Not "danger": a tier nothing may reach is the ceiling working, not a fault.
+  prohibited: { label: "Prohibited", tone: "denied" },
+};
+
+function riskLabel(risk: RiskTier): string {
+  return RISK[risk].label;
+}
+
+/** The pill says "Routine risk"; the bare label is for sorting and prose. */
+function RiskBadge({ risk }: { readonly risk: RiskTier }) {
+  const presentation = RISK[risk];
+  return (
+    <Badge tone={presentation.tone} icon={presentation.icon}>
+      {presentation.label} risk
+    </Badge>
+  );
+}
+
+type Availability = "all" | "enabled" | "disabled";
+
+const AVAILABILITY_OPTIONS = [
+  { value: "all", label: "All roles" },
+  { value: "enabled", label: "Available only" },
+  { value: "disabled", label: "Disabled only" },
+] as const;
+
 export interface RoleRegistryProps {
   readonly roles: readonly RoleView[];
   readonly total?: number;
 }
 
 export function RoleRegistry({ roles, total }: RoleRegistryProps) {
-  const [showDisabled, setShowDisabled] = useState<"all" | "enabled" | "disabled">("all");
+  const [showDisabled, setShowDisabled] = useState<Availability>("all");
 
   const visible = useMemo(
     () =>
@@ -79,7 +157,7 @@ export function RoleRegistry({ roles, total }: RoleRegistryProps) {
       sortValue: (role) => (role.disabled ? 0 : 1),
       render: (role) =>
         role.disabled ? (
-          <Badge tone="danger" glyph="⊘">
+          <Badge tone="danger" icon={<IconBlocked size="sm" />}>
             Disabled
           </Badge>
         ) : (
@@ -90,7 +168,7 @@ export function RoleRegistry({ roles, total }: RoleRegistryProps) {
       key: "status",
       header: "Lifecycle",
       sortValue: (role) => roleStatusLabel(role.status),
-      render: (role) => <RoleStatusPill status={role.status} />,
+      render: (role) => <RoleStatusBadge status={role.status} />,
     },
     {
       key: "version",
@@ -103,7 +181,7 @@ export function RoleRegistry({ roles, total }: RoleRegistryProps) {
       key: "riskCeiling",
       header: "Risk ceiling",
       sortValue: (role) => riskLabel(role.riskCeiling),
-      render: (role) => <RiskPill risk={role.riskCeiling} />,
+      render: (role) => <RiskBadge risk={role.riskCeiling} />,
     },
     {
       key: "evaluation",
@@ -123,7 +201,7 @@ export function RoleRegistry({ roles, total }: RoleRegistryProps) {
             {evaluation.meetsThreshold ? (
               <span className="pv-meta">Meets threshold</span>
             ) : (
-              <Badge tone="danger" glyph="▲">
+              <Badge tone="danger" icon={<IconAlert size="sm" />}>
                 Below threshold
               </Badge>
             )}
@@ -162,22 +240,12 @@ export function RoleRegistry({ roles, total }: RoleRegistryProps) {
       </div>
 
       <div className="pv-toolbar">
-        <Field label="Availability">
-          {(control) => (
-            <select
-              id={control.id}
-              className="pv-select"
-              value={showDisabled}
-              onChange={(event) =>
-                setShowDisabled(event.target.value as "all" | "enabled" | "disabled")
-              }
-            >
-              <option value="all">All roles</option>
-              <option value="enabled">Available only</option>
-              <option value="disabled">Disabled only</option>
-            </select>
-          )}
-        </Field>
+        <Select
+          label="Availability"
+          options={AVAILABILITY_OPTIONS}
+          value={showDisabled}
+          onChange={(value) => setShowDisabled(value as Availability)}
+        />
       </div>
 
       <p role="status" className="pv-meta">

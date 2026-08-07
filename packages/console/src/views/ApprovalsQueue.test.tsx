@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { ApprovalView } from "../api/contract";
 import { expectNoAccessibilityViolations, renderSurface } from "../test/axe";
@@ -70,8 +71,43 @@ describe("ApprovalsQueue", () => {
 
   it("offers no decide control, because a row cannot show a proposal in full", () => {
     renderSurface(<ApprovalsQueue approvals={[soon, later]} />);
-    const table = screen.getByRole("table");
-    expect(within(table).queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+
+    // `grid`, not `table`: J/K/Enter row navigation is a widget, and the role
+    // says so. The rows and the row headers inside it are unchanged.
+    const grid = screen.getByRole("grid");
+    expect(within(grid).queryByRole("button", { name: /approve/i })).not.toBeInTheDocument();
+
+    // Widened past the grid on purpose. The table now brings its own controls —
+    // a sort button per column and a column chooser — and the claim worth
+    // holding is not "the grid has no buttons" but "nothing anywhere on this
+    // screen decides an approval". Sorting and choosing columns change what
+    // this operator is looking at; they change nothing in the platform.
+    const deciding = screen
+      .getAllByRole("button")
+      .filter((button) => /\b(approve|reject|decide)\b/i.test(button.textContent ?? ""));
+    expect(deciding).toEqual([]);
+  });
+
+  it("opens on the soonest expiry, and says in aria-sort that it did", async () => {
+    const user = userEvent.setup();
+    // Handed to the view in the wrong order, so a pass cannot be the input
+    // order surviving untouched.
+    renderSurface(<ApprovalsQueue approvals={[later, soon]} />);
+
+    const expires = screen.getByRole("columnheader", { name: /Expires/ });
+    // A queue that is silently sorted is a queue an operator cannot trust the
+    // top of. The order and the announcement of it are one guarantee.
+    expect(expires).toHaveAttribute("aria-sort", "ascending");
+    const rows = within(screen.getByRole("grid")).getAllByRole("row");
+    expect(within(rows[1] as HTMLElement).getByRole("link", { name: soon.ask })).toBeInTheDocument();
+
+    await user.click(within(expires).getByRole("button"));
+
+    expect(expires).toHaveAttribute("aria-sort", "descending");
+    const reordered = within(screen.getByRole("grid")).getAllByRole("row");
+    expect(
+      within(reordered[1] as HTMLElement).getByRole("link", { name: later.ask }),
+    ).toBeInTheDocument();
   });
 
   it("tells an operator when nothing is waiting", () => {

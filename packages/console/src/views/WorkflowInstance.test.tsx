@@ -47,8 +47,16 @@ describe("WorkflowInstance", () => {
     expect(
       screen.getByText("1 step has passed the time they were meant to take"),
     ).toBeInTheDocument();
-    // And a second channel for someone scanning a long sequence.
-    expect(container.querySelectorAll("li.pv-step-breached")).toHaveLength(1);
+    // And a second channel for someone scanning a long sequence: exactly one
+    // step in the list carries a danger-toned mark, and it is the step whose
+    // words say "Past due". Colour alone would not satisfy WCAG 1.4.1 and the
+    // words alone would not survive a scan, so the two have to be on the same
+    // step for either to mean anything.
+    const marked = [...container.querySelectorAll("ol.pv-steps > li")].filter(
+      (step) => step.querySelector('.pv-ui-badge[data-tone="danger"]') !== null,
+    );
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveTextContent("Past due");
   });
 
   it("translates engine step kinds into something a supervisor can read", () => {

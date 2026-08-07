@@ -9,6 +9,9 @@ describe("DiscoveryBacklog", () => {
     it("explains why it ships off rather than showing an empty table", () => {
       renderSurface(<DiscoveryBacklog enabled={false} candidates={[]} />);
 
+      // Both roles: the table this page must not show would be a `grid` now,
+      // and a plain `table` must not appear either.
+      expect(screen.queryByRole("grid")).not.toBeInTheDocument();
       expect(screen.queryByRole("table")).not.toBeInTheDocument();
       expect(
         screen.getByText("This feature is built, and it ships disabled"),
@@ -86,12 +89,32 @@ describe("DiscoveryBacklog", () => {
         <DiscoveryBacklog enabled candidates={discoveryCandidates} />,
       );
 
-      // Every button on this screen is a table sort control and nothing else.
+      // Every button on this screen belongs to the table's own view controls:
+      // a sort control, or the column chooser. Both change what this operator
+      // is looking at; neither activates a candidate, and no ordering of a
+      // list has ever started a run.
+      //
+      // Matched on what each control announces rather than on a class name. An
+      // activation control could be given any class; it could not pass this
+      // without telling a screen-reader user it sorts a column.
       const buttons = screen.queryAllByRole("button");
       expect(buttons.length).toBeGreaterThan(0);
-      for (const button of buttons) {
-        expect(button.className).toContain("pv-dt-sort");
-      }
+
+      const columnChoosers = buttons.filter((button) => button.textContent === "Columns");
+      const sortControls = buttons.filter((button) =>
+        /, (not sorted|sorted (ascending|descending))\. Activate to sort (ascending|descending)\.$/.test(
+          button.textContent ?? "",
+        ),
+      );
+
+      // One chooser, one table — and the two kinds account for every button on
+      // the screen, so a third kind cannot arrive unnoticed.
+      expect(columnChoosers).toHaveLength(1);
+      expect(columnChoosers.length + sortControls.length).toBe(buttons.length);
+
+      // The table also says in words that it is read-only, which is the claim
+      // this whole screen is making.
+      expect(screen.getByText("Read-only")).toBeInTheDocument();
 
       // And there is nothing else that could submit anything either.
       expect(container.querySelectorAll("form")).toHaveLength(0);
