@@ -105,7 +105,29 @@ export interface DemoResult {
   readonly chainIntact: boolean;
 }
 
-export async function runDemo(out: Output = createOutput()): Promise<DemoResult> {
+/**
+ * The demonstration, and the platform it ran on.
+ *
+ * The platform is handed back rather than closed so that something else can
+ * serve from it — see `pv serve --seed`. A caller that only wants the story
+ * uses {@link runDemo}, which closes it.
+ */
+export interface DemoRun {
+  readonly platform: Platform;
+  readonly result: DemoResult;
+}
+
+/**
+ * Run the demonstration and keep the platform open.
+ *
+ * The record this produces lives in memory for as long as the process does.
+ * That is the whole reason the console can be looked at without a database:
+ * the same in-process record the demonstration wrote is the one the HTTP API
+ * then reads.
+ */
+export async function runDemoKeepingPlatform(
+  out: Output = createOutput(),
+): Promise<DemoRun> {
   const config = loadConfig({ PV_ENV: "development", PV_STORE: "memory" });
   const clock = new FixedClock(DEMO_NOW);
   const ids = new SeededIdGenerator(config.demoSeed);
@@ -210,15 +232,29 @@ export async function runDemo(out: Output = createOutput()): Promise<DemoResult>
   out.line("`pv audit verify` to read. To verify a chain after the fact, point the");
   out.line("platform at Postgres (PV_STORE=postgres) and run work through it.");
 
-  await platform.close();
-
   return {
-    runsCreated: runs.length,
-    deadlinesComputed,
-    refusals,
-    auditEntries: chain.length,
-    chainIntact: verification.intact,
+    platform,
+    result: {
+      runsCreated: runs.length,
+      deadlinesComputed,
+      refusals,
+      auditEntries: chain.length,
+      chainIntact: verification.intact,
+    },
   };
+}
+
+/**
+ * Run the demonstration and close the platform behind it.
+ *
+ * The shape `pnpm demo` and the determinism check in CI use. Closing here
+ * rather than in the caller is what makes the sentence above — "the record is
+ * gone now" — true rather than aspirational.
+ */
+export async function runDemo(out: Output = createOutput()): Promise<DemoResult> {
+  const { platform, result } = await runDemoKeepingPlatform(out);
+  await platform.close();
+  return result;
 }
 
 // ---------------------------------------------------------------------------

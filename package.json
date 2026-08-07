@@ -21,6 +21,7 @@
     "demo": "pnpm --filter @pv/platform demo",
     "audit:verify": "pnpm --filter @pv/platform audit:verify",
     "api": "pnpm --filter @pv/platform api",
+    "api:seed": "pnpm --filter @pv/platform exec tsx src/cli/main.ts serve --seed",
     "worker": "pnpm --filter @pv/platform worker",
     "console": "pnpm --filter @pv/console dev",
     "sbom": "node tools/generate-sbom.mjs sbom.json"

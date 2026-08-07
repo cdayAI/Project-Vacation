@@ -68,10 +68,16 @@ describe("routes and navigation", () => {
   });
 
   it("hides a navigation item whose capability the session does not hold", () => {
-    const containment = PRIMARY_NAVIGATION.find((item) => item.id === "containment");
-    expect(containment).toBeDefined();
-    // The auditor sees everything and changes nothing.
-    expect(isNavigationItemVisible(containment!, auditorSession)).toBe(false);
+    // The executive view is spend, and it is gated on `record.read_cost` —
+    // which the auditor does not hold. Containment used to be the example
+    // here, gated on an invented `containment.read` that the platform grants
+    // nobody: the assertion passed because the link was hidden from everyone,
+    // including the operator who needs it. See routes.contract.test.ts.
+    const executive = PRIMARY_NAVIGATION.find((item) => item.id === "executive");
+    expect(executive).toBeDefined();
+    expect(executive?.capability).toBe("record.read_cost");
+    expect(auditorSession.capabilities).not.toContain("record.read_cost");
+    expect(isNavigationItemVisible(executive!, auditorSession)).toBe(false);
   });
 
   it("renders every top-level surface from the shell", async () => {

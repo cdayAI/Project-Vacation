@@ -250,6 +250,13 @@
 
 .pv-dt {
   inline-size: 100%;
+  /* Below this the columns stop being columns. The work queue carries eight,
+     and at 1440 with the rail and the context panel open the content area is
+     about 800px — so without a floor the browser squeezes "Read the refusal
+     and take it forward" into a four-character ribbon and clips it mid-word.
+     The scroll container above is what the overflow is for; a table that fits
+     by becoming unreadable has not fitted. */
+  min-inline-size: 62rem;
   border-collapse: collapse;
   font-size: var(--pv-type-body-size);
   line-height: var(--pv-type-body-line);

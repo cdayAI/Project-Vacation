@@ -76,7 +76,8 @@ Project Vacation — operator commands
 
   config show                     Show effective configuration and warnings
   health                          Report platform health
-  serve                           Run the HTTP API
+  serve [--seed]                  Run the HTTP API. --seed serves the seeded
+                                  demonstration from memory (development only)
   worker [--once]                 Run maintenance: expiries, sweeps, reclaims, retention
   demo run                        Run the seeded demonstration
 
@@ -557,6 +558,41 @@ async function main(): Promise<number> {
     const { runDemo } = await import("../demo/run.js");
     const result = await runDemo();
     return result.chainIntact ? 0 : 1;
+  }
+
+  if (command === "serve" && args.flags.seed !== undefined) {
+    // A demonstration server: the seeded scenario, then HTTP over the same
+    // in-process record it just wrote.
+    //
+    // It exists because the console was unlookable without one. `pnpm demo`
+    // runs in memory and closes behind itself, so an API started afterwards
+    // serves an empty store and every screen renders its empty state — which
+    // is a fair rendering of an empty platform and a useless way to review a
+    // design. Nothing else in the repository seeds a durable store.
+    //
+    // **Development only, and it refuses rather than warns.** This process
+    // serves fabricated owners, contracts and approvals over a real HTTP API.
+    // Somewhere it could be mistaken for a deployment, that is not a
+    // demonstration, it is a platform telling an operator things that are not
+    // true about people who do not exist.
+    if (config.environment !== "development") {
+      console.error(
+        `\`serve --seed\` fabricates operating data and refuses to run outside development. PV_ENV is "${config.environment}". Start \`pv serve\` without --seed.`,
+      );
+      return 78; // EX_CONFIG
+    }
+
+    const { runDemoKeepingPlatform } = await import("../demo/run.js");
+    const { platform: seeded } = await runDemoKeepingPlatform();
+
+    const { startServer } = await import("../api/server.js");
+    await startServer(seeded);
+    note(`API listening on port ${seeded.config.httpPort}, serving the seeded demonstration.`);
+    note(
+      "Everything this serves is fabricated and lives in memory. It disappears when this process stops, and it is not a record of anything.",
+    );
+    await new Promise<never>(() => {});
+    return 0;
   }
 
   if (command === "config") {

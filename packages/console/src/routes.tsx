@@ -99,6 +99,27 @@ export interface NavigationItem {
    * A capability from SessionView, used only to decide whether to draw this
    * link. See `isNavigationItemVisible` — this is a rendering hint and never
    * an authorization decision.
+   *
+   * **It must be a capability the platform actually grants somebody.** The
+   * platform's vocabulary is the action registry — `record.read_run`,
+   * `audit.read`, `contact.send_owner_message` — and nothing else is ever in
+   * `SessionView.capabilities`. This field used to carry an invented parallel
+   * vocabulary (`work.read`, `approvals.read`, `roles.read`), none of which
+   * the platform emits to anyone, so the membership test could only ever fail:
+   * a fully-privileged operator opened the console and found nine of eleven
+   * surfaces missing from the rail.
+   *
+   * A hint that hides a surface from *every* operator is not discriminating
+   * between operators. It is a broken link check. So the rule is: name a real
+   * capability, or leave this undefined and let the server refuse the read —
+   * which is where the boundary is anyway.
+   *
+   * Most surfaces are undefined for a reason that is worth knowing: the
+   * platform has no read-scope vocabulary at all. Reading the work queue is
+   * mapped to `record.read_run` because that is genuinely the same read, but
+   * there is no `approvals.read` to point at, and inventing one here would
+   * recreate exactly the defect above. See S11 in
+   * `docs/handover/not-production-grade.md`.
    */
   readonly capability?: string;
 }
@@ -119,7 +140,7 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "work",
     icon: IconQueue,
     hint: "Everything waiting, across every workflow.",
-    capability: "work.read",
+    capability: "record.read_run",
   },
   {
     id: "approvals",
@@ -128,7 +149,6 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "work",
     icon: IconApprovals,
     hint: "The decisions waiting on you.",
-    capability: "approvals.read",
   },
   {
     id: "audit",
@@ -146,7 +166,6 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "oversight",
     icon: IconShield,
     hint: "What is currently stopped, and who stopped it.",
-    capability: "containment.read",
   },
   {
     id: "executive",
@@ -155,7 +174,7 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "oversight",
     icon: IconChart,
     hint: "The measures management reports, with their denominators.",
-    capability: "executive.read",
+    capability: "record.read_cost",
   },
   {
     id: "improvements",
@@ -164,7 +183,6 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "improve",
     icon: IconLoop,
     hint: "Proposals raised from corrections and refusals.",
-    capability: "improvements.read",
   },
   {
     id: "discovery",
@@ -173,7 +191,6 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "improve",
     icon: IconSearchGlass,
     hint: "Candidate work nobody has written down yet.",
-    capability: "discovery.read",
   },
   {
     id: "roles",
@@ -182,7 +199,6 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "admin",
     icon: IconRole,
     hint: "What each agent role may do, and at what tier.",
-    capability: "roles.read",
   },
   // Top-level rather than nested under roles: an agent running in a vendor's
   // CRM is not a role this platform can dispatch to, and filing it under one
@@ -194,7 +210,6 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "admin",
     icon: IconExchange,
     hint: "Agents outside the platform that call into it.",
-    capability: "external_agents.read",
   },
   {
     id: "health",
@@ -203,7 +218,6 @@ export const PRIMARY_NAVIGATION: readonly NavigationItem[] = [
     zone: "admin",
     icon: IconPulse,
     hint: "Environment, store, sandbox, and the model provider.",
-    capability: "health.read",
   },
   // No capability: the gallery holds no operating data, and it is how a
   // designer or a reviewer checks the system without an account that can see

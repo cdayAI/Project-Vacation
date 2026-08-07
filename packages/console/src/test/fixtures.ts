@@ -82,20 +82,26 @@ export const externalAgentActor = {
 export const session: SessionView = {
   actor: supervisor,
   secondsSinceAuthentication: 412,
+  // The platform's own vocabulary, from PLATFORM_ACTIONS. Nothing else is ever
+  // in a real session, and a fixture that invents a capability is how a
+  // navigation bug stays green in tests while the shipped rail hides itself
+  // from every operator — which is precisely what happened here. Guarded by
+  // routes.contract.test.ts, which reads the registry.
   capabilities: [
-    "work.read",
-    "approvals.read",
-    "approvals.decide",
-    "runs.read",
-    "roles.read",
-    "external_agents.read",
-    "improvements.read",
+    "record.read_run",
+    "record.read_cost",
     "audit.read",
-    "containment.read",
     "containment.engage",
-    "discovery.read",
-    "executive.read",
-    "health.read",
+    "containment.release",
+    "contact.send_owner_message",
+    "document.generate_owner_facing",
+    "improvement.propose",
+    "improvement.observe",
+    "external_agent.enroll",
+    "role.promote",
+    "knowledge.retrieve",
+    "timeline.compute_deadline",
+    "contract.check_rescission",
   ],
   readOnly: false,
 };
@@ -103,7 +109,10 @@ export const session: SessionView = {
 export const auditorSession: SessionView = {
   actor: auditor,
   secondsSinceAuthentication: 90,
-  capabilities: ["work.read", "runs.read", "audit.read"],
+  // No `record.read_cost`: an auditor reading the chain is not
+  // automatically entitled to spend figures, and this is the one gated
+  // surface the rail can therefore prove it withholds.
+  capabilities: ["record.read_run", "audit.read"],
   readOnly: true,
 };
 
