@@ -536,8 +536,8 @@ describe("glass recipe", () => {
     const darkBlur = /--pv-glass-blur:\s*([^;]+);/.exec(
       blockAfter(glass, ':root[data-theme="dark"] {'),
     );
-    expect(lightBlur?.[1]).toBe("blur(20px) saturate(180%)");
-    expect(darkBlur?.[1]).toBe("blur(24px) saturate(140%)");
+    expect(lightBlur?.[1]).toBe("blur(32px) saturate(200%)");
+    expect(darkBlur?.[1]).toBe("blur(36px) saturate(150%)");
   });
 
   it("swaps glass for a designed solid under either transparency signal", () => {

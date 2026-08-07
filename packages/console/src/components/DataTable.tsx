@@ -44,6 +44,13 @@ function compare(a: string | number, b: string | number): number {
  *
  * The sort control is a button that fills its header cell, so the hit target
  * is the whole header rather than a small glyph inside it (WCAG 2.2 2.5.8).
+ *
+ * The class prefix is `pv-dt-`, not `pv-table-`. `ui/surfaces/Table` — the
+ * virtualised grid the design gallery demonstrates — already owns `pv-table`,
+ * and CSS has one global namespace: the moment both stylesheets are on the
+ * page, `display: flex` from that component lands on this component's
+ * `<table>` element and the columns collapse. The two are different widgets
+ * and they now say so in their class names.
  */
 export function DataTable<T>({
   caption,
@@ -85,14 +92,14 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="pv-table-scroll" tabIndex={0} role="region" aria-labelledby={captionId}>
-      <table className="pv-table">
+    <div className="pv-dt-scroll" tabIndex={0} role="region" aria-labelledby={captionId}>
+      <table className="pv-dt">
         <caption id={captionId}>{caption}</caption>
         <thead>
           <tr>
             {columns.map((column) => {
               const isSorted = sort?.columnKey === column.key;
-              const className = column.numeric === true ? "pv-table-numeric" : undefined;
+              const className = column.numeric === true ? "pv-dt-numeric" : undefined;
 
               if (column.sortValue === undefined) {
                 return (
@@ -101,8 +108,8 @@ export function DataTable<T>({
                     scope="col"
                     className={
                       className === undefined
-                        ? "pv-table-plain-header"
-                        : `pv-table-plain-header ${className}`
+                        ? "pv-dt-plain-header"
+                        : `pv-dt-plain-header ${className}`
                     }
                   >
                     {column.header}
@@ -122,11 +129,11 @@ export function DataTable<T>({
                 >
                   <button
                     type="button"
-                    className="pv-table-sort"
+                    className="pv-dt-sort"
                     onClick={() => toggleSort(column.key)}
                   >
                     {column.header}
-                    <span className="pv-table-sort-indicator" aria-hidden="true">
+                    <span className="pv-dt-sort-indicator" aria-hidden="true">
                       {isSorted ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}
                     </span>
                     <span className="pv-sr-only">
@@ -144,7 +151,7 @@ export function DataTable<T>({
           {sortedRows.map((row) => (
             <tr key={rowKey(row)} className={rowClassName?.(row)}>
               {columns.map((column) => {
-                const className = column.numeric === true ? "pv-table-numeric" : undefined;
+                const className = column.numeric === true ? "pv-dt-numeric" : undefined;
                 if (column.rowHeader === true) {
                   return (
                     <th key={column.key} scope="row" className={className}>

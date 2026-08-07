@@ -90,7 +90,7 @@ describe("DiscoveryBacklog", () => {
       const buttons = screen.queryAllByRole("button");
       expect(buttons.length).toBeGreaterThan(0);
       for (const button of buttons) {
-        expect(button.className).toContain("pv-table-sort");
+        expect(button.className).toContain("pv-dt-sort");
       }
 
       // And there is nothing else that could submit anything either.

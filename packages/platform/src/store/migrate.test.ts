@@ -215,8 +215,19 @@ describe.skipIf(!CONNECTION_STRING)("applying migrations to Postgres", () => {
   });
 
   it("refuses rather than proceeding when the database cannot be reached", async () => {
+    // Parsed rather than string-replaced. This used to swap "/pv_test" for an
+    // absent name, which silently did nothing anywhere the database is called
+    // something else — CI calls it `vacation_test` — and the "unreachable"
+    // pool then connected to the real database and migrated it. A test whose
+    // setup can quietly fail to arrange the condition it is testing is worse
+    // than no test: it reports the control as working on every run where the
+    // control was never exercised.
+    const url = new URL(CONNECTION_STRING ?? "");
+    url.pathname = "/pv_absent_database";
+    expect(url.pathname).not.toBe(new URL(CONNECTION_STRING ?? "").pathname);
+
     const unreachable = new pg.Pool({
-      connectionString: (CONNECTION_STRING ?? "").replace("/pv_test", "/pv_absent_database"),
+      connectionString: url.toString(),
       max: 1,
       connectionTimeoutMillis: 2_000,
     });
