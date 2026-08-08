@@ -62,6 +62,10 @@ Platform 79 files / 2,007 tests, tsc/lint clean, no AI attribution, all Postgres
 
 - **T-11 — the outbound contact gate was built and inert.** `buildPlatform` now composes `ContactGate` + `ConsentLedger` on one shared store and registers `CONTACT_ACTIONS`; `pv contact` (consent grant/revoke/state, dnc add, check, send) reaches the real services. Driven against Postgres by two independent parties on separate fresh DBs: no-consent blocks, consent unblocks, quiet hours block on the recipient's real clock, a do-not-call entry blocks even with consent, an allowed send records and an idempotent replay is recognised. **L18 closed:** `isKnownTimeZone` refuses the frozen-offset aliases (`EST`, `MST`, `HST`, `GMT`) and the `Etc/*` namespace, reproduced-first and fail-closed, with `Singapore`/`Japan`/`Iceland`/`UTC` still resolving. Residual: no real outbound channel, no contact API route or console surface yet — see T-11. Platform 80 files / 2,025 tests, tsc/lint clean, no existing test weakened.
 
+**Wave 7 — the knowledge layer is reachable. T-08.**
+
+- **T-08 — the knowledge layer was reachable only from the demo.** `buildPlatform` now composes the `KnowledgeStore` and the four services (`IngestionService`, `Retriever`, `GroundedAnswerService`, `FreshnessMonitor`) over one shared store and registers `KNOWLEDGE_ACTIONS`; `pv knowledge` (corpus create, ingest, ask, freshness, review) reaches the real services. Driven against Postgres by two independent parties on separate fresh DBs: an ingested document screens clean and chunks; a grounded question is answered with a citation carrying full provenance; an ungrounded question is refused `knowledge.no_grounding` with no answer; an actor without the corpus scope is refused; a stale corpus is refused `knowledge.stale_authority` and a step-up-attested review reopens it; a poisoned document is refused at the ingestion screen. Residual: no HTTP route or console surface yet — see T-08. Platform 81 files / 2,035 tests, tsc/lint clean, no existing test weakened.
+
 ---
 
 
@@ -131,12 +135,15 @@ Six independent auditors, each told to assume nothing was done and to accept a c
 **Gap.** Every rule is an unverified placeholder — rules.ts:1-38 says so in a banner, every row carries verified:false and a PLACEHOLDER citation, and the `placeholder()` constructor makes it structurally hard to mark one verified. With the default configuration a real deployment therefore refuses every deadline; the demo has to override the switch to show the engine at all (demo/run.ts:466). Separately, the declared `timeline.compute_deadline` action has no caller — the demo calls computeRescissionDeadline directly, so this computation does not pass the authorization chokepoint. Blocker B1 in docs/handover/not-production-grade.md.
 
 
-### T-08  [PARTIAL] (brief)
+### T-08  [RESOLVED via CLI (wave 7); no HTTP route / console surface residual]
 
 **Claim.** §8 The knowledge layer — curated corpora with owners, provenance on every chunk, citations in output, effective-dating, governed screened ingestion, freshness/review, no answer without grounding
 
 
 **Gap.** Reachable from exactly one place — the seeded demonstration (demo/run.ts:155-174 constructs IngestionService, Retriever and GroundedAnswerService itself). platform.ts composes none of them; there is no HTTP route and no CLI verb for ingesting a document, asking a regulated question, or reviewing a stale corpus. The `knowledge.retrieve` action is registered (actions.ts:80) with no caller. So an operator cannot use the knowledge layer in the product; a demo script can.
+
+
+**Resolution (wave 7, commit "pv knowledge — the knowledge layer is reachable").** `buildPlatform` now composes the `KnowledgeStore` (Pg vs memory) and the four services — `IngestionService`, `Retriever`, `GroundedAnswerService`, `FreshnessMonitor` — over one shared store, registers `KNOWLEDGE_ACTIONS` in the one chokepoint, and exposes them on `Platform`. `pv knowledge` adds corpus create, ingest, ask, freshness, and review. Driven against Postgres by two independent parties on separate fresh DBs: a document ingested into a corpus screens clean and chunks; a question grounded in it is answered with a citation carrying the title, version, jurisdiction, effective window, source uri and chunk id; a question nothing grounds is refused `knowledge.no_grounding` with an empty answer (no confident ungrounded paragraph); an actor without the corpus's data scope is refused `authorization.data_scope_violation`; a corpus past its review cadence is refused `knowledge.stale_authority` rather than citing stale law, and a recorded review (with step-up re-authentication) reopens it; a poisoned document is refused at the ingestion screen. **Residual, stated plainly:** there is no HTTP route and no console surface for knowledge yet — the layer is reachable from a terminal, not from the browser; and GET /api/knowledge/* remains unbuilt.
 
 
 ### T-09  [RESOLVED via CLI — wave 4; API routes and bias wiring residual]
