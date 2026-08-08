@@ -30,6 +30,8 @@ import { WorkflowCatalogue } from "./engine/definition.js";
 import { MemoryWorkflowStore } from "./engine/store.memory.js";
 import { PgWorkflowStore } from "./engine/store.pg.js";
 import { StepHandlerRegistry, WorkflowEngine } from "./engine/runner.js";
+import { RESCISSION_INTAKE_WORKFLOW } from "./workflows/rescission-intake.js";
+import { buildRescissionIntakeHandlers } from "./workflows/handlers.js";
 import { DiscoveryCollector } from "./discovery/collect.js";
 import { MemoryDiscoveryStore } from "./discovery/store.memory.js";
 import { PgDiscoveryStore } from "./discovery/store.pg.js";
@@ -147,11 +149,14 @@ export interface Platform {
    * object at all, and the sweep that fires statutory deadline timers had
    * nothing to call it. A capability nothing can reach is not a capability.
    *
-   * It starts with an empty catalogue and an empty handler registry: a
-   * deployment publishes the definitions it has agreed and registers the
-   * handlers it has implemented. Empty is the honest state for a platform whose
-   * first business workflow has not been signed off, and it is very different
-   * from absent.
+   * It ships exactly one built-in workflow — the rescission-packet intake, the
+   * platform's flagship flow — published into the catalogue below with its
+   * handlers registered, so `pv workflow start` runs real work through the real
+   * engine and the human-task-and-timer durability gate is demonstrable rather
+   * than only proven in a test. One is the honest count: a deployment publishes
+   * the further definitions it has agreed and registers the handlers it has
+   * implemented, and the catalogue is meant to grow that way rather than to
+   * arrive full.
    */
   readonly engine: WorkflowEngine;
   /** Step implementations. A deployment registers what it has built. */
@@ -370,8 +375,22 @@ export async function buildPlatform(
     config.stepUpMaxAgeSeconds,
   );
 
-  const catalogue = new WorkflowCatalogue();
+  // The workflow catalogue and handler registry the engine reads.
+  //
+  // No longer empty: this deployment ships exactly one built-in flow, the
+  // rescission-packet intake. Publishing it here — and registering the handlers
+  // its two effecting steps name — is what makes `engine.start`,
+  // `completeHumanTask`, `signalEvent`, and the sweep that fires statutory
+  // timers reachable from the product instead of only from a test. The handlers
+  // are seeded deterministically so the flow's model call reproduces byte for
+  // byte. A deployment adds its own definitions and handlers alongside this one.
+  const catalogue = new WorkflowCatalogue([RESCISSION_INTAKE_WORKFLOW]);
   const handlers = new StepHandlerRegistry();
+  for (const [name, handler] of Object.entries(
+    buildRescissionIntakeHandlers({ seed: config.demoSeed }),
+  )) {
+    handlers.register(name, handler);
+  }
   const workflowStore =
     db instanceof PgDb ? new PgWorkflowStore(db) : new MemoryWorkflowStore(memoryDb ?? new MemoryDb());
 
