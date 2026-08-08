@@ -30,6 +30,16 @@ test passed.
   refused an unrated tool grant, at enrollment and again in admission, with the
   same `authorization.risk_unclassified` the internal registry uses.
 
+**Wave 2 — the external plane no longer misgoverns. Eight findings.**
+
+- **R-08(b)** — a completed report under a high-rated tool now reaches the record instead of being refused for a before-the-fact approval it does not need.
+- **R-09 / R-10** — the approver of a governed write now sees it labelled as an external agent's and sees the write's own fields (an amount, an owner id); free text is digested because the subject is chained. Lossless digest-matched preview is a bounded residual.
+- **R-11** — releasing a contained agent now clears its denial ledger, so it does not re-contain on the next denial.
+- **R-05** — the per-role containment switch now actually stops work under that role, instead of showing ENGAGED and halting nothing.
+- **R-06** — an over-ceiling discovery retention value now refuses at startup, as its comment always claimed.
+- **R-07(a,d)** — the demo genuinely selects an earlier rule version (effective-dating), and its entrypoint guard is exact so it cannot double-fire.
+- **R-12** — revocation's inability to reach an in-flight run on vendor infrastructure is now stated honestly rather than overclaimed.
+
 ---
 
 
