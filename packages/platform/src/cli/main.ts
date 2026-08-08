@@ -73,6 +73,11 @@ Project Vacation — operator commands
                                   corpus create, ingest, ask, freshness, review.
                                   Run "knowledge" alone for the full usage.
 
+  workflow <verb>                 Start, drive, and inspect governed workflow
+                                  instances through the engine. definitions,
+                                  start, show, tasks, complete-task, signal.
+                                  Run "workflow" alone for the full usage.
+
   actions list                    Show the action registry with risk tiers
 
   approvals list [--status <a,b>] [--ageing] [--within <minutes>]
@@ -747,6 +752,21 @@ async function main(): Promise<number> {
           return 2;
         }
         return await commandKnowledge(args, {
+          platform,
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
+      }
+      case "workflow": {
+        // Imported here rather than at the top for the same reason the verbs
+        // above are: a process that only serves requests should not pay to parse
+        // the engine's operator surface.
+        const { commandWorkflow, WORKFLOW_USAGE } = await import("./workflow.js");
+        if (args.positional[1] === undefined) {
+          console.error(WORKFLOW_USAGE);
+          return 2;
+        }
+        return await commandWorkflow(args, {
           platform,
           actor: cliActor(args),
           correlationId: first(args, "correlation-id"),
