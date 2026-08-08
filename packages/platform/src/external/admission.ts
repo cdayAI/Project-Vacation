@@ -259,12 +259,30 @@ export class AdmissionService {
       );
     }
 
-    // The operator's rating FLOORS the agent's declaration. An agent calling
+    // The platform does not act on a third party's self-assessment of its own
+    // risk. A tool granted without an operator rating cannot produce a governed
+    // effect: with no rating, the only number left is `request.declaredRisk`,
+    // which the caller sets and defaults to "routine" — so a grant left unrated
+    // is a grant an external agent can perform at any consequence by declaring
+    // it harmless. That is the one thing the operator's rating exists to stop,
+    // and reaching for the declaration when the rating is missing hands it
+    // straight back. The internal chokepoint refuses an unclassified action
+    // outright (`registry.require`); this is the external chokepoint doing the
+    // same, and it is why the two now agree.
+    if (grant.operatorRisk === undefined) {
+      return this.deny(
+        request,
+        "misbehaviour",
+        "authorization.risk_unclassified",
+        `"${request.tool}" is granted to ${agent.name} without an operator risk rating, so this platform cannot know what performing it would cost. An unrated tool cannot be used; rate it on the enrollment.`,
+        agent,
+      );
+    }
+
+    // With a rating present, it FLOORS the agent's declaration. An agent calling
     // `issue_refund` may declare it routine, through carelessness or otherwise;
-    // the registry decides how risky a tool is, not the caller's honesty.
-    const effectiveRisk = grant.operatorRisk
-      ? maxRisk(request.declaredRisk, grant.operatorRisk)
-      : request.declaredRisk;
+    // the operator decides how risky a tool is, not the caller's honesty.
+    const effectiveRisk = maxRisk(request.declaredRisk, grant.operatorRisk);
 
     if (effectiveRisk === "prohibited") {
       return this.deny(

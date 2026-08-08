@@ -137,12 +137,16 @@ async function harness(
         hostPlatform: "vendor CRM agent runtime",
         purpose: "Drafts owner correspondence and looks up account status.",
         allowedTools: [
-          { tool: "lookup_owner" },
-          { tool: "draft_reply" },
+          // Every tool the operator grants, they rate. A read of an owner
+          // record is routine; drafting a reply that a human still sends is
+          // routine. The operator states it rather than leaving the platform to
+          // read the agent's own word for it.
+          { tool: "lookup_owner", operatorRisk: "routine" },
+          { tool: "draft_reply", operatorRisk: "routine" },
           // The operator says this one is high-consequence whatever the agent
           // declares. Behaviour 2 is built on this grant.
           { tool: "issue_refund", operatorRisk: "high_consequence" },
-          { tool: "owner_records.lookup_owner" },
+          { tool: "owner_records.lookup_owner", operatorRisk: "routine" },
           { tool: "owner_records.issue_goodwill_credit", operatorRisk: "high_consequence" },
         ],
         riskCeiling: "high_consequence",
@@ -279,6 +283,45 @@ describe("governing an agent that runs elsewhere", () => {
     expect(decision.effectiveRisk).toBe("high_consequence");
     expect(decision.outcome).toBe("approval_required");
     expect(decision.approvalId).toBeTruthy();
+    await h.platform.close();
+  });
+
+  it("refuses to grant a tool the operator never rated, at enrollment", async () => {
+    // The one surface where the caller is a third party. A tool granted with
+    // no operator rating used to be admitted at the agent's own declared risk,
+    // which defaults to routine — so a high-consequence action performed under
+    // the word "routine" slipped through with no approval. The operator must
+    // classify every tool they grant, and enrollment is where that is demanded.
+    const h = await harness();
+    await expect(
+      h.enroll({ allowedTools: [{ tool: "crm.wire_transfer" }] }),
+    ).rejects.toMatchObject({ field: "allowedTools" });
+    await h.platform.close();
+  });
+
+  it("refuses an unrated grant in the admission chain too, as a backstop", async () => {
+    // Defence in depth: even if a grant reaches the store without a rating —
+    // a direct write, a migration, a row predating this rule — the admission
+    // chain will not act on it. The two chokepoints, internal and external,
+    // now refuse an unclassified action with the same reason code.
+    const h = await harness();
+    const agent = await h.enroll();
+    // Reach past enrollment and put an unrated grant on the record directly.
+    await h.platform.external.stores.agents.updateAgent(
+      agent.id,
+      { allowedTools: [{ tool: "crm.wire_transfer" }] },
+      START,
+    );
+
+    const decision = await h.platform.external.admission.admit({
+      agentId: agent.id,
+      operation: "screen",
+      tool: "crm.wire_transfer",
+      declaredRisk: "routine",
+    });
+
+    expect(decision.outcome).toBe("denied");
+    expect(decision.reason).toBe("authorization.risk_unclassified");
     await h.platform.close();
   });
 

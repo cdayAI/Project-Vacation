@@ -234,7 +234,7 @@ function enrollRequest(overrides: Partial<EnrollRequest> = {}): EnrollRequest {
     department: "owner-services",
     hostPlatform: "vendor-crm",
     purpose: "Drafts renewal follow-ups for owner-services and files them for review.",
-    allowedTools: [{ tool: "crm.read_contact" }, { tool: "crm.draft_note" }],
+    allowedTools: [{ tool: "crm.read_contact", operatorRisk: "routine" }, { tool: "crm.draft_note", operatorRisk: "routine" }],
     riskCeiling: "sensitive",
     spendCeilingUsd: 250,
     budgetPeriod: "monthly",
@@ -312,7 +312,7 @@ describe("enrolling an external agent", () => {
     const harness = build();
     const agent = await enrol(harness, {
       name: "CRM-Renewal-Assistant",
-      allowedTools: [{ tool: "crm.draft_note" }, { tool: "crm.read_contact" }],
+      allowedTools: [{ tool: "crm.draft_note", operatorRisk: "routine" }, { tool: "crm.read_contact", operatorRisk: "routine" }],
       dataScopes: ["owners", "contracts", "owners"],
     });
 
@@ -439,7 +439,7 @@ describe("enrolling an external agent", () => {
     const many = Array.from({ length: 30 }, (_, index) => ({ tool: `crm.tool_${index}` }));
     await expect(enrol(harness, { allowedTools: many })).rejects.toBeInstanceOf(InvalidInputError);
     await expect(
-      enrol(harness, { allowedTools: [{ tool: "crm.read" }, { tool: "crm.read" }] }),
+      enrol(harness, { allowedTools: [{ tool: "crm.read", operatorRisk: "routine" }, { tool: "crm.read", operatorRisk: "routine" }] }),
     ).rejects.toBeInstanceOf(InvalidInputError);
   });
 

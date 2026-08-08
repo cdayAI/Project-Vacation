@@ -1099,9 +1099,24 @@ export class EnrollmentService {
         );
       }
       seen.add(tool);
+      // Every granted tool carries an operator rating, and enrollment is where
+      // it is demanded — the earliest point a human is in the loop for this
+      // agent. A tool name is a string the vendor chose; this platform has no
+      // registry entry for it and cannot know what performing it would cost, so
+      // the operator granting it must say. An unrated grant used to be admitted
+      // at the caller's own `declaredRisk`, which defaults to "routine" — the
+      // exact hole the rating exists to close. Refused here, and refused again
+      // in the admission chain as a backstop for any grant reaching the store
+      // another way.
+      if (grant.operatorRisk === undefined) {
+        throw new InvalidInputError(
+          `allowedTools[${index}] ("${tool}") has no operatorRisk. This platform cannot classify a vendor's tool by its name, so the operator must rate every tool they grant — routine, sensitive, high_consequence or prohibited.`,
+          "allowedTools",
+        );
+      }
       grants.push({
         tool,
-        operatorRisk: grant.operatorRisk === undefined ? undefined : assertTier(grant.operatorRisk),
+        operatorRisk: assertTier(grant.operatorRisk),
         note: grant.note === undefined ? undefined : boundedText("note", grant.note, 512),
       });
     }
