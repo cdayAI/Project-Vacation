@@ -60,6 +60,12 @@ import { GroundedAnswerService } from "./knowledge/answer.js";
 import { FreshnessMonitor } from "./knowledge/freshness.js";
 import { KNOWLEDGE_ACTIONS } from "./knowledge/actions.js";
 import type { KnowledgeStore } from "./knowledge/port.js";
+import { MemoryDocumentStore } from "./documents/store.memory.js";
+import { PgDocumentStore } from "./documents/store.pg.js";
+import { TemplateRegistry } from "./documents/templates.js";
+import { DocumentGenerator } from "./documents/generate.js";
+import { DOCUMENT_ACTIONS } from "./documents/actions.js";
+import type { DocumentStore } from "./documents/port.js";
 
 /**
  * The composition root.
@@ -241,6 +247,32 @@ export interface Platform {
   readonly freshness: FreshnessMonitor;
   /** The knowledge store the four services above share. Exposed for the console and evidence. */
   readonly knowledgeStore: KnowledgeStore;
+  /**
+   * The document factory, composed rather than merely written.
+   *
+   * `DocumentGenerator` and `TemplateRegistry` were built, tested, and
+   * reachable from no composition root: the generator was constructed only
+   * inside its own tests, so §9 — a template version is a governed artifact,
+   * generation is an action, and anything an owner will read passes the contact
+   * gate — was a proof rather than a capability. No CLI verb and no route could
+   * register a template, approve one, or generate a document, so the whole
+   * subsystem was inert. A capability nothing can reach is not a capability.
+   * These three fields are the wiring that makes the factory reachable end to
+   * end.
+   *
+   * The generator is handed the platform's one `contactGate`, not a second one:
+   * an owner-facing document is refused for an owner who revoked because the
+   * gate the generator consults is the gate the consent ledger writes to, and
+   * two gates over two stores would answer the same question differently on the
+   * day it mattered most. The registry and the generator share one store for
+   * the same reason the knowledge services do — the template a generation
+   * renders has to be the exact version the registry approved.
+   */
+  readonly documents: DocumentGenerator;
+  /** Register, approve, and retire template versions. The generator renders only what this approved. */
+  readonly documentTemplates: TemplateRegistry;
+  /** The document store the registry and the generator share. Exposed for the console and evidence. */
+  readonly documentStore: DocumentStore;
   /** Present only when the Postgres store is in use. */
   readonly db?: Db;
   /** Release connections. Safe to call more than once. */
@@ -345,24 +377,29 @@ export async function buildPlatform(
     runs,
   );
 
-  // The shipped catalogue plus the role, contact, and knowledge lifecycle
-  // actions. `role.promote`, `consent.record`, `contact.send_owner_message` and
-  // `knowledge.ingest_document` are already in the catalogue; the rest —
-  // `role.propose`, `role.evaluate`, `role.revert`,
-  // `contact.send_high_risk_message`, `contact.record_do_not_call`,
-  // `knowledge.record_corpus_review` — live in their modules' `actions.ts` and
-  // are spliced in here so the one chokepoint can resolve them. Without this the
+  // The shipped catalogue plus the role, contact, knowledge, and document
+  // lifecycle actions. `role.promote`, `consent.record`,
+  // `contact.send_owner_message`, `knowledge.ingest_document`,
+  // `document.generate_internal` and `document.generate_owner_facing` are
+  // already in the catalogue; the rest — `role.propose`, `role.evaluate`,
+  // `role.revert`, `contact.send_high_risk_message`,
+  // `contact.record_do_not_call`, `knowledge.record_corpus_review`,
+  // `document.register_template`, `document.approve_template`,
+  // `document.retire_template` — live in their modules' `actions.ts` and are
+  // spliced in here so the one chokepoint can resolve them. Without this the
   // promotion service's `propose`, the harness's evaluate, the registry's
-  // `revert`, the elevated send path, a do-not-call write, and a corpus review
-  // attestation would each be refused with an "unknown action" the moment they
-  // were reached — which is why they never were. Filtered by name so the day
-  // those move into `src/actions.ts`, where they belong, this keeps working
-  // rather than failing on a duplicate registration.
+  // `revert`, the elevated send path, a do-not-call write, a corpus review
+  // attestation, and every template register/approve/retire would each be
+  // refused with an "unknown action" the moment they were reached — which is
+  // why they never were. Filtered by name so the day those move into
+  // `src/actions.ts`, where they belong, this keeps working rather than failing
+  // on a duplicate registration.
   const registry = new ActionRegistry([
     ...PLATFORM_ACTIONS,
     ...ROLE_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
     ...CONTACT_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
     ...KNOWLEDGE_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
+    ...DOCUMENT_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
   ]);
 
   const authorizer = new Authorizer(
@@ -522,6 +559,46 @@ export async function buildPlatform(
   const consentLedger = new ConsentLedger(contactStore, authorizer, auditLog, clock, ids);
   const contactGate = new ContactGate(contactStore, authorizer, auditLog, clock, ids);
 
+  // The document factory, composed here — after the contact gate, because it
+  // depends on it — so the CLI and the API reach one generator over one store.
+  //
+  // The store mirrors every other adapter above: the concrete implementation is
+  // chosen from validated configuration and nowhere else. The registry and the
+  // generator are handed that one store deliberately — a generation renders the
+  // exact template version the registry approved, and two stores would let a
+  // draft be rendered as though approved. Both take the platform's authorizer,
+  // so registering, approving and retiring a template, and generating a
+  // document, each pass the one chokepoint: `document.register_template`,
+  // `document.approve_template`, `document.retire_template`,
+  // `document.generate_internal` and `document.generate_owner_facing` are
+  // registered actions, and an actor without them is refused. The generator is
+  // given the platform's own `contactGate`, not a second one — an owner-facing
+  // document must be refused for an owner who revoked using the same gate the
+  // consent ledger writes to. The registry is given `config.stepUpMaxAgeSeconds`
+  // so approving a template measures step-up against the same window the rest of
+  // the platform does.
+  const documentStore =
+    db instanceof PgDb ? new PgDocumentStore(db) : new MemoryDocumentStore(memoryDb ?? new MemoryDb());
+  const documentTemplates = new TemplateRegistry(
+    documentStore,
+    authorizer,
+    auditLog,
+    clock,
+    ids,
+    config.stepUpMaxAgeSeconds,
+  );
+  const documents = new DocumentGenerator(
+    documentStore,
+    documentTemplates,
+    authorizer,
+    approvals,
+    runs,
+    contactGate,
+    auditLog,
+    clock,
+    ids,
+  );
+
   // The knowledge layer, composed here so the CLI and the API reach one set of
   // instances over one store.
   //
@@ -590,6 +667,9 @@ export async function buildPlatform(
     groundedAnswers,
     freshness,
     knowledgeStore,
+    documents,
+    documentTemplates,
+    documentStore,
     observations,
     retention,
     db,
