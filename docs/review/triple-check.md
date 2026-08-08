@@ -54,6 +54,10 @@ Console 1,389 tests, tsc/lint clean, accessibility 18/18, bundle within budget. 
 
 Platform 79 files / 2,007 tests, tsc/lint clean, no AI attribution, all Postgres contract suites active. Verified by driving the CLI and the eval gate against a real store, not by the suite alone.
 
+**Wave 5 — the bias analysis is reachable. Part of T-10.**
+
+- **T-10 (bias half) — `analyseFairness` was built and had no caller.** `pv roles fairness` now reads a recorded evaluation run and measures outcome-rate disparities across protected groups, flagging the ones past the four-fifths rule. Driven against Postgres: parity reported when cohorts match, a cohort flagged when its cases fail; a non-synthetic run is refused; the analysis measures and does not gate, and prints the caveats with the numbers. Four tests added to `roles.test.ts`. Residual (unchanged): no workflow sequences real consumers into it yet, provider terms and change-control artifacts and the max_tokens-truncation finding all still stand — see T-10.
+
 ---
 
 
@@ -144,12 +148,15 @@ Six independent auditors, each told to assume nothing was done and to accept a c
 **Residual.** Two halves are deliberately out of this wave. (1) The read API routes GET /api/roles and /api/roles/:id/versions are still on the unimplemented ratchet — the CLI is the operator surface wired here, not the console's role screen. (2) `analyseFairness` / bias.ts still has no caller (that is T-10, not T-09), and `draftRole` produces shadow-only roles with no verb to widen operating modes, so a promoted role can currently act only in shadow — which is the mode the gate exercises, so the gate is honest, but an assisted/supervised effect is not yet reachable from the CLI.
 
 
-### T-10  [PARTIAL] (brief)
+### T-10  [PARTIAL — bias analysis now reachable (wave 5); other residuals stand]
 
 **Claim.** §14 Model governance — model inventory resolved from configuration never hard-coded, change control, bias/disparate-impact testing where consumer outcomes are affected, human-in-the-loop policy by risk tier, provider terms, graceful degradation, NIST AI RMF and EU AI Act mapping
 
 
 **Gap.** Bias testing is built (roles/bias.ts, 328 lines) and has no caller — no workflow scores or sequences consumers, and the harness has only ever run on synthetic fixtures (not-production-grade.md L2). Provider zero-retention/no-training terms are not contractually confirmed (B2), and the config loader refuses PV_MODEL_PROVIDER=fake in staging/production (config.ts:303), so the platform cannot lawfully run in production at all today. Change control is the CI eval gate only — there is no recorded review artifact when a prompt or threshold changes. A model answer truncated at max_tokens is recorded as a successful complete answer (L19).
+
+
+**Resolution of the bias half (wave 5, commit "pv roles fairness — the bias analysis is reachable").** `analyseFairness` and `describeFairness` now have a caller: `pv roles fairness --role <role> [--evaluation-run <id>]` reads a recorded evaluation run and measures the rate at which each protected group received a favourable outcome, flagging groups past the four-fifths rule or the rate-difference threshold. Driven against Postgres: a synthetic golden set carrying an invented cohort attribute, proposed, then analysed — parity reported when the cohorts match, a cohort flagged (impact ratio 0, below 0.8) when its cases fail. It runs on synthetic fixtures only (a non-synthetic run is refused `authorization.data_scope_violation`) and it does not gate — a flag is a finding for a person, printed with the four caveats that must travel with the numbers, exit zero either way. **Still open, unchanged:** no workflow yet sequences real consumers into it (bias remains a fixture-only signal, L2); provider zero-retention terms are not contractually confirmed (B2); change control has no recorded review artifact when a prompt or threshold changes; a max_tokens-truncated answer is still recorded as complete (L19); and the fake provider is still refused outside development (config.ts). The measure is also a proxy — favourable-outcome rate, not decision rate — as bias.ts documents; mapping output to a decision label needs MVW compliance.
 
 
 ### T-11  [NOT_DONE] (brief)
