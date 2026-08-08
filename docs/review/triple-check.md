@@ -40,6 +40,14 @@ test passed.
 - **R-07(a,d)** — the demo genuinely selects an earlier rule version (effective-dating), and its entrypoint guard is exact so it cannot double-fire.
 - **R-12** — revocation's inability to reach an in-flight run on vendor infrastructure is now stated honestly rather than overclaimed.
 
+**Wave 3 — the console migration finished, the layer collision removed.**
+
+- **T-25 / design lens** — six views (WorkQueue among them) plus ResourceView still used `src/components`, a duplicate of the design system. They are migrated; `src/components` is deleted — one component library. Where the design system's virtualised table could not carry a per-row guarantee, the view keeps a semantic table inlined, the earlier migration's own escape hatch.
+- **The `.pv-panel` collision** — `.pv-panel` was defined in both `src/ui/surfaces/Panel.css` and `src/screens.css`, and the second forced its glass and padding onto every design-system Panel. The dead scaffolding rules are removed; `.pv-panel` is the design system's alone.
+- **`src/screens.css` stays** — it is the shared view scaffolding (layout, honest-absence and denial-tone classes, semantic-table styling), not a component library, and no `src/ui` class replaces it. My "two libraries" framing was half-wrong; the real duplicate was `src/components`, now gone.
+
+Console 1,389 tests, tsc/lint clean, accessibility 18/18, bundle within budget. Not re-verified: a live browser render of the migrated panels (servers were flaky in the fix environment); the collision removal is confirmed structurally — `.pv-panel` single-defined — and by the full suite.
+
 ---
 
 
