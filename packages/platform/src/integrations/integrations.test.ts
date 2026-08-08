@@ -20,6 +20,7 @@ import {
 } from "./contract-tests.js";
 import {
   CredentialRevocationService,
+  EnvSecretProvider,
   RevocableSecretProvider,
   StaticSecretProvider,
   hostMatches,
@@ -335,6 +336,48 @@ describe("sealed credentials", () => {
       reason: "second",
     });
     expect(second.revokedAt).toBe(first.revokedAt);
+  });
+});
+
+describe("env-backed credentials", () => {
+  it("resolves a credential scoped to the hosts the environment names", async () => {
+    const provider = new EnvSecretProvider({
+      PV_INTEGRATION_CREDENTIAL_CONTRACT_RECORDS: CREDENTIAL_SECRET,
+      PV_INTEGRATION_CREDENTIAL_CONTRACT_RECORDS_HOSTS: `${HOST}, other.partner.example.com`,
+    });
+    const credential = await provider.get("contract-records");
+    expect(credential?.value).toBe(CREDENTIAL_SECRET);
+    expect(credential?.scheme).toBe("bearer");
+    expect(credential?.allowedHosts).toEqual([HOST, "other.partner.example.com"]);
+    // Sealed on the way out, so the value cannot reach a log.
+    expect(JSON.stringify(credential)).not.toContain(CREDENTIAL_SECRET);
+  });
+
+  it("returns null for a reference with no value, so the egress refusal is credential_missing", async () => {
+    const provider = new EnvSecretProvider({});
+    expect(await provider.get("contract-records")).toBeNull();
+  });
+
+  it("scopes a credential to nothing when its hosts are unset, rather than to everything", async () => {
+    // Fail closed: a credential configured without its hosts is refused at every
+    // host, not accepted at all of them.
+    const provider = new EnvSecretProvider({
+      PV_INTEGRATION_CREDENTIAL_CONTRACT_RECORDS: CREDENTIAL_SECRET,
+    });
+    const credential = await provider.get("contract-records");
+    expect(credential?.allowedHosts).toEqual([]);
+  });
+
+  it("honours the header scheme with a named header", async () => {
+    const provider = new EnvSecretProvider({
+      PV_INTEGRATION_CREDENTIAL_ASSOCIATION_RECORDS: CREDENTIAL_SECRET,
+      PV_INTEGRATION_CREDENTIAL_ASSOCIATION_RECORDS_HOSTS: HOST,
+      PV_INTEGRATION_CREDENTIAL_ASSOCIATION_RECORDS_SCHEME: "header",
+      PV_INTEGRATION_CREDENTIAL_ASSOCIATION_RECORDS_HEADER: "x-api-key",
+    });
+    const credential = await provider.get("association-records");
+    expect(credential?.scheme).toBe("header");
+    expect(credential?.headerName).toBe("x-api-key");
   });
 });
 

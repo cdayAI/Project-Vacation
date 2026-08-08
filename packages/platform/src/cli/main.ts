@@ -84,6 +84,13 @@ Project Vacation — operator commands
                                   start, show, tasks, complete-task, signal.
                                   Run "workflow" alone for the full usage.
 
+  integrations <verb>             Reach MVW's systems of record through one
+                                  governed path. list, contract show, association
+                                  show, and call (a governed egress call bounded
+                                  by PV_EGRESS_ALLOWLIST, optionally under a
+                                  --degrade policy). Run "integrations" alone for
+                                  the full usage.
+
   actions list                    Show the action registry with risk tiers
 
   approvals list [--status <a,b>] [--ageing] [--within <minutes>]
@@ -789,6 +796,22 @@ async function main(): Promise<number> {
           return 2;
         }
         return await commandWorkflow(args, {
+          platform,
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
+      }
+      case "integrations": {
+        // Imported here rather than at the top for the same reason the verbs
+        // above are: a process that only serves requests should not pay to parse
+        // the egress client, the degradation handler, and the systems-of-record
+        // ports.
+        const { commandIntegrations, INTEGRATIONS_USAGE } = await import("./integrations.js");
+        if (args.positional[1] === undefined) {
+          console.error(INTEGRATIONS_USAGE);
+          return 2;
+        }
+        return await commandIntegrations(args, {
           platform,
           actor: cliActor(args),
           correlationId: first(args, "correlation-id"),
