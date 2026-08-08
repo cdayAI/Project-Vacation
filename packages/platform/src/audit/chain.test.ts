@@ -327,3 +327,78 @@ describe("formatVerificationResult", () => {
     expect(formatVerificationResult(verifyChain([]))).toMatch(/empty/i);
   });
 });
+
+/**
+ * The identifier fields, screened like the subject.
+ *
+ * `assertNoRawPayloads` screened subject, decision and inputDigests, but not
+ * the correlation id or the actor — both written verbatim into the same
+ * append-only, seven-year chain. A correlation id flows in from a caller's HTTP
+ * header, so it is exactly where an integration might thread a token; the actor
+ * fields come from the identity provider but are still text this rule must not
+ * exempt on trust. A secret written to any of them could never be removed, so
+ * it is refused at the same door.
+ */
+describe("secrets in the identifier fields", () => {
+  function freshLog(): AuditLog {
+    return new AuditLog(
+      new MemoryAuditStore(new MemoryDb()),
+      new FixedClock(START),
+      new SeededIdGenerator("id-screen"),
+    );
+  }
+
+  const CARD = "4111111111111111";
+  const KEY = ["sk", "live", "0123456789ABCDEFGHIJKLMN"].join("_");
+
+  it("refuses a credential-shaped correlation id", async () => {
+    await expect(
+      freshLog().record({
+        eventType: "authorization.granted",
+        actor: { actorId: "agent-1", kind: "human", roles: ["owner_services_agent"] },
+        subject: { contractId: "ctr_1" },
+        inputDigests: {},
+        decision: { risk: "routine" },
+        correlationId: `trace ${KEY}`,
+      }),
+    ).rejects.toMatchObject({ reason: "record.unavailable" });
+  });
+
+  it("refuses a card number in the actor id", async () => {
+    await expect(
+      freshLog().record({
+        eventType: "authorization.granted",
+        actor: { actorId: `user ${CARD}`, kind: "human", roles: ["owner_services_agent"] },
+        subject: { contractId: "ctr_1" },
+        inputDigests: {},
+        decision: { risk: "routine" },
+      }),
+    ).rejects.toMatchObject({ reason: "record.unavailable" });
+  });
+
+  it("still records an ordinary correlation id and actor", async () => {
+    const entry = await freshLog().record({
+      eventType: "authorization.granted",
+      actor: { actorId: "cli:priya", kind: "human", roles: ["compliance_reviewer"] },
+      subject: { contractId: "ctr_1" },
+      inputDigests: {},
+      decision: { risk: "routine" },
+      correlationId: "cor_01k3m9x2p7",
+    });
+    expect(entry.correlationId).toBe("cor_01k3m9x2p7");
+  });
+
+  it("accepts an email as the actor id — identity providers name people that way", async () => {
+    // The subject is never a person; the actor always is. Refusing an email
+    // here would refuse every deployment with email-based single sign-on, which
+    // is the over-refusal this screen must not commit.
+    const entry = await freshLog().record({
+      eventType: "authorization.granted",
+      actor: { actorId: "rosa.mendez@example.com", kind: "human", roles: ["platform_admin"] },
+      subject: { contractId: "ctr_1" },
+      inputDigests: {},
+      decision: { risk: "routine" },
+    });
+    expect(entry.actor.actorId).toBe("rosa.mendez@example.com");
+  });
+});

@@ -254,6 +254,46 @@ export class AuditLog {
         );
       }
     }
+
+    // The identifier fields, screened for a secret — and only for a secret.
+    //
+    // `subject`, `decision` and `inputDigests` were screened above; the
+    // correlation id and the actor were not, and both are written verbatim into
+    // the same append-only, seven-year chain. A correlation id is caller-set and
+    // flows in from an HTTP header, so it is exactly the kind of value an
+    // integration might thread a token through; a secret written to either is as
+    // permanent, and as un-editable, as one in the subject.
+    //
+    // The check here is `containsSecret` alone — deliberately NOT the
+    // personal-details check the subject carries. The subject is stated never to
+    // hold personal data, but the actor *is* a person: identity providers name
+    // people by email, so `rosa.mendez@example.com` is the normal, correct
+    // content of `actor.actorId`, and refusing it would refuse every deployment
+    // with email-based single sign-on. A credential or a card number is never
+    // legitimate in an identifier; a name is exactly what an actor is.
+    for (const [field, value] of [
+      ["correlationId", content.correlationId],
+      ["actor.actorId", content.actor?.actorId],
+      ...(content.actor?.roles ?? []).map(
+        (role, index) => [`actor.roles[${index}]`, role] as const,
+      ),
+    ] as const) {
+      if (typeof value !== "string" || value.length === 0) continue;
+      if (value.length > 256) {
+        throw new DeniedError(
+          "record.unavailable",
+          `Audit ${field} is ${value.length} characters. Identifiers are opaque references, not content.`,
+          { field, eventType: content.eventType },
+        );
+      }
+      if (containsSecret(value)) {
+        throw new DeniedError(
+          "record.unavailable",
+          `Audit ${field} contains something that looks like a credential or a card number and was refused. The chain is append-only and kept for years; a secret written here cannot be taken out again.`,
+          { field, eventType: content.eventType },
+        );
+      }
+    }
   }
 
   list(filter?: AuditFilter): Promise<readonly AuditEntry[]> {
