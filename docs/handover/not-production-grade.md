@@ -563,16 +563,30 @@ an explicit failure, which is the right direction, but not the queueing or
 parking the module describes. Wiring it means each call site choosing its policy,
 which is a decision per integration rather than one change.
 
-### L18. `EST` and `Etc/GMT+5` are still accepted as recipient timezones
+### L18. `EST` and `Etc/GMT+5` as recipient timezones — CLOSED 2026-08-08
 
 Quiet hours are measured on the recipient's clock, and a bare offset (`-05:00`)
 is now refused because it is wrong twice a year. `EST` and `Etc/GMT+5` are the
 same fault wearing an IANA-shaped name: `EST` reads 11:00 when New York is at
-12:00, which is the direction that permits a call inside the quiet window. They
-are still accepted, because every clean predicate that rejects them (require a
-`/`; reject `Etc/*`) also rejects legitimate single-part zones like `Singapore`,
-`Japan` and `Iceland`. A curated deny-list of the abbreviation aliases would
-work and is a data decision. No shipped policy row uses one.
+12:00, which is the direction that permits a call inside the quiet window.
+
+**Closed on 2026-08-08.** `isKnownTimeZone` (`timeline/calendar.ts`) now refuses
+the curated set the finding pointed at: the fixed-offset abbreviation aliases
+`EST`, `MST`, `HST` and `GMT`, and the whole non-geographic `Etc/*` namespace.
+It is a deny-list rather than a "require a `/`" or "reject any zone with no DST"
+predicate, because both of those also reject legitimate single-part zones that
+name a real place which happens not to move its clock — `Singapore`, `Japan`,
+`Iceland` — and the honest `UTC` identifier; those stay accepted. The fault was
+reproduced first with a failing test at the gate level (a New-York recipient
+inside quiet hours read an hour early through `EST`) and at the predicate level;
+both pass now that the alias is refused as an unusable zone, so the send fails
+closed rather than clearing on a frozen offset. Evidence:
+`packages/platform/src/timeline/calendar.test.ts` ("rejects the tz database's
+fixed-offset aliases"), `packages/platform/src/review/pass4-contact-gate.test.ts`
+("refuses an abbreviation alias that freezes the offset"), and
+`packages/platform/src/cli/contact.test.ts` ("refuses an abbreviation timezone
+alias"). No shipped policy row used one, so no answer changed for the shipped
+artifact; the change decides the answer the day a recipient record carries `EST`.
 
 ### L19. A truncated model answer is recorded as a complete one
 

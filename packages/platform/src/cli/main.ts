@@ -63,6 +63,11 @@ Project Vacation — operator commands
                                   propose, promote, revert, disable, enable.
                                   Run "roles" alone for the full usage.
 
+  contact <verb>                  Record consent and clear outbound messages
+                                  through the compliance gate. consent grant,
+                                  consent revoke, consent state, dnc add, check,
+                                  send. Run "contact" alone for the full usage.
+
   actions list                    Show the action registry with risk tiers
 
   approvals list [--status <a,b>] [--ageing] [--within <minutes>]
@@ -157,10 +162,26 @@ function emit(value: unknown, args: Args): void {
  * the audit record shows both the name and that it came from the CLI rather
  * than from an authenticated console session. Anything less would make the
  * audit trail claim more than it knows.
+ *
+ * The role is asserted the same way, and for the same reason. `--role`
+ * (repeatable) names the role the operator is acting in, defaulting to
+ * `platform_admin` — which is what every verb assumed before `contact`, whose
+ * actions are deliberately not an admin's to perform: `consent.record` is for
+ * owner-services staff and their supervisors, and `contact.send_owner_message`
+ * is a supervisor's. The command line cannot prove the operator holds the role
+ * any more than it can prove their name, so it is stated and the audit record
+ * shows it came from the CLI. The chokepoint still refuses a role the asserted
+ * one does not include, so asserting one buys nothing an operator was not
+ * already entitled to.
  */
 function cliActor(args: Args): { actorId: string; kind: "human"; roles: string[] } {
   const operator = first(args, "operator") ?? process.env.USER ?? "unknown-operator";
-  return { actorId: `cli:${operator}`, kind: "human", roles: ["platform_admin"] };
+  const roles = (args.flags.role ?? []).filter((role) => role !== "true");
+  return {
+    actorId: `cli:${operator}`,
+    kind: "human",
+    roles: roles.length > 0 ? roles : ["platform_admin"],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -690,6 +711,21 @@ async function main(): Promise<number> {
         // serves requests should not pay to parse them.
         const { commandRoles } = await import("./roles.js");
         return await commandRoles(args, {
+          platform,
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
+      }
+      case "contact": {
+        // Imported here rather than at the top for the same reason the verbs
+        // above are: a process that only serves requests should not pay to
+        // parse the contact gate, the consent ledger, and their store adapters.
+        const { commandContact, CONTACT_USAGE } = await import("./contact.js");
+        if (args.positional[1] === undefined) {
+          console.error(CONTACT_USAGE);
+          return 2;
+        }
+        return await commandContact(args, {
           platform,
           actor: cliActor(args),
           correlationId: first(args, "correlation-id"),

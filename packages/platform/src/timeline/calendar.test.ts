@@ -126,6 +126,25 @@ describe("timezone handling", () => {
     expect(isKnownTimeZone("")).toBe(false);
   });
 
+  it("rejects the tz database's fixed-offset aliases, which freeze the offset", () => {
+    // L18. `Intl` resolves the legacy abbreviation aliases `EST`, `MST`, `HST`
+    // and `GMT`, and the whole `Etc/GMT±N` family, and every one of them is a
+    // fixed offset with no daylight-saving rule — the same fault as a bare
+    // `-05:00`, in an IANA-shaped disguise. `EST` reads 11:00 when New York is
+    // at 12:00, which for quiet hours is the difference between a lawful call
+    // and an unlawful one, and it fails in the permissive direction.
+    for (const alias of ["EST", "MST", "HST", "GMT", "Etc/GMT+5", "Etc/GMT-8", "Etc/UTC", "est"]) {
+      expect(isKnownTimeZone(alias), alias).toBe(false);
+    }
+
+    // A curated deny-list of the offset aliases, not a ban on single-part names.
+    // A genuine place that happens not to observe daylight saving still resolves,
+    // as does the honest UTC identifier, which is never wrong by an hour.
+    for (const zone of ["Singapore", "Japan", "Iceland", "UTC", "America/Phoenix"]) {
+      expect(isKnownTimeZone(zone), zone).toBe(true);
+    }
+  });
+
   it("tracks daylight saving rather than assuming a constant offset", () => {
     const before = offsetMsAt(Date.parse("2026-03-07T12:00:00Z"), "America/New_York");
     const after = offsetMsAt(Date.parse("2026-03-09T12:00:00Z"), "America/New_York");

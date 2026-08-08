@@ -301,6 +301,43 @@ describe("quiet hours are measured on the recipient's clock", () => {
       expect(isKnownTimeZone(zone), zone).toBe(true);
     }
   });
+
+  it("refuses an abbreviation alias that freezes the offset, like EST or Etc/GMT+5", async () => {
+    // L18. `Intl` resolves the tz database's legacy aliases — `EST`, `MST`,
+    // `HST`, `GMT` — and the whole `Etc/GMT±N` family, and every one is a fixed
+    // offset with no daylight-saving rule. It is the same fault as the bare
+    // `-05:00` above, wearing an IANA-shaped name, and it fails in the one
+    // direction that clears an unlawful call.
+    //
+    // 2026-08-07T01:30Z is 21:30 EDT in New York — inside the 21:00 window.
+    // Read through `EST`, a frozen UTC-5, it is 20:30, outside the window, so an
+    // accepted `EST` would clear a call the recipient's real clock forbids.
+    const h = harness();
+    h.clock.set("2026-08-07T01:30:00.000Z");
+    await grant(h);
+
+    // The control: the recipient's real zone blocks the call at this instant.
+    const real = await h.gate.evaluate(request({ recipientTimeZone: "America/New_York" }));
+    expect(checkNamed(real, "quiet_hours")?.outcome).toBe("block");
+
+    for (const alias of ["EST", "Etc/GMT+5", "MST", "GMT"]) {
+      expect(isKnownTimeZone(alias), alias).toBe(false);
+      expect(assertOffsetRefused(() => assertRecipientTimeZone(alias)), alias).toBe(true);
+      const evidence = await h.gate.evaluate(request({ recipientTimeZone: alias }));
+      // Refused, not read an hour early: the quiet-hours check cannot be
+      // answered without a real zone, so the send fails closed rather than
+      // clearing on a frozen offset.
+      expect(checkNamed(evidence, "quiet_hours")?.outcome, alias).toBe("unavailable");
+      expect(evidence.allowed, alias).toBe(false);
+    }
+
+    // A curated deny-list of the offset aliases, not a ban on single-part zone
+    // names: a genuine place that happens not to observe daylight saving still
+    // resolves.
+    for (const zone of ["Singapore", "Japan", "Iceland", "UTC"]) {
+      expect(isKnownTimeZone(zone), zone).toBe(true);
+    }
+  });
 });
 
 function assertOffsetRefused(fn: () => void): boolean {
