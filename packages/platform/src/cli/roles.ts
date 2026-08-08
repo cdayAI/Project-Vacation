@@ -8,8 +8,9 @@ import { AnthropicProvider, FakeProvider, ProviderRegistry } from "../models/pro
 import { MemoryModelInvocationStore } from "../models/store.memory.js";
 import { PgModelInvocationStore } from "../models/store.pg.js";
 import { draftRole } from "../roles/authoring.js";
+import { analyseFairness, describeFairness, type FairnessOptions } from "../roles/bias.js";
 import { EvaluationHarness } from "../roles/evaluation.js";
-import type { GoldenSet, Role, RoleVersion } from "../roles/types.js";
+import type { CaseOutcome, GoldenSet, Role, RoleVersion } from "../roles/types.js";
 import { MemoryDb, PgDb } from "../store/db.js";
 import type { Platform } from "../platform.js";
 
@@ -80,6 +81,13 @@ pv roles — author, evaluate, promote, and stop the roles MVW runs here
   roles propose --role <role> [--version <n>] [--golden-set <id>]
               Measure the version against its golden set, record the evidence,
               and submit it for promotion. Prints the evaluation run id.
+
+  roles fairness --role <role> [--version <n>] [--evaluation-run <id>]
+              [--attribute <name>]... [--favourable <passed|failed|errored|refused>]...
+              [--tag <t>] [--min-group <n>]
+              Measure outcome-rate disparities across protected groups on a
+              recorded run. Synthetic fixtures only; refused on anything else.
+              It measures — it does not gate. A flag is a finding for a person.
 
   roles promote --role <role> --version <n> --evaluation-run <id>
               --raise-approval
@@ -195,6 +203,8 @@ async function dispatch(args: CommandArgs, context: RolesCommandContext): Promis
       return await goldenVerb(args, context);
     case "propose":
       return await proposeRole(args, context);
+    case "fairness":
+      return await fairnessRole(args, context);
     case "promote":
       return await promoteRole(args, context);
     case "revert":
@@ -550,6 +560,93 @@ async function proposeRole(args: CommandArgs, context: RolesCommandContext): Pro
   }
   // The answer, alone on stdout: the evidence id the promote verb cites.
   console.log(evaluationId);
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Fairness (outcome-rate disparities on a recorded synthetic run)
+// ---------------------------------------------------------------------------
+
+/** The outcomes a case can have, for validating --favourable. */
+const CASE_OUTCOMES: readonly CaseOutcome[] = ["passed", "failed", "errored", "refused"];
+
+/**
+ * `pv roles fairness` — read a recorded evaluation run and measure disparities.
+ *
+ * This is the operator surface for `analyseFairness`, which had no caller. It
+ * measures the rate at which each protected group received a favourable case
+ * outcome and flags the ones past the four-fifths rule or the rate-difference
+ * threshold. It runs on synthetic fixtures only — `analyseFairness` refuses a
+ * run that was not, because the platform does not hold protected-class
+ * attributes about real people — and it does not gate: a flag is a finding for
+ * a person, printed with the caveats that must travel with the numbers, and the
+ * verb exits zero either way.
+ */
+async function fairnessRole(args: CommandArgs, context: RolesCommandContext): Promise<number> {
+  const { platform } = context;
+  const role = await resolveRole(platform, first(args, "role"));
+
+  // The evidence to analyse: a named run, or the latest recorded for the version.
+  const runId = first(args, "evaluation-run");
+  let run;
+  if (runId !== undefined) {
+    run = await platform.evaluations.getEvaluation(runId as Id<"evaluation">);
+    if (run === null) {
+      throw new DeniedError("record.unavailable", `No evaluation run ${runId} is in the record.`, {
+        evaluationRunId: runId,
+      });
+    }
+    if (run.roleId !== role.id) {
+      throw new InvalidInputError(
+        `Evaluation run ${runId} measured ${run.roleId}, not "${role.name}" (${role.id}).`,
+        "evaluation-run",
+      );
+    }
+  } else {
+    const version = flagPresent(args, "version") ? requireInt(args, "version") : undefined;
+    run = await platform.evaluations.latestEvaluation(role.id, version);
+    if (run === null) {
+      throw new DeniedError(
+        "record.unavailable",
+        `No evaluation run is recorded for "${role.name}"${version !== undefined ? ` v${version}` : ""}. Measure one first with: pv roles propose --role ${role.name}.`,
+        { roleId: role.id },
+      );
+    }
+  }
+
+  const favourable = many(args, "favourable");
+  for (const outcome of favourable) {
+    if (!CASE_OUTCOMES.includes(outcome as CaseOutcome)) {
+      throw new InvalidInputError(
+        `--favourable must be one of ${CASE_OUTCOMES.join(", ")}; received "${outcome}".`,
+        "favourable",
+      );
+    }
+  }
+
+  const options: FairnessOptions = {
+    ...(many(args, "attribute").length > 0 ? { attributes: many(args, "attribute") } : {}),
+    ...(favourable.length > 0 ? { favourableOutcomes: favourable as CaseOutcome[] } : {}),
+    ...(first(args, "tag") !== undefined ? { tag: requireFlag(args, "tag") } : {}),
+    ...(flagPresent(args, "min-group") ? { minimumGroupSize: requireInt(args, "min-group") } : {}),
+  };
+
+  // Refuses (DeniedError, propagated to main.ts) a run not measured on synthetic
+  // fixtures. The caveats and the flagged groups are the answer, so they go to
+  // stdout; a warning about an empty measurement goes to stderr.
+  const report = analyseFairness(run, options);
+
+  if (args.json) {
+    emit(report, args);
+    return 0;
+  }
+
+  for (const line of describeFairness(report)) console.log(line);
+  if (report.casesAnalysed === 0) {
+    note(
+      "No case in this run carried a protected-class attribute, so nothing was measured. A fairness run needs a synthetic golden set whose cases declare invented attributes.",
+    );
+  }
   return 0;
 }
 

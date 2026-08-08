@@ -514,3 +514,128 @@ async function runEvaluate(platform: Platform, line: string): Promise<Captured> 
     console.error = realError;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Fairness — `analyseFairness`, reachable through the operator surface
+// ---------------------------------------------------------------------------
+
+const COHORT_SET_ID = "cli_fairness_cases";
+
+/**
+ * A synthetic golden set whose cases carry an invented protected attribute.
+ *
+ * When `disparate`, cohort B asserts an exact answer the scripted stand-in will
+ * never produce, so both of B's cases fail and B's favourable rate falls to
+ * zero — the disparity the four-fifths rule is meant to catch.
+ */
+function cohortGoldenSet(disparate: boolean): GoldenSet {
+  const cohortCase = (id: string, cohort: string, fail: boolean): GoldenSet["cases"][number] => ({
+    id,
+    description: `${cohort} case ${id}`,
+    input: {
+      categories: "rescission_request,billing_dispute,general_enquiry",
+      message: `Owner message for case ${id}.`,
+    },
+    expected: fail
+      ? { kind: "exact", value: "THIS_ANSWER_IS_NEVER_PRODUCED_BY_THE_STAND_IN" }
+      : { kind: "any" },
+    tags: [],
+    protectedAttributes: { cohort },
+    curatedBy: "compliance-operations",
+    curatedAt: START,
+  });
+  return {
+    id: COHORT_SET_ID,
+    version: 1,
+    task: TASK,
+    synthetic: true,
+    threshold: 0.1,
+    curatedBy: "compliance-operations",
+    curatedAt: START,
+    cases: [
+      cohortCase("a1", "A", false),
+      cohortCase("a2", "A", false),
+      cohortCase("b1", "B", disparate),
+      cohortCase("b2", "B", disparate),
+    ],
+  };
+}
+
+/** Draft, publish a cohort-bearing golden set, and propose — recording a run to analyse. */
+async function proposedWithCohorts(platform: Platform, disparate: boolean): Promise<string> {
+  await run(
+    platform,
+    `roles draft --name rescission_intake --description '${DESCRIPTION}' --scope legal --model-task ${TASK} --prompt-template ${TASK} --prompt-version 1 --evaluation-set ${COHORT_SET_ID}`,
+  );
+  await run(platform, `roles golden publish --file ${writeGoldenSet(cohortGoldenSet(disparate))}`);
+  const propose = await run(platform, `roles propose --role rescission_intake --golden-set ${COHORT_SET_ID}`);
+  return propose.stdout.trim();
+}
+
+describe("pv roles fairness", () => {
+  let platform: Platform;
+
+  beforeEach(async () => {
+    platform = await buildPlatform(loadConfig({ PV_ENV: "development" }), {
+      clock: new FixedClock(START),
+      ids: new SeededIdGenerator("roles-cli"),
+      logger: createNullLogger(),
+    });
+  });
+
+  afterEach(async () => {
+    await platform.close();
+  });
+
+  it("measures a recorded run's outcome-rate disparities across protected groups", async () => {
+    await proposedWithCohorts(platform, false);
+
+    const report = await run(platform, "roles fairness --role rescission_intake --min-group 2");
+    expect(report.code).toBe(0);
+    expect(report.stdout).toContain("fairness on synthetic fixtures");
+    // Both cohorts present, at parity, so nothing is flagged.
+    expect(report.stdout).toContain("A: 2/2");
+    expect(report.stdout).toContain("B: 2/2");
+    expect(report.stdout).not.toContain("FLAGGED");
+    // The caveats travel with the numbers, not beside them.
+    expect(report.stdout).toContain("synthetic test fixtures");
+    expect(report.stdout).toContain("the human is the decision-maker");
+  });
+
+  it("flags a group whose favourable rate falls below the four-fifths line", async () => {
+    await proposedWithCohorts(platform, true);
+
+    const report = await run(platform, "roles fairness --role rescission_intake --min-group 2");
+    expect(report.code).toBe(0);
+    expect(report.stdout).toContain("B: 0/2");
+    expect(report.stdout).toContain("FLAGGED");
+    expect(report.stdout).toMatch(/impact ratio 0 .* is below 0\.8/);
+  });
+
+  it("refuses fairness on a run not measured on synthetic fixtures", async () => {
+    // A non-synthetic set carries no protected attributes and records a run
+    // `analyseFairness` must refuse: this platform holds protected-class data
+    // only as invented fixtures, never about real people.
+    await run(
+      platform,
+      `roles draft --name rescission_intake --description '${DESCRIPTION}' --scope legal --model-task ${TASK} --prompt-template ${TASK} --prompt-version 1 --evaluation-set ${GOLDEN_SET_ID}`,
+    );
+    await run(platform, `roles golden publish --file ${writeGoldenSet(goldenSet({ synthetic: false }))}`);
+    await run(platform, "roles propose --role rescission_intake");
+
+    const result = await capture(platform, "roles fairness --role rescission_intake --min-group 2");
+    expect(result.thrown).toBeInstanceOf(DeniedError);
+    expect((result.thrown as DeniedError).reason).toBe("authorization.data_scope_violation");
+  });
+
+  it("refuses fairness when no run is recorded for the role", async () => {
+    await run(
+      platform,
+      `roles draft --name rescission_intake --description '${DESCRIPTION}' --scope legal --model-task ${TASK} --prompt-template ${TASK} --prompt-version 1 --evaluation-set ${COHORT_SET_ID}`,
+    );
+
+    const result = await capture(platform, "roles fairness --role rescission_intake");
+    expect(result.thrown).toBeInstanceOf(DeniedError);
+    expect((result.thrown as DeniedError).reason).toBe("record.unavailable");
+  });
+});
