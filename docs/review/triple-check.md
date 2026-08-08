@@ -1,5 +1,38 @@
 # Triple-check — the full finding list
 
+## Resolution log
+
+Fixes are landing in waves; each finding keeps its number so this document
+stays a stable index. Verified means an operator path was driven, not that a
+test passed.
+
+**Wave 1 — the false claims and the blockers. All six resolved and verified.**
+
+- **T-01 / critic §1 — an approval could be rejected but never granted.** Real
+  session age from the development identity provider; `requiresStepUp` declared
+  per action by risk tier; a `pv approvals decide` verb. A human who has
+  authenticated can now grant; one who has not still cannot. (commit: an
+  approval can be granted)
+- **critic §2 / R-07(b) — the demo narrated a step-up that never happened.** It
+  now refuses the grant, records a real `identity.step_up_completed`, grants,
+  and says the dev provider stood in for the IdP.
+- **R-01 — secret scanning scanned zero bytes.** Full tree and history with a
+  pinned, checksummed gitleaks; confirmed it flags a planted key.
+- **T-04 — configuring an IdP broke every request.** A valid session is now
+  honoured whatever minted it; a session-less request under a configured issuer
+  is refused, not downgraded to the dev actor. Residual: the OIDC
+  authorization-code callback still needs a real issuer to build against.
+- **T-68..71 — AI attribution had no guard.** `tools/check-attribution.mjs`
+  fails CI on an authorship claim in the tree or the commit range, and does not
+  fire on the vendor/model names the product operates on. Both PR bodies were
+  stripped by hand.
+- **R-04 — two authorization chokepoints disagreed.** The external chokepoint
+  refused an unrated tool grant, at enrollment and again in admission, with the
+  same `authorization.risk_unclassified` the internal registry uses.
+
+---
+
+
 Audited at `c38da93`. **146 claims: 65 DONE, 79 PARTIAL or NOT_DONE.** 13 DONE verdicts did not survive adversarial refutation.
 
 Six independent auditors, each told to assume nothing was done and to accept a claim only with a file:line plus the test that would fail if it stopped being true. Every high-stakes DONE was then handed to a separate agent whose job was to refute it, defaulting to refuted when uncertain. A completeness critic then asked what none of the six had covered.
