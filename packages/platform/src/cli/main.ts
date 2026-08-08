@@ -73,6 +73,12 @@ Project Vacation — operator commands
                                   corpus create, ingest, ask, freshness, review.
                                   Run "knowledge" alone for the full usage.
 
+  documents <verb>                Register, approve, and generate governed
+                                  documents through the template registry and
+                                  the generator. template register, template
+                                  approve, template list, template show, propose,
+                                  generate. Run "documents" alone for the full usage.
+
   workflow <verb>                 Start, drive, and inspect governed workflow
                                   instances through the engine. definitions,
                                   start, show, tasks, complete-task, signal.
@@ -752,6 +758,22 @@ async function main(): Promise<number> {
           return 2;
         }
         return await commandKnowledge(args, {
+          platform,
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
+      }
+      case "documents": {
+        // Imported here rather than at the top for the same reason the verbs
+        // above are: a process that only serves requests should not pay to parse
+        // the template registry, the document generator, and their store
+        // adapters.
+        const { commandDocuments, DOCUMENTS_USAGE } = await import("./documents.js");
+        if (args.positional[1] === undefined) {
+          console.error(DOCUMENTS_USAGE);
+          return 2;
+        }
+        return await commandDocuments(args, {
           platform,
           actor: cliActor(args),
           correlationId: first(args, "correlation-id"),
