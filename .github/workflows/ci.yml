@@ -81,6 +81,19 @@ jobs:
             --config .gitleaks.toml \
             --redact --no-banner --verbose --exit-code 1
 
+      - name: No AI-authorship attribution
+        # The brief forbids AI attribution in commits, PR text, comments and
+        # docs. It was violated three times before this ran — two PR bodies and
+        # a branch name in two merge subjects. The scanner matches authorship
+        # claims, never the vendor/model names the product legitimately
+        # operates on; see tools/check-attribution.mjs for the distinction. The
+        # commit range is every commit on this ref not already on the default
+        # branch, so a merge subject carrying a branch name is in scope.
+        run: |
+          RANGE="origin/${{ github.event.repository.default_branch }}..HEAD"
+          git rev-parse --verify "origin/${{ github.event.repository.default_branch }}" >/dev/null 2>&1 || RANGE=""
+          node tools/check-attribution.mjs "$RANGE"
+
   # ---------------------------------------------------------------------------
   # Types, lint, and the whole test suite, with a real Postgres so the
   # persistence contract tests exercise both adapters rather than only the fake.
