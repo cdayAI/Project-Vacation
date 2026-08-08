@@ -112,34 +112,6 @@
 }
 
 /* -----------------------------------------------------------------------------
-   3. Panels
-   -------------------------------------------------------------------------- */
-
-.pv-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--pv-space-12);
-  padding: var(--pv-space-20);
-  border-radius: var(--pv-radius-card);
-  min-width: 0;
-}
-
-.pv-panel-heading {
-  font-size: var(--pv-type-title-size);
-  line-height: var(--pv-type-title-line);
-  font-weight: var(--pv-type-title-weight);
-  letter-spacing: var(--pv-type-title-tracking);
-  color: var(--pv-content-primary);
-}
-
-.pv-panel h3 {
-  font-size: var(--pv-type-body-strong-size);
-  line-height: var(--pv-type-body-strong-line);
-  font-weight: var(--pv-type-body-strong-weight);
-  color: var(--pv-content-primary);
-}
-
-/* -----------------------------------------------------------------------------
    4. Text
    -------------------------------------------------------------------------- */
 
@@ -936,7 +908,6 @@
    scrolls and a table that does not. Containers blur, contents tint.
    -------------------------------------------------------------------------- */
 
-.pv-panel,
 .pv-toolbar,
 .pv-dt-scroll,
 .pv-callout,
@@ -961,7 +932,6 @@
    1px mask ring — repeated here rather than shared, because the selector list
    above is the thing that differs and a shared class would put us back to
    editing seventeen views. */
-.pv-panel::before,
 .pv-toolbar::before,
 .pv-dt-scroll::before,
 .pv-callout::before,
@@ -999,7 +969,6 @@
 /* The specular band, on the surfaces large enough to show one. A sheen across
    a 40px callout is a smear; across a panel it is the highlight that makes the
    surface read as curved. */
-.pv-panel::after,
 .pv-dialog::after,
 .pv-metric::after,
 .pv-empty::after,
@@ -1021,7 +990,6 @@
 
 /* Content sits above both decorative layers. Without this the rim's stacking
    context puts a 1px gradient over the first line of every panel. */
-.pv-panel > *,
 .pv-toolbar > *,
 .pv-callout > *,
 .pv-dialog > *,
@@ -1038,13 +1006,6 @@
 /* Nested glass keeps the tint and the lens and drops the filter: a step card
    inside a panel inside a page would otherwise stack three full-surface
    repaints to render one card. */
-.pv-panel .pv-step,
-.pv-panel .pv-citation,
-.pv-panel .pv-callout,
-.pv-panel .pv-dt-scroll,
-.pv-panel .pv-compare-pane,
-.pv-panel .pv-artifact,
-.pv-panel .pv-metric,
 .pv-dialog .pv-callout,
 .pv-dialog .pv-artifact {
   backdrop-filter: none;
@@ -1066,13 +1027,10 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .pv-panel::after,
   .pv-dialog::after,
   .pv-metric::after {
     transition: opacity var(--pv-motion-slow, 240ms) var(--pv-motion-ease, ease-out);
   }
-
-  .pv-panel:hover::after,
   .pv-dialog:hover::after,
   .pv-metric:hover::after {
     opacity: 0.8;
@@ -1095,7 +1053,6 @@
 /* Without a backdrop-filter behind them, the rim and the sheen are drawn over
    an opaque surface and read as rendering artefacts rather than as glass. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .pv-panel,
   .pv-toolbar,
   .pv-dt-scroll,
   .pv-dialog,
@@ -1107,8 +1064,6 @@
     background-color: var(--pv-surface-raised);
     border-color: var(--pv-border-subtle);
   }
-
-  .pv-panel::before,
   .pv-toolbar::before,
   .pv-dt-scroll::before,
   .pv-callout::before,
@@ -1119,7 +1074,6 @@
   .pv-step::before,
   .pv-citation::before,
   .pv-compare-pane::before,
-  .pv-panel::after,
   .pv-dialog::after,
   .pv-metric::after,
   .pv-empty::after,
@@ -1132,7 +1086,6 @@
    decorative layers come off with them. This is a floor an operator sets, and
    nothing in this file is allowed to reach back over it. */
 @media (prefers-reduced-transparency: reduce) {
-  .pv-panel::before,
   .pv-toolbar::before,
   .pv-dt-scroll::before,
   .pv-callout::before,
@@ -1143,7 +1096,6 @@
   .pv-step::before,
   .pv-citation::before,
   .pv-compare-pane::before,
-  .pv-panel::after,
   .pv-dialog::after,
   .pv-metric::after,
   .pv-empty::after,
@@ -1151,8 +1103,6 @@
     display: none;
   }
 }
-
-:root[data-transparency="reduced"] .pv-panel::before,
 :root[data-transparency="reduced"] .pv-toolbar::before,
 :root[data-transparency="reduced"] .pv-dt-scroll::before,
 :root[data-transparency="reduced"] .pv-callout::before,
@@ -1163,7 +1113,6 @@
 :root[data-transparency="reduced"] .pv-step::before,
 :root[data-transparency="reduced"] .pv-citation::before,
 :root[data-transparency="reduced"] .pv-compare-pane::before,
-:root[data-transparency="reduced"] .pv-panel::after,
 :root[data-transparency="reduced"] .pv-dialog::after,
 :root[data-transparency="reduced"] .pv-metric::after,
 :root[data-transparency="reduced"] .pv-empty::after,

@@ -87,8 +87,10 @@ describe("screens.css", () => {
 
   it("drops the filter on nested glass rather than blurring twice", () => {
     // Two stacked backdrop-filters cost two full-surface repaints for a
-    // difference nobody can see.
-    expect(css).toMatch(/\.pv-panel \.pv-step[^{]*\{[^}]*backdrop-filter:\s*none;/);
+    // difference nobody can see. Checked on .pv-dialog, a container that still
+    // scaffolds views here — .pv-panel is now the design system's own class
+    // (src/ui/surfaces/Panel.css) and this file no longer paints it.
+    expect(css).toMatch(/\.pv-dialog \.pv-callout[^{]*\{[^}]*backdrop-filter:\s*none;/);
   });
 
   it("removes the decorative layers under both reduced-transparency signals", () => {
@@ -96,11 +98,11 @@ describe("screens.css", () => {
     // exactly the shimmer the preference exists to remove, and the two signals
     // — the OS media query and the in-app attribute — have to agree.
     expect(css).toContain("@media (prefers-reduced-transparency: reduce)");
-    expect(css).toContain(':root[data-transparency="reduced"] .pv-panel::before');
+    expect(css).toContain(':root[data-transparency="reduced"] .pv-dialog::after');
 
     const mediaAt = css.indexOf("@media (prefers-reduced-transparency: reduce)");
     const media = css.slice(mediaAt, css.indexOf("}\n}", mediaAt));
-    for (const layer of [".pv-panel::before", ".pv-panel::after", ".pv-dialog::after"]) {
+    for (const layer of [".pv-dialog::after", ".pv-metric::after", ".pv-empty::after"]) {
       expect(media, `${layer} survives reduced transparency`).toContain(layer);
     }
   });
