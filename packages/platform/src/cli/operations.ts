@@ -1,7 +1,12 @@
-import { InvalidInputError } from "../kernel/errors.js";
+import { readFileSync } from "node:fs";
+import { DeniedError, InvalidInputError } from "../kernel/errors.js";
+import type { Id } from "../kernel/ids.js";
 import type { AuditEntry } from "../audit/types.js";
+import { rejectionSignature } from "../guard/approvals.js";
 import type { ApprovalRequest, ApprovalStatus } from "../guard/types.js";
-import type { RunCostRollup } from "../record/types.js";
+import { buildIdentityRuntime } from "../identity/runtime.js";
+import { SESSION_COOKIE_NAME } from "../identity/session.js";
+import type { ActorRef, RunCostRollup } from "../record/types.js";
 import type { PendingTimer } from "../engine/types.js";
 import type { Platform } from "../platform.js";
 
@@ -60,6 +65,22 @@ pv cost | approvals | models | engine — the operator reports the runbooks call
               Exits 1 when a pending approval has passed its expiry, which also
               means nothing is sweeping — see "pv worker".
 
+  approvals decide <approvalId> --grant | --reject --note <text>
+                   [--session-file <path>]
+              Decide one parked approval. The same chokepoint the console
+              posts to: segregation of duties, eligible roles, N-of-M, expiry
+              and step-up all apply here and cannot be argued with from a
+              terminal.
+              Granting a high-consequence action needs a session whose
+              authentication this platform can see — sign in over HTTP and
+              save the pv_session cookie to a file:
+                curl -sD - -X POST "$PV_URL/api/session/sign-in" \\
+                  -H 'content-type: application/json' \\
+                  -d '{"subject":"you@mvw","groups":["mvw-owner-services-supervisors"]}' \\
+                  | grep -i '^set-cookie' > ~/.pv-session
+              Without one, a rejection still lands and a grant is refused.
+              There is no flag that asserts a re-authentication nobody saw.
+
   models degradation [--since <iso> | --hours <n>] [--limit <n>]
               Fallback-chain walks in a window, by task, hop, and cause.
               Exits 1 when a call exhausted every fallback and was refused.
@@ -87,6 +108,17 @@ export interface CommandArgs {
 
 export interface OperationsContext {
   readonly platform: Platform;
+  /**
+   * Who is running the command, when the command is not merely a report.
+   *
+   * `main.ts` builds it and says plainly what it is worth: the command line
+   * cannot verify who is typing, so the actor is named rather than
+   * authenticated and the audit entry shows it came from the CLI. Anything
+   * that turns on *when* that person last proved who they are — a grant — asks
+   * for a session instead. See `approvalsDecide`.
+   */
+  readonly actor?: ActorRef;
+  readonly correlationId?: string | undefined;
 }
 
 /** stderr, so stdout stays a clean artifact. */
@@ -215,6 +247,7 @@ async function dispatch(args: CommandArgs, context: OperationsContext): Promise<
 
   if (command === "cost" && sub === "report") return await costReport(args, context);
   if (command === "approvals" && sub === "list") return await approvalsList(args, context);
+  if (command === "approvals" && sub === "decide") return await approvalsDecide(args, context);
   if (command === "models" && sub === "degradation") return await modelsDegradation(args, context);
   if (command === "engine" && sub === "timers") return await engineTimers(args, context);
 
@@ -521,6 +554,325 @@ async function approvalsList(args: CommandArgs, context: OperationsContext): Pro
     );
   }
   return lapsed.length > 0 ? 1 : 0;
+}
+
+// ---------------------------------------------------------------------------
+// approvals decide — the only way a headless install grants anything
+// ---------------------------------------------------------------------------
+
+/**
+ * Decide one parked approval from a terminal.
+ *
+ * This verb did not exist, and its absence was the second half of a defect the
+ * first half of which was invisible: `approvals.decide` had four callers — two
+ * in the demonstration, one inside a part of the improvement loop nothing
+ * reaches, and the HTTP route, which refused every grant. So an install with no
+ * browser had a queue it could fill and could not empty, and ten actions —
+ * every governed effect this platform has — were unreachable by construction.
+ *
+ * It goes through `platform.approvals.decide` and nowhere else. Segregation of
+ * duties, eligible roles, N-of-M, expiry and step-up are that service's rules,
+ * and a second implementation of any of them here would be a second place for
+ * them to be wrong. What this function contributes is who is deciding, and how
+ * long ago that person proved it.
+ *
+ * **Two identities, and the difference between them is the whole point.**
+ *
+ * Without `--session-file`, the actor is the one `main.ts` names — `cli:someone`
+ * — which the command line asserts and cannot verify. That is enough to reject:
+ * a rejection stops the action, the safe direction, and demanding a second
+ * proof of identity in order to say no leaves the work pending, which is what
+ * the requirement was trying to prevent.
+ *
+ * With `--session-file`, the cookie is resolved through `SessionService`
+ * against this deployment's identity store: the actor and their roles come back
+ * from the directory-derived actor record, and `secondsSinceAuthentication` is
+ * computed from the instant the identity provider authenticated them. That is
+ * an observation, and it is the only thing that will satisfy a step-up here.
+ *
+ * There is deliberately no `--reauthenticated` flag on this verb. Elsewhere in
+ * the CLI that flag stands for a fact nothing else can see; here the platform
+ * *can* see it, so accepting an assertion instead would write `steppedUp: true`
+ * into the audit chain on the strength of a word — the exact defect that made
+ * the seeded demonstration's grant a fiction.
+ */
+async function approvalsDecide(args: CommandArgs, context: OperationsContext): Promise<number> {
+  const { platform } = context;
+
+  const approvalId = args.positional[2];
+  if (approvalId === undefined || approvalId.startsWith("--")) {
+    throw new InvalidInputError(
+      "Name the approval to decide: pv approvals decide <approvalId> --grant|--reject --note <text>. `pv approvals list` prints the ids.",
+      "approvalId",
+    );
+  }
+
+  const granting = flagPresent(args, "grant");
+  const rejecting = flagPresent(args, "reject");
+  if (granting === rejecting) {
+    // Two booleans rather than `--decision <word>`: a value flag can be
+    // mistyped into the opposite outcome, and this outcome is irreversible in
+    // one direction.
+    throw new InvalidInputError(
+      granting
+        ? "--grant and --reject together. Say which one."
+        : "Say which: --grant or --reject.",
+      "decision",
+    );
+  }
+  const decision = granting ? "granted" : "rejected";
+
+  // Required in both directions. A grant with no stated reason is unreviewable,
+  // and a rejection with none is the improvement loop's most valuable signal
+  // arriving blank — the cluster it feeds is read by whoever has to fix the
+  // thing that keeps being refused.
+  const decisionNote = first(args, "note");
+  if (decisionNote === undefined || decisionNote.trim().length < 3) {
+    throw new InvalidInputError(
+      "--note is required, and is recorded on the decision and in the audit chain. A decision nobody explained cannot be reviewed.",
+      "note",
+    );
+  }
+
+  const approval = await platform.approvals.get(approvalId as Id<"approval">);
+  if (!approval) {
+    throw new InvalidInputError(
+      `No approval ${approvalId}. It may have expired and been swept; "pv approvals list --status pending,expired,granted" shows what is there.`,
+      "approvalId",
+    );
+  }
+
+  // The registry, not the approval record: the tier and its step-up
+  // requirement are declared in `actions.ts` and may have been tightened since
+  // this approval was raised. Closed when the action is not registered at all.
+  const descriptor = platform.registry.get(approval.action);
+  const requiresStepUp = descriptor?.requiresStepUp ?? true;
+
+  const identity = await resolveDecidingIdentity(args, context);
+
+  const before = approval.decisions.filter((entry) => entry.decision === "granted").length;
+
+  let updated: ApprovalRequest;
+  try {
+    updated = await platform.approvals.decide({
+      approvalId: approval.id,
+      actor: identity.actor,
+      decision,
+      note: decisionNote,
+      requiresStepUp,
+      // Absent when no session was presented. The service reads that as "no
+      // step-up has been observed", which is what it is.
+      ...(identity.secondsSinceAuthentication !== undefined
+        ? { secondsSinceAuthentication: identity.secondsSinceAuthentication }
+        : {}),
+      stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
+    });
+  } catch (error) {
+    if (error instanceof DeniedError && error.reason === "authorization.step_up_required") {
+      // The refusal is correct and is rethrown unchanged. What is added is the
+      // one thing the operator cannot work out from it: where a session comes
+      // from on a machine with no browser.
+      note(
+        `Granting "${approval.action}" requires a re-authentication this platform can see, and ${
+          identity.source === "session"
+            ? `the session in ${identity.describe} last authenticated ${Math.round(identity.secondsSinceAuthentication ?? 0)}s ago, past the ${platform.config.stepUpMaxAgeSeconds}s window. Step it up (POST /api/session/step-up) and save the cookie again.`
+            : `this command was given no session. Sign in over HTTP, save the pv_session cookie, and pass --session-file; see "pv approvals" for the exact call.`
+        }`,
+      );
+      note(
+        "Rejecting needs no step-up: a refusal stops the action, and requiring a second proof of identity to stop something only leaves it pending.",
+      );
+    }
+    throw error;
+  }
+
+  const after = updated.decisions.filter((entry) => entry.decision === "granted").length;
+  const recorded = updated.decisions.find(
+    (entry) => entry.actor.actorId === identity.actor.actorId,
+  );
+
+  // Mirrors the HTTP route, deliberately and for the same reason it is
+  // best-effort there: the decision has already landed and been audited, and
+  // failing the operator's command because a signal could not be filed would
+  // report a decision as not made when it was.
+  let signalRecorded = false;
+  if (decision === "rejected" && updated.runId) {
+    try {
+      await platform.observations.rejectedProposal({
+        runId: updated.runId,
+        signature: rejectionSignature(updated.action),
+        note: decisionNote,
+        observedBy: identity.actor,
+        mode: "supervised",
+        subject: { approvalId: updated.id, action: updated.action },
+      });
+      signalRecorded = true;
+    } catch (error) {
+      // allow-swallow: reported below rather than hidden, and never fatal.
+      note(
+        `The decision landed; the improvement signal did not (${error instanceof Error ? error.message : String(error)}).`,
+      );
+    }
+  }
+
+  if (args.json) {
+    emit(
+      {
+        approvalId: updated.id,
+        action: updated.action,
+        decision,
+        decidedBy: identity.actor.actorId,
+        identitySource: identity.source,
+        steppedUp: recorded?.steppedUp ?? false,
+        requiresStepUp,
+        secondsSinceAuthentication: identity.secondsSinceAuthentication ?? null,
+        status: updated.status,
+        grants: `${after}/${updated.approvalsRequired}`,
+        remainingApprovers: Math.max(0, updated.approvalsRequired - after),
+        improvementSignalRecorded: signalRecorded,
+      },
+      args,
+    );
+    return 0;
+  }
+
+  console.log(`approval          ${updated.id}`);
+  console.log(`action            ${updated.action}`);
+  console.log(`decision          ${decision} by ${identity.actor.actorId}`);
+  console.log(
+    `step-up           ${
+      requiresStepUp
+        ? recorded?.steppedUp
+          ? `observed, ${Math.round(identity.secondsSinceAuthentication ?? 0)}s since authentication`
+          : "not required for a rejection"
+        : "not required by this action's risk tier"
+    }`,
+  );
+  console.log(`grants            ${after} of ${updated.approvalsRequired} (was ${before})`);
+  console.log(`status            ${updated.status}`);
+
+  if (updated.status === "pending") {
+    note(
+      `${updated.approvalsRequired - after} more distinct approver(s) needed, from: ${updated.eligibleRoles.join(", ")}. Nobody may decide twice.`,
+    );
+  }
+  if (updated.status === "granted") {
+    // The most misread state in the system. A grant authorises the action; it
+    // does not perform it, and it is spent by whatever does.
+    note(
+      "Granted. The approval is not the action: it is single-use, bound to the proposal digest it was raised against, and is spent when the action runs. It expires at " +
+        `${updated.expiresAt} whether or not it is used.`,
+    );
+  }
+  if (decision === "rejected") {
+    note(
+      signalRecorded
+        ? "Rejected, and recorded as improvement signal against the run that proposed it."
+        : "Rejected. No run is attached to this approval, so there was nothing to file the improvement signal against.",
+    );
+  }
+  return 0;
+}
+
+interface DecidingIdentity {
+  readonly actor: ActorRef;
+  /** Undefined when nothing observed an authentication. Never a stand-in value. */
+  readonly secondsSinceAuthentication?: number | undefined;
+  readonly source: "session" | "cli-asserted";
+  /** Where the session came from, for a message that has to be actionable. */
+  readonly describe: string;
+}
+
+async function resolveDecidingIdentity(
+  args: CommandArgs,
+  context: OperationsContext,
+): Promise<DecidingIdentity> {
+  const { platform } = context;
+  const sessionFile = first(args, "session-file");
+
+  if (sessionFile === undefined) {
+    const actor = context.actor;
+    if (!actor) {
+      // Unreachable through `main.ts`, which always supplies one. Refused
+      // rather than defaulted, because the alternative is deciding an approval
+      // as nobody.
+      throw new DeniedError(
+        "authorization.action_not_permitted",
+        "This command was invoked without an operator identity, so there is nobody to record the decision against.",
+        {},
+      );
+    }
+    return { actor, source: "cli-asserted", describe: "no session" };
+  }
+
+  const availability = buildIdentityRuntime({
+    config: platform.config,
+    clock: platform.clock,
+    ids: platform.ids,
+    audit: platform.audit,
+    logger: platform.logger,
+    db: platform.db,
+  });
+  if (!availability.available) {
+    throw new DeniedError("config.missing", availability.reason, {});
+  }
+  if (!availability.runtime.sharedAcrossProcesses) {
+    // Said before the attempt rather than after it. Resolving would fail with
+    // "the session is not in the store", which is true and reads as a forged
+    // cookie — when the actual state is that sessions live in the heap of
+    // whichever process issued them and this is a different process.
+    throw new DeniedError(
+      "config.missing",
+      `This deployment holds identity in memory (PV_STORE=${platform.config.store}), so a session opened by the API server is in that process's heap and cannot be resolved here. Grant from the console or the API on a memory-backed deployment; a headless grant needs PV_STORE=postgres, where the session is a row both processes read.`,
+      { store: platform.config.store },
+    );
+  }
+
+  const cookie = readSessionCookie(sessionFile);
+  // Throws a denial on a forged, expired, revoked, unknown or deprovisioned
+  // session. There is no partially-trusted outcome to fall back to.
+  const resolved = await availability.runtime.sessions.resolve(cookie);
+  return {
+    actor: resolved.actorRef,
+    secondsSinceAuthentication: resolved.secondsSinceAuthentication,
+    source: "session",
+    describe: sessionFile,
+  };
+}
+
+/**
+ * Read a session cookie from a file.
+ *
+ * A file rather than a flag value: the cookie is a bearer credential for
+ * somebody's session, and an argument is visible in `ps` and lands in shell
+ * history. Both the bare cookie value and a whole `Set-Cookie:` line are
+ * accepted, because the way an operator gets one is by saving what curl
+ * printed, and making them edit it first is how a step gets skipped.
+ */
+function readSessionCookie(path: string): string {
+  let contents: string;
+  try {
+    contents = readFileSync(path, "utf8");
+  } catch (error) {
+    throw new InvalidInputError(
+      `Could not read the session from ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      "session-file",
+    );
+  }
+
+  const marker = `${SESSION_COOKIE_NAME}=`;
+  const at = contents.indexOf(marker);
+  const value = (at >= 0 ? contents.slice(at + marker.length) : contents).trim();
+  // A cookie carries no semicolons or whitespace; whatever follows one is
+  // Set-Cookie attributes or a second header line.
+  const cookie = value.split(/[;\s]/)[0] ?? "";
+  if (cookie.length === 0) {
+    throw new InvalidInputError(
+      `${path} contains no session. Save either the pv_session cookie value or the whole Set-Cookie line from a sign-in.`,
+      "session-file",
+    );
+  }
+  return cookie;
 }
 
 // ---------------------------------------------------------------------------

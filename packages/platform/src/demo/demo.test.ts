@@ -89,6 +89,74 @@ describe("seeded demonstration", () => {
     expect(text).not.toMatch(/verified: yes/);
   });
 
+  it("grants the high-consequence approval only after a step-up it observed", async () => {
+    // The defect this replaces: the demonstration handed the approval service a
+    // literal `secondsSinceAuthentication: 30` and then printed "after step-up
+    // re-authentication". Nothing had re-authenticated anybody. The guarantee
+    // is that the grant is preceded, in the same chain, by the platform's own
+    // record of watching the re-authentication happen.
+    const captured = capture();
+    const { platform } = await runDemoKeepingPlatform(captured.out);
+    try {
+      const chain = await platform.audit.readChain();
+      const stepUp = chain.find((entry) => entry.eventType === "identity.step_up_completed");
+      const granted = chain.find((entry) => entry.eventType === "approval.granted");
+
+      expect(stepUp).toBeDefined();
+      expect(granted).toBeDefined();
+      expect(stepUp?.seq ?? Infinity).toBeLessThan(granted?.seq ?? 0);
+      expect(granted?.decision["steppedUp"]).toBe(true);
+    } finally {
+      await platform.close();
+    }
+  });
+
+  it("shows the step-up requirement refusing before it shows it satisfied", async () => {
+    // A control only demonstrated succeeding teaches the audience that it
+    // always succeeds. The supervisor's ordinary working session is too old to
+    // grant something irreversible, and the demonstration walks into that.
+    const captured = capture();
+    await runDemo(captured.out);
+    const text = captured.lines.join("\n");
+
+    expect(text).toMatch(/grant REFUSED \(authorization\.step_up_required\)/);
+    const refusedAt = text.indexOf("grant REFUSED (authorization.step_up_required)");
+    const approvedAt = text.indexOf("approved by");
+    expect(refusedAt).toBeGreaterThan(-1);
+    expect(approvedAt).toBeGreaterThan(refusedAt);
+  });
+
+  it("names the stand-in rather than passing it off", async () => {
+    // A demonstration may stand in for a component. It may not be quiet about
+    // which one: the audience has to be able to tell what they watched work
+    // from what was played by a double.
+    const captured = capture();
+    await runDemo(captured.out);
+    const text = captured.lines.join("\n");
+    expect(text).toMatch(/development identity provider, which\n\s*authenticates nobody/);
+  });
+
+  it("never narrates a hand-off that no code performs", async () => {
+    // Nothing is queued, nobody is notified, and no approval is raised when a
+    // deadline is refused. "Routed to a human" describes a control this
+    // platform does not have; what it has is a refusal in the record.
+    const captured = capture();
+    await runDemo(captured.out);
+    expect(captured.lines.join("\n")).not.toMatch(/routed to a human/i);
+  });
+
+  it("scopes what an exported chain proves to what it proves", async () => {
+    // The chain's links are checkable from the entries. Truncation is not: the
+    // verification the demonstration performs reads a watermark the entries do
+    // not carry. Claiming otherwise sends an auditor away believing a copy
+    // proves something it cannot.
+    const captured = capture();
+    await runDemo(captured.out);
+    const text = captured.lines.join("\n");
+    expect(text).toMatch(/watermark/);
+    expect(text).toMatch(/cannot show that nothing\nwas cut off the end/);
+  });
+
   it("cites the earnings source rather than asserting the figures", async () => {
     const captured = capture();
     await runDemo(captured.out);

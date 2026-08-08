@@ -1,10 +1,15 @@
 import { loadConfig } from "../kernel/config.js";
 import { FixedClock } from "../kernel/clock.js";
-import { SeededIdGenerator } from "../kernel/ids.js";
+import { SeededIdGenerator, type Id } from "../kernel/ids.js";
 import { createNullLogger } from "../kernel/logger.js";
 import { digestValue } from "../kernel/hash.js";
 import { DeniedError } from "../kernel/errors.js";
 import { verifyChain, formatVerificationResult } from "../audit/chain.js";
+import { DevelopmentIdentityProvider } from "../identity/dev-provider.js";
+import { mapDirectoryGroups } from "../identity/roles.js";
+import { SessionService } from "../identity/session.js";
+import { MemoryIdentityStore } from "../identity/store.memory.js";
+import type { VerifiedIdentity } from "../identity/types.js";
 import type { ActorRef } from "../record/types.js";
 import { buildPlatform, type Platform } from "../platform.js";
 import { MemoryDb } from "../store/db.js";
@@ -23,7 +28,8 @@ import { SEED_CONTRACTS, SEED_CORPORA, SEED_DOCUMENTS, type SeedContract } from 
  * The obvious job is to show the platform working end to end: governed
  * ingestion, effective-dated retrieval with citations, a statutory deadline
  * computed with its full derivation, a high-consequence action parked for a
- * human, an approval bound to a digest, and an audit chain that verifies.
+ * human, an approval bound to a digest and to a re-authentication the platform
+ * watched happen, and an audit chain that verifies.
  *
  * The less obvious job is to show it **refusing**. Two of the seeded contracts
  * cannot be answered — one is missing a disclosure-delivery date, one is in a
@@ -67,11 +73,29 @@ const AGENT: ActorRef = {
   roles: ["owner_services_agent"],
 };
 
-const SUPERVISOR: ActorRef = {
-  actorId: "demo:dana",
-  kind: "human",
-  roles: ["supervisor"],
-};
+/**
+ * The supervisor, named the way the platform actually learns of a person.
+ *
+ * The other two actors above are literal `ActorRef`s, which is enough for
+ * actors whose whole job is to be somebody other than the requester. The
+ * supervisor's job is not: they grant a high-consequence approval, and that
+ * grant is gated on how long ago they last proved who they are. No literal can
+ * carry that, so this one is a directory subject and a directory group, and
+ * section 4 signs in with them — the actor id and the roles come back from the
+ * group mapping, as they would from Okta.
+ */
+const SUPERVISOR_SUBJECT = "demo:dana";
+const SUPERVISOR_GROUPS = ["mvw-owner-services-supervisors"];
+
+/**
+ * When the supervisor started their shift — five hours before {@link DEMO_NOW}.
+ *
+ * Scenario data, like the contracts: a real ID token carries `auth_time` and
+ * this is what it says. The gap is the point. An ordinary working session is
+ * nowhere near fresh enough to grant something irreversible, so section 4 gets
+ * to show the step-up requirement refusing before it shows it satisfied.
+ */
+const SUPERVISOR_SIGNED_IN_AT = "2026-08-06T08:00:00.000Z";
 
 interface Output {
   line(text?: string): void;
@@ -203,7 +227,7 @@ export async function runDemoKeepingPlatform(
   }
 
   // -------------------------------------------------------------------------
-  await runApproval(platform, out);
+  await runApproval(platform, await openSupervisorSession(platform, memoryDb), out);
 
   // -------------------------------------------------------------------------
   await runContainment(platform, out);
@@ -227,9 +251,18 @@ export async function runDemoKeepingPlatform(
   out.line();
   out.line(formatVerificationResult(verification));
   out.line();
+  // The old wording here said the chain "verifies from the entries alone, so an
+  // auditor given an export can check it without access to this system" — two
+  // lines after the verification above deliberately did not do that, and for
+  // the reason the comment above states. Half of it is true and the half that
+  // is not is the half an auditor would rely on, so both halves are now said.
   out.line("Every line above is reconstructable from the operating record and the");
-  out.line("audit chain. The chain verifies from the entries alone, so an auditor");
-  out.line("given an export can check it without access to this system.");
+  out.line("audit chain. The links between entries check out from the entries");
+  out.line("alone, so somebody holding a copy can show that nothing in the middle");
+  out.line("was edited, reordered, or inserted. Truncation is the exception: the");
+  out.line("verification above read the watermark, which this platform holds and");
+  out.line("the entries do not carry. A copy on its own cannot show that nothing");
+  out.line("was cut off the end.");
   out.line();
   // Said here because the README used to send readers from this command
   // straight to `pnpm audit:verify`, which built a second platform against an
@@ -326,7 +359,12 @@ async function runIngestion(
       text: document.body,
       actor: COMPLIANCE,
       mode: "supervised",
-      secondsSinceAuthentication: 30,
+      // Nothing is passed for `secondsSinceAuthentication`, and that is not an
+      // omission. `knowledge.ingest_document` is `sensitive` and does not
+      // require step-up, so a number here would be inert today and a fabricated
+      // observation the day somebody raises the action's risk. Absent is what
+      // "nobody has watched this actor re-authenticate" looks like, and the
+      // chokepoint reads absent as not stepped up.
     });
     ingested += 1;
     out.step(
@@ -357,7 +395,6 @@ async function runIngestion(
       ].join("\n"),
       actor: COMPLIANCE,
       mode: "supervised",
-      secondsSinceAuthentication: 30,
     });
     out.step("UNEXPECTED: the poisoned document was accepted");
   } catch (error) {
@@ -418,7 +455,10 @@ async function runGroundedAnswers(
       if (answer.citations.length === 0) out.step("  (no citations returned)");
     } catch (error) {
       if (error instanceof DeniedError) {
-        out.step(`  REFUSED (${error.reason}) — routed to a human`);
+        // Not "routed to a human": no queue is written and nobody is paged.
+        // What happens is that `knowledge.answer_refused` goes into the chain
+        // with the question's digest, where a person looking finds it.
+        out.step(`  REFUSED (${error.reason}) — no answer, and the refusal is recorded`);
       } else throw error;
     }
   }
@@ -508,13 +548,18 @@ async function checkContract(
     // This is the branch the demonstration exists to show.
     out.step(`  REFUSED (${error.reason})`);
     out.step(`  ${error.message}`);
-    out.step(`  routed to a human — the platform does not guess a legal deadline`);
+    // "Recorded denied", not "routed to a human". Nothing is queued, nobody is
+    // notified, and no approval is raised — the run and its reason sit in the
+    // operating record for whoever works the refusals. Narrating a hand-off
+    // that no code performs is the same defect as narrating a step-up that
+    // never happened, in smaller type.
+    out.step(`  recorded denied — the platform does not guess a legal deadline`);
 
     await platform.runs.patchRun(run.id, {
       status: "denied",
       endedAt: platform.clock.nowIso(),
       denialReason: error.reason,
-      outcome: "Refused and routed to a human.",
+      outcome: "Refused. No deadline was produced.",
     });
 
     await platform.audit.record({
@@ -568,12 +613,118 @@ async function deadlineStep(
   });
 }
 
-async function runApproval(platform: Platform, out: Output): Promise<void> {
+/**
+ * A signed-in supervisor, and the ability to make them re-authenticate.
+ *
+ * Held together rather than passed one field at a time, because the parts only
+ * mean anything as a set: the actor id is the one this session produced, the
+ * cookie resolves to this session and no other, and a step-up is only valid
+ * for the session the actor holding it is in.
+ */
+interface SupervisorDesk {
+  readonly sessions: SessionService;
+  readonly sessionId: Id<"session">;
+  /** What a browser would be holding. Resolved to ask the session its age. */
+  readonly cookie: string;
+  /** As the mapping produced it — not as this file would have written it. */
+  readonly actor: ActorRef;
+  /** The directory subject behind that actor. Narration only. */
+  readonly subject: string;
+  /** Re-run the provider's flow, as `prompt=login` would against a real one. */
+  reauthenticate(): VerifiedIdentity;
+}
+
+/**
+ * Sign the supervisor in, through the real session path.
+ *
+ * The demonstration used to hand `secondsSinceAuthentication: 30` straight to
+ * the approval service and then print "after step-up re-authentication". The
+ * number was a literal; nothing had re-authenticated anybody. That is the same
+ * defect as an audit verifier calling an erased chain empty — a control
+ * narrated as having operated when it did not — committed in the one artifact
+ * whose entire purpose is to show that this platform's record is true.
+ *
+ * So the age now comes from `SessionService`, which measures it from a stamp it
+ * wrote itself against the platform's own clock. Nothing here chooses it, and
+ * nothing here can: `stepUp` returns it.
+ *
+ * What is still a stand-in is the *authentication*, not the observation.
+ * `DevelopmentIdentityProvider` verifies nobody — it mints the `VerifiedIdentity`
+ * a real ID token would produce and refuses to construct itself outside
+ * development. Section 4 says so in the output, because a demonstration is
+ * allowed to stand in for a component and is not allowed to be quiet about it.
+ */
+async function openSupervisorSession(
+  platform: Platform,
+  memoryDb: MemoryDb,
+): Promise<SupervisorDesk> {
+  const provider = new DevelopmentIdentityProvider(
+    platform.config.environment,
+    platform.clock,
+    // The provider warns on construction and on every call. Routed to nowhere
+    // here and said in the narration instead: the warning belongs in the story
+    // the audience is reading, not in a log nobody has open.
+    createNullLogger(),
+  );
+
+  const sessions = new SessionService(
+    new MemoryIdentityStore(memoryDb),
+    platform.clock,
+    platform.ids,
+    platform.audit,
+    // Signs one cookie that never reaches a wire: the demonstration holds it
+    // and hands it straight back to `resolve`, which is how it asks the session
+    // how old its authentication is rather than deciding. Derived from the demo
+    // seed so two runs produce the same bytes, which the determinism gate
+    // requires. A deployment reads PV_SESSION_SECRET, and `loadConfig` refuses
+    // to start without it outside development.
+    digestValue({ purpose: "seeded demonstration session signing", seed: platform.config.demoSeed }),
+    { secureCookie: false },
+  );
+
+  const authenticate = (methods?: readonly string[]): VerifiedIdentity =>
+    provider.authenticate({
+      subject: SUPERVISOR_SUBJECT,
+      groups: SUPERVISOR_GROUPS,
+      ...(methods ? { authenticationMethods: methods } : {}),
+    });
+
+  const issued = await sessions.start({
+    // The development provider stamps `auth_time` as now, having nothing else
+    // to go on. The scenario has the supervisor signing in at the start of the
+    // shift, so the sign-in carries that instead — which is what a real ID
+    // token would assert and what `SessionService` reads it from.
+    identity: { ...authenticate(), authenticatedAt: SUPERVISOR_SIGNED_IN_AT },
+    // The same mapping a real sign-in goes through. Roles are not asserted
+    // here: `supervisor` is held because the directory group says so, which is
+    // the only way anybody holds a role on this platform.
+    entitlements: mapDirectoryGroups(SUPERVISOR_GROUPS),
+  });
+
+  return {
+    sessions,
+    sessionId: issued.session.id,
+    cookie: issued.cookie,
+    actor: issued.actorRef,
+    subject: SUPERVISOR_SUBJECT,
+    // A second factor named in the re-authentication, which is what a real
+    // step-up asks for and what `amr` carries back.
+    reauthenticate: () => authenticate(["dev", "mfa"]),
+  };
+}
+
+async function runApproval(
+  platform: Platform,
+  desk: SupervisorDesk,
+  out: Output,
+): Promise<void> {
   out.heading("4. A high-consequence action, parked for a human");
   out.line();
   out.line("Notifying an owner of their cancellation deadline is irreversible: a");
   out.line("sent letter cannot be unsent. It requires an approval bound to a digest");
-  out.line("of exactly what will be sent.");
+  out.line("of exactly what will be sent, granted by somebody who is not the person");
+  out.line("who asked for it, and who has proved who they are in the last few");
+  out.line("minutes.");
 
   const proposal = {
     contractId: "ctr_fl_0001",
@@ -593,9 +744,15 @@ async function runApproval(platform: Platform, out: Output): Promise<void> {
     subject: { contractId: "ctr_fl_0001", channel: "letter" },
   });
 
+  // Read from the registry rather than asserted here, so the demonstration is
+  // subject to the same policy as the API and the CLI. An action the registry
+  // does not know is treated as needing step-up, which is the safe direction.
+  const requiresStepUp = platform.registry.get(approval.action)?.requiresStepUp ?? true;
+
   out.line();
   out.step(`requested by  ${AGENT.actorId}`);
   out.step(`digest        ${proposalDigest}`);
+  out.step(`signed in     ${desk.actor.actorId} (${desk.subject}), roles: ${desk.actor.roles.join(", ")}`);
 
   // The requester cannot approve their own request.
   try {
@@ -603,7 +760,8 @@ async function runApproval(platform: Platform, out: Output): Promise<void> {
       approvalId: approval.id,
       actor: AGENT,
       decision: "granted",
-      requiresStepUp: false,
+      requiresStepUp,
+      stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
     });
     out.step("UNEXPECTED: self-approval succeeded");
   } catch (error) {
@@ -612,16 +770,62 @@ async function runApproval(platform: Platform, out: Output): Promise<void> {
     } else throw error;
   }
 
+  // Before the re-authentication, deliberately. This is the supervisor's
+  // session as it stands on an ordinary afternoon: signed in at the start of
+  // the shift, entitled to approve, and not recently re-proved. The step-up
+  // requirement has to bite here or it is decorative everywhere.
+  const working = await desk.sessions.resolve(desk.cookie);
+  try {
+    await platform.approvals.decide({
+      approvalId: approval.id,
+      actor: desk.actor,
+      decision: "granted",
+      requiresStepUp,
+      secondsSinceAuthentication: working.secondsSinceAuthentication,
+      stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
+    });
+    out.step("UNEXPECTED: a grant was recorded with no fresh re-authentication behind it");
+  } catch (error) {
+    if (error instanceof DeniedError) {
+      out.step(
+        `grant REFUSED (${error.reason}) — last proved ${working.secondsSinceAuthentication}s ago, limit ${platform.config.stepUpMaxAgeSeconds}s`,
+      );
+    } else throw error;
+  }
+
+  // The step-up itself. `identity.step_up_completed` goes into the same chain
+  // section 6 verifies, so the grant below is not merely claimed to have been
+  // re-authenticated — the re-authentication is an entry an auditor can find.
+  const steppedUp = await desk.sessions.stepUp({
+    sessionId: desk.sessionId,
+    identity: desk.reauthenticate(),
+  });
+  out.step(`${desk.subject} re-authenticates — identity.step_up_completed recorded`);
+
   await platform.approvals.decide({
     approvalId: approval.id,
-    actor: SUPERVISOR,
+    actor: desk.actor,
     decision: "granted",
     note: "Deadline and template checked against the cited rule.",
-    requiresStepUp: true,
-    secondsSinceAuthentication: 30,
+    requiresStepUp,
+    // Measured by the session service from the stamp it just wrote, against the
+    // platform's clock. Not chosen here, and not choosable here — which is the
+    // whole difference between a demonstration and a claim.
+    secondsSinceAuthentication: steppedUp.secondsSinceAuthentication,
     stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
   });
-  out.step(`approved by   ${SUPERVISOR.actorId} (after step-up re-authentication)`);
+  out.step(
+    `approved by   ${desk.actor.actorId} (${desk.subject}), re-authenticated ${steppedUp.secondsSinceAuthentication}s ago, limit ${platform.config.stepUpMaxAgeSeconds}s`,
+  );
+
+  out.line();
+  out.line("  What re-authenticated above is a development identity provider, which");
+  out.line("  authenticates nobody and refuses to construct itself outside");
+  out.line("  development; a deployment re-runs OIDC against MVW's directory. What");
+  out.line("  is not a stand-in is the observation: the platform stamped the");
+  out.line("  re-authentication, measured its own age from that stamp, and refused");
+  out.line("  the grant above when the age was too old. It records step-up as");
+  out.line("  satisfied only when it has watched one happen.");
 
   // Now the attack the digest binding exists to stop.
   const tampered = { ...proposal, body: "Your cancellation window closes at the end of 30 August 2026." };

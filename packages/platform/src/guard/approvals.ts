@@ -36,6 +36,24 @@ import type { ApprovalDecision, ApprovalRequest, ApprovalStatus } from "./types.
  *                       action today. Expiry is checked on grant and again on
  *                       consumption, because time passes in between.
  */
+/**
+ * The failure signature a rejection is filed under.
+ *
+ * Derived from the action name so it stays inside the controlled vocabulary the
+ * harvester enforces — dotted lower_snake_case — and so every rejection of the
+ * same action clusters together. A free-text signature would produce one
+ * cluster per approver and nothing would ever recur.
+ *
+ * Here rather than beside either caller because there are two of them now: the
+ * HTTP decision route and the command line's. Two copies of this would cluster
+ * the same disagreement under two names depending on which surface the
+ * approver happened to use, and the loop would never see the frequency.
+ */
+export function rejectionSignature(action: string): string {
+  const normalised = action.replace(/[^a-z0-9_.]/gi, "_").toLowerCase();
+  return `approval.rejected.${normalised}`.slice(0, 96);
+}
+
 export class ApprovalService {
   constructor(
     private readonly store: ApprovalStore,

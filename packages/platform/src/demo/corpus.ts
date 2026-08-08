@@ -376,7 +376,7 @@ export const SEED_CONTRACTS: readonly SeedContract[] = [
     financed: true,
     documentSetComplete: false,
     demonstrates:
-      "A missing disclosure-delivery date. The platform refuses to compute a deadline and routes to a human rather than guessing.",
+      "A missing disclosure-delivery date. The platform refuses to compute a deadline rather than guessing, and records the refusal with its reason.",
   },
   {
     contractId: "ctr_xx_0006",

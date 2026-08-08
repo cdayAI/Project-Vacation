@@ -62,6 +62,12 @@ Project Vacation — operator commands
 
   approvals list [--status <a,b>] [--ageing] [--within <minutes>]
                                   Parked human decisions, least time left first
+  approvals decide <id> --grant|--reject --note <text> [--session-file <path>]
+                                  Decide one, through the same chokepoint the
+                                  console posts to. Granting a high-consequence
+                                  action needs a session this platform can see
+                                  the authentication instant of; rejecting does
+                                  not. Run "approvals" alone for how to get one.
   cost report [--since <iso> | --hours <n>] [--group-by workflow,role]
                                   Spend in a window, and the runs that spent it
   models degradation [--since <iso> | --hours <n>]
@@ -656,7 +662,14 @@ async function main(): Promise<number> {
         // code, and the commands reached for during an incident should not pay
         // to parse it.
         const { commandOperations } = await import("./operations.js");
-        return await commandOperations(args, { platform });
+        return await commandOperations(args, {
+          platform,
+          // Only `approvals decide` writes anything; the reports ignore it.
+          // Passed unconditionally so a second verb that acts cannot be added
+          // without one, which is how a decision ends up attributed to nobody.
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
       }
       case "evaluate": {
         // Imported here rather than at the top so that the commands an operator
