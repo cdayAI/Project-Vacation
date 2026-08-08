@@ -50,6 +50,14 @@ import { ConsentLedger } from "./contact/consent.js";
 import { ContactGate } from "./contact/gate.js";
 import { CONTACT_ACTIONS } from "./contact/actions.js";
 import type { ContactStore } from "./contact/port.js";
+import { MemoryKnowledgeStore } from "./knowledge/store.memory.js";
+import { PgKnowledgeStore } from "./knowledge/store.pg.js";
+import { IngestionService } from "./knowledge/ingest.js";
+import { Retriever } from "./knowledge/retrieve.js";
+import { GroundedAnswerService } from "./knowledge/answer.js";
+import { FreshnessMonitor } from "./knowledge/freshness.js";
+import { KNOWLEDGE_ACTIONS } from "./knowledge/actions.js";
+import type { KnowledgeStore } from "./knowledge/port.js";
 
 /**
  * The composition root.
@@ -200,6 +208,34 @@ export interface Platform {
   readonly consentLedger: ConsentLedger;
   /** The contact store the gate and the ledger share. Exposed for the console and evidence. */
   readonly contactStore: ContactStore;
+  /**
+   * The knowledge layer, composed rather than merely written.
+   *
+   * `IngestionService`, `Retriever`, `GroundedAnswerService`, and
+   * `FreshnessMonitor` were built, tested, and reachable from no composition
+   * root: the only place they were ever constructed together was the seeded
+   * demonstration, which builds its own instances. So an operator could not
+   * ingest a document, ask a regulated question, or record a corpus review in
+   * the product — a demo could, and nothing else. A control nothing can reach
+   * answers nothing, and "no grounding, no answer" is not a promise the platform
+   * keeps if no caller can put the question to it. These fields are the wiring
+   * that makes the layer reachable end to end.
+   *
+   * All four services share one store on purpose: the passage a `Retriever`
+   * ranks must be the passage `IngestionService` screened and stored, and the
+   * review a `FreshnessMonitor` records must be the one `GroundedAnswerService`
+   * reads when it decides whether to refuse a stale corpus. Two stores would be
+   * two answers to the same question on the day it mattered most.
+   */
+  readonly ingestion: IngestionService;
+  /** Point-in-time lexical retrieval over the corpora an actor is entitled to read. */
+  readonly retriever: Retriever;
+  /** The `knowledge.retrieve` path: a cited answer, or a refusal that is routed to a human. */
+  readonly groundedAnswers: GroundedAnswerService;
+  /** Corpus review cadence — what the console shows and what the answer path refuses on. */
+  readonly freshness: FreshnessMonitor;
+  /** The knowledge store the four services above share. Exposed for the console and evidence. */
+  readonly knowledgeStore: KnowledgeStore;
   /** Present only when the Postgres store is in use. */
   readonly db?: Db;
   /** Release connections. Safe to call more than once. */
@@ -304,21 +340,24 @@ export async function buildPlatform(
     runs,
   );
 
-  // The shipped catalogue plus the role and contact lifecycle actions.
-  // `role.promote`, `consent.record` and `contact.send_owner_message` are
-  // already in the catalogue; the rest — `role.propose`, `role.evaluate`,
-  // `role.revert`, `contact.send_high_risk_message`, `contact.record_do_not_call`
-  // — live in their modules' `actions.ts` and are spliced in here so the one
-  // chokepoint can resolve them. Without this the promotion service's `propose`,
-  // the harness's evaluate, the registry's `revert`, the elevated send path, and
-  // a do-not-call write would each be refused with an "unknown action" the
-  // moment they were reached — which is why they never were. Filtered by name so
-  // the day those move into `src/actions.ts`, where they belong, this keeps
-  // working rather than failing on a duplicate registration.
+  // The shipped catalogue plus the role, contact, and knowledge lifecycle
+  // actions. `role.promote`, `consent.record`, `contact.send_owner_message` and
+  // `knowledge.ingest_document` are already in the catalogue; the rest —
+  // `role.propose`, `role.evaluate`, `role.revert`,
+  // `contact.send_high_risk_message`, `contact.record_do_not_call`,
+  // `knowledge.record_corpus_review` — live in their modules' `actions.ts` and
+  // are spliced in here so the one chokepoint can resolve them. Without this the
+  // promotion service's `propose`, the harness's evaluate, the registry's
+  // `revert`, the elevated send path, a do-not-call write, and a corpus review
+  // attestation would each be refused with an "unknown action" the moment they
+  // were reached — which is why they never were. Filtered by name so the day
+  // those move into `src/actions.ts`, where they belong, this keeps working
+  // rather than failing on a duplicate registration.
   const registry = new ActionRegistry([
     ...PLATFORM_ACTIONS,
     ...ROLE_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
     ...CONTACT_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
+    ...KNOWLEDGE_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
   ]);
 
   const authorizer = new Authorizer(
@@ -464,6 +503,28 @@ export async function buildPlatform(
   const consentLedger = new ConsentLedger(contactStore, authorizer, auditLog, clock, ids);
   const contactGate = new ContactGate(contactStore, authorizer, auditLog, clock, ids);
 
+  // The knowledge layer, composed here so the CLI and the API reach one set of
+  // instances over one store.
+  //
+  // The store mirrors every other adapter above: the concrete implementation is
+  // chosen from validated configuration and nowhere else. The four services are
+  // handed that one store deliberately — a passage the retriever ranks has to be
+  // the passage the ingestion service screened, and a review the freshness
+  // monitor records has to be the one the answer path reads before it decides
+  // whether to refuse stale authority; two stores would answer differently. The
+  // ingestion service and the freshness monitor take the platform's authorizer,
+  // so ingesting a document and attesting a corpus review each pass the one
+  // chokepoint: `knowledge.ingest_document` and `knowledge.record_corpus_review`
+  // are registered actions, and an actor without them is refused. The grounded
+  // answer service is given the retriever and the store, and enforces its own
+  // rule with no help — no grounding, no answer; stale authority, no answer.
+  const knowledgeStore =
+    db instanceof PgDb ? new PgKnowledgeStore(db) : new MemoryKnowledgeStore(memoryDb ?? new MemoryDb());
+  const ingestion = new IngestionService(knowledgeStore, authorizer, auditLog, clock, ids);
+  const retriever = new Retriever(knowledgeStore);
+  const groundedAnswers = new GroundedAnswerService(retriever, knowledgeStore, auditLog, clock);
+  const freshness = new FreshnessMonitor(knowledgeStore, clock, authorizer);
+
   // The startup banner is not decoration. An operator must be able to see, at a
   // glance, whether the sandbox is contained and whether employee observation
   // is switched on — without reading the environment.
@@ -505,6 +566,11 @@ export async function buildPlatform(
     contactGate,
     consentLedger,
     contactStore,
+    ingestion,
+    retriever,
+    groundedAnswers,
+    freshness,
+    knowledgeStore,
     observations,
     retention,
     db,

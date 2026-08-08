@@ -68,6 +68,11 @@ Project Vacation — operator commands
                                   consent revoke, consent state, dnc add, check,
                                   send. Run "contact" alone for the full usage.
 
+  knowledge <verb>                Ingest authority, answer regulated questions
+                                  from cited corpora, and keep corpora fresh.
+                                  corpus create, ingest, ask, freshness, review.
+                                  Run "knowledge" alone for the full usage.
+
   actions list                    Show the action registry with risk tiers
 
   approvals list [--status <a,b>] [--ageing] [--within <minutes>]
@@ -726,6 +731,22 @@ async function main(): Promise<number> {
           return 2;
         }
         return await commandContact(args, {
+          platform,
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
+      }
+      case "knowledge": {
+        // Imported here rather than at the top for the same reason the verbs
+        // above are: a process that only serves requests should not pay to parse
+        // the ingestion service, the retriever, the grounded answer service, and
+        // their store adapters.
+        const { commandKnowledge, KNOWLEDGE_USAGE } = await import("./knowledge.js");
+        if (args.positional[1] === undefined) {
+          console.error(KNOWLEDGE_USAGE);
+          return 2;
+        }
+        return await commandKnowledge(args, {
           platform,
           actor: cliActor(args),
           correlationId: first(args, "correlation-id"),
