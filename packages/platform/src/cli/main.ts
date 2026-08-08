@@ -58,6 +58,11 @@ Project Vacation — operator commands
                                   release, revoke, credential, runs, parked.
                                   Run "agents" alone for the full usage.
 
+  roles <verb>                    Author, evaluate, promote, and stop the roles
+                                  this platform runs. list, show, draft, golden,
+                                  propose, promote, revert, disable, enable.
+                                  Run "roles" alone for the full usage.
+
   actions list                    Show the action registry with risk tiers
 
   approvals list [--status <a,b>] [--ageing] [--within <minutes>]
@@ -677,6 +682,18 @@ async function main(): Promise<number> {
         // harness, the model gateway, and the shipped golden set.
         const { commandEvaluate } = await import("./evaluate.js");
         return await commandEvaluate(args, { platform, actor: cliActor(args) });
+      }
+      case "roles": {
+        // Imported here rather than at the top for the same reason `agents` and
+        // `evaluate` are: the role factory pulls in the promotion service, the
+        // evaluation harness, and the model gateway, and a process that only
+        // serves requests should not pay to parse them.
+        const { commandRoles } = await import("./roles.js");
+        return await commandRoles(args, {
+          platform,
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
       }
       case "health":
         return await commandHealth(args, platform);
