@@ -23,9 +23,10 @@ import { createSandbox, type Sandbox } from "./guard/sandbox.js";
 import { buildExternalPlane, type ExternalPlane } from "./external/plane.js";
 import type { Connector } from "./external/connectors.js";
 import type { SecretResolver } from "./external/credentials.js";
-import { MemoryObservationStore } from "./improve/store.memory.js";
-import { PgObservationStore } from "./improve/store.pg.js";
+import { MemoryObservationStore, MemoryProposalStore } from "./improve/store.memory.js";
+import { PgObservationStore, PgProposalStore } from "./improve/store.pg.js";
 import { ObservationHarvester } from "./improve/harvest.js";
+import type { ObservationStore, ProposalStore } from "./improve/port.js";
 import { WorkflowCatalogue } from "./engine/definition.js";
 import { MemoryWorkflowStore } from "./engine/store.memory.js";
 import { PgWorkflowStore } from "./engine/store.pg.js";
@@ -136,6 +137,44 @@ export interface Platform {
    * what the platform does. ADR 0011.
    */
   readonly observations: ObservationHarvester;
+  /**
+   * The read side of the observation store the improvement clusters are built
+   * from.
+   *
+   * The same store the harvester writes corrections into — exposed here so the
+   * console's improvement screen reads exactly what "correct this" wrote, not a
+   * second copy. `clusterObservations` is a pure function over these rows and
+   * stores nothing, so a cluster the console shows can always be reproduced from
+   * the observations it cites. What this store cannot source is a proposal: a
+   * correction is inert evidence, and turning a cluster into a change to
+   * behaviour is the propose/evaluate/apply path that no browser reaches.
+   */
+  readonly observationStore: ObservationStore;
+  /**
+   * The read side of the improvement-proposal store.
+   *
+   * Exposed for the console's proposal screen, and read-only from the request
+   * path on purpose. The propose stage that creates a proposal is deliberately
+   * not wired to any route (ADR 0011), so `listProposals` is honestly empty on a
+   * fresh deployment — the screen renders "no proposals", which is the truth,
+   * rather than a seeded set that would imply the loop had run. The adapter is
+   * chosen from validated configuration like every other store, so the console
+   * and the CLI read one proposal record rather than two that could disagree.
+   */
+  readonly proposals: ProposalStore;
+  /**
+   * The work-discovery collector.
+   *
+   * Composed already for its retention purge; exposed here so the console's
+   * discovery screen has a subsystem to read. It ships disabled
+   * (`PV_DISCOVERY_ENABLED=false`) and stays disabled until the employment-law
+   * questions in ADR 0012 are answered in writing, so the candidates route
+   * serves an empty page honestly and the console gates the whole screen on
+   * `health.discoveryEnabled`. Discovery output is inert whatever the flag says:
+   * a candidate is a description of a repeated path, never something a browser
+   * can activate.
+   */
+  readonly discovery: DiscoveryCollector;
   /**
    * The retention policy, enforced.
    *
@@ -566,6 +605,14 @@ export async function buildPlatform(
     },
   );
 
+  // The improvement-proposal store's read side, chosen from validated
+  // configuration like every other adapter. Only the read side is reached from
+  // the request path: the console lists and opens proposals, and the stage that
+  // creates one is deliberately not wired to a route (ADR 0011). On a fresh
+  // deployment nothing has drafted a proposal, so the list is honestly empty.
+  const proposals: ProposalStore =
+    db instanceof PgDb ? new PgProposalStore(db) : new MemoryProposalStore(memoryDb ?? new MemoryDb());
+
   const retention = new RetentionPurgeJob(
     buildRetentionRules({ config, clock, observations: observationStore, discovery }),
     auditLog,
@@ -809,6 +856,9 @@ export async function buildPlatform(
     degradation,
     integrationQueue,
     observations,
+    observationStore,
+    proposals,
+    discovery,
     retention,
     db,
     async close() {
