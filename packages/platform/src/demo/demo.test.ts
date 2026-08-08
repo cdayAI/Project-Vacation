@@ -1,5 +1,8 @@
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { runDemo, runDemoKeepingPlatform } from "./run.js";
+import { FixedClock } from "../kernel/clock.js";
+import { computeRescissionDeadline } from "../timeline/compute.js";
+import { isDemoEntrypoint, runDemo, runDemoKeepingPlatform } from "./run.js";
 import { SEED_CONTRACTS, SEED_CORPORA, SEED_DOCUMENTS, SYNTHETIC_MARKER } from "./corpus.js";
 
 /**
@@ -199,6 +202,71 @@ describe("seed data", () => {
       // Machine names, because the knowledge layer requires them.
       expect(corpus.name).toMatch(/^[a-z][a-z0-9_]*$/);
     }
+  });
+});
+
+describe("the effective-dating contract selects an earlier rule version", () => {
+  // R-07(a): ctr_fl_0004 is narrated as the effective-dating case, but it used a
+  // 2024 date that resolved to the *same* current Florida rule version as the
+  // 2026 contracts — so the narration described a selection the computation
+  // never made. It now carries a pre-2020 date, and this test asserts the
+  // version actually selected rather than trusting the prose. Computed the way
+  // the demo computes it (injected clock, unverified placeholders permitted).
+  const clock = new FixedClock("2026-08-06T13:00:00.000Z");
+
+  const versionFor = (contractId: string): string => {
+    const contract = SEED_CONTRACTS.find((c) => c.contractId === contractId);
+    if (!contract) throw new Error(`no seed contract ${contractId}`);
+    return computeRescissionDeadline(
+      {
+        stateCode: contract.state,
+        contractExecutedAt: contract.executedAt,
+        documentsDeliveredAt: contract.disclosureDeliveredAt,
+      },
+      { clock, requireVerifiedRules: false },
+    ).ruleVersion;
+  };
+
+  it("resolves the effective-dating contract to the earlier Florida version", () => {
+    expect(versionFor("ctr_fl_0004")).toBe("FL@1");
+  });
+
+  it("resolves the 2026 Florida contracts to the current version", () => {
+    expect(versionFor("ctr_fl_0001")).toBe("FL@2");
+    expect(versionFor("ctr_fl_0003")).toBe("FL@2");
+  });
+
+  it("selects a genuinely different version for the effective-dating case", () => {
+    // The whole point of the case: the version it selects is not the version
+    // the current contracts select. If these ever coincide, the demonstration
+    // is claiming an effective-dated selection it is no longer making.
+    expect(versionFor("ctr_fl_0004")).not.toBe(versionFor("ctr_fl_0001"));
+  });
+});
+
+describe("the demo entry-point guard is exact, not a substring", () => {
+  // R-07(d): the guard was `argv[1].includes("demo")`, which fired whenever the
+  // process entry path merely contained "demo" — so the CLI importing this
+  // module ran a second concurrent demo, and its byte-stable output slipped
+  // past CI's twice-and-diff gate. The guard now demands an exact path
+  // identity. These use real files, so `realpathSync` resolves.
+  const runUrl = new URL("./run.ts", import.meta.url).href;
+  const runPath = fileURLToPath(new URL("./run.ts", import.meta.url));
+  // A sibling in the same `demo/` directory: its path contains "demo", so the
+  // old substring guard would have mistaken it for the entry point.
+  const corpusPath = fileURLToPath(new URL("./corpus.ts", import.meta.url));
+
+  it("fires only when this module is itself the process entry point", () => {
+    expect(isDemoEntrypoint(runPath, runUrl)).toBe(true);
+  });
+
+  it("does not fire for another file whose path merely contains 'demo'", () => {
+    expect(isDemoEntrypoint(corpusPath, runUrl)).toBe(false);
+  });
+
+  it("does not fire when there is no entry, or it cannot be resolved", () => {
+    expect(isDemoEntrypoint(undefined, runUrl)).toBe(false);
+    expect(isDemoEntrypoint("/nonexistent/demo/path.ts", runUrl)).toBe(false);
   });
 });
 

@@ -165,6 +165,16 @@ export function buildExternalPlane(input: BuildExternalPlaneInput): ExternalPlan
 
   const mode: OperatingMode = input.operatingMode ?? "supervised";
 
+  // Built before enrollment so it can be handed to it: releasing a contained
+  // agent must reset its denial ledger, or the agent re-contains on its next
+  // denial. `EnrollmentService.release` is the durable release path, and the
+  // rate limiter owns the ledger.
+  const rateLimiter = new RateLimiter(stores.rateLimits, stores.agents, audit, clock, {
+    perOperationPerMinute: config.externalRequestsPerMinute,
+    denialsBeforeContainment: config.externalDenialsBeforeContainment,
+    denialWindowMs: config.externalDenialWindowSeconds * 1000,
+  });
+
   const enrollment = new EnrollmentService(
     stores.agents,
     authorizer,
@@ -173,6 +183,7 @@ export function buildExternalPlane(input: BuildExternalPlaneInput): ExternalPlan
     ids,
     limits,
     mode,
+    rateLimiter,
   );
 
   const credentials = new CredentialService(
@@ -184,12 +195,6 @@ export function buildExternalPlane(input: BuildExternalPlaneInput): ExternalPlan
     audit,
     { refuseBearerWhenStrongCredentialExists: config.externalRefuseBearerWhenStrong },
   );
-
-  const rateLimiter = new RateLimiter(stores.rateLimits, stores.agents, audit, clock, {
-    perOperationPerMinute: config.externalRequestsPerMinute,
-    denialsBeforeContainment: config.externalDenialsBeforeContainment,
-    denialWindowMs: config.externalDenialWindowSeconds * 1000,
-  });
 
   const admission = new AdmissionService(
     stores.agents,

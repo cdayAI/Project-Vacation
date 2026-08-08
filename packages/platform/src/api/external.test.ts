@@ -11,6 +11,7 @@ import { digestBytes } from "../kernel/hash.js";
 import type { Id } from "../kernel/ids.js";
 import { buildPlatform, type Platform } from "../platform.js";
 import { createServer } from "./server.js";
+import { approvalDetail } from "./approval-context.js";
 import { signingMessage } from "../external/credentials.js";
 import type { Connector } from "../external/connectors.js";
 import type { EnrolledAgent, ExternalAgentId } from "../external/types.js";
@@ -664,6 +665,40 @@ describe("external agent surface: reporting completed work", () => {
     expect(runs).toHaveLength(1);
   });
 
+  it("lands a report of a high-rated tool on the record, not behind an approval", async () => {
+    // A report is a record of work that ALREADY happened. The operator rated
+    // crm.update_contact high_consequence, which the chain floors the report's
+    // declaration to — above the approval threshold. Gating an after-the-fact
+    // report on a before-the-fact approval would park a useless external.report
+    // approval and keep completed work under the operator's highest-rated tools
+    // off the operating record forever, contradicting the one-record promise.
+    const before = await h.platform.approvals.list({ status: ["pending"] });
+
+    const response = await h.app.inject({
+      method: "POST",
+      url: "/api/external/report",
+      headers: bearer(h.token),
+      payload: JSON.stringify({
+        ...REPORT,
+        tool: "crm.update_contact",
+        idempotencyKey: "high-rated-episode-0001",
+      }),
+    });
+
+    expect(response.statusCode).toBe(201);
+    const body = response.json();
+    expect(body.duplicate).toBe(false);
+
+    const run = await h.platform.runs.getRun(body.runId);
+    expect(run?.status).toBe("succeeded");
+    // One record: it landed beside native work, marked external.
+    expect(run?.subject.principal).toBe("external");
+
+    // And nothing was parked for a human to decide about work already done.
+    const after = await h.platform.approvals.list({ status: ["pending"] });
+    expect(after.length).toBe(before.length);
+  });
+
   it("refuses a report naming a tool the agent was never granted", async () => {
     const response = await h.app.inject({
       method: "POST",
@@ -916,6 +951,38 @@ describe("external agent surface: governed execution", () => {
     expect(body.preview).toEqual(
       expect.arrayContaining([{ label: "contactId", value: "ctr_fl_0001" }]),
     );
+  });
+
+  it("shows the approver an external-agent write, and what it does", async () => {
+    // The screen a supervisor actually reads — what GET /api/approvals/:id
+    // serves through approvalDetail. Two failures this closes: the parked write
+    // used to classify as a native workflow approval (indistinguishable from a
+    // colleague's), and its preview never reached the human — they saw four ids
+    // and "nothing to preview inline" while authorising the write.
+    const parked = await h.app.inject({
+      method: "POST",
+      url: "/api/external/execute",
+      headers: bearer(h.token),
+      payload: JSON.stringify(WRITE),
+    });
+    const approval = await h.platform.approvals.get(parked.json().approvalId as Id<"approval">);
+
+    const detail = await approvalDetail(
+      approval as NonNullable<typeof approval>,
+      { actorId: "dev:supervisor", kind: "human", roles: ["supervisor"] },
+      h.platform,
+    );
+
+    // R-09: classified as an external agent, with the host it runs on.
+    expect(detail.provenance.kind).toBe("external_agent");
+    expect(detail.provenance.origin).toBe("customer relationship system");
+
+    // R-10: the write's own fields reach the approver's proposal list, so the
+    // person authorising it can see what they are authorising.
+    const proposal = Object.fromEntries(detail.proposal.map((row) => [row.label, row.value]));
+    expect(proposal.contactId).toBe("ctr_fl_0001");
+    expect(proposal.field).toBe("mailing_preference");
+    expect(proposal.value).toBe("post");
   });
 
   it("raises exactly one approval for one write", async () => {

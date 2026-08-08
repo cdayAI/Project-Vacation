@@ -84,6 +84,15 @@ export class ContainmentController {
   async assertClear(context: {
     readonly workflowName?: string | undefined;
     readonly roleId?: string | undefined;
+    /**
+     * Every role the actor is acting under. The per-role switch is checked
+     * against each: an action runs under all the roles its actor holds, so a
+     * switch on any of them must stop it. Without this the switch would only
+     * bite the `roleId` path (role promotion), leaving the workflow engine and
+     * ordinary callers — which carry the actor's roles, not a single role id —
+     * unreachable by an operator's stop button.
+     */
+    readonly actorRoles?: readonly string[] | undefined;
     readonly integration?: string | undefined;
     /** Compensation is permitted to run under containment. See class comment. */
     readonly isCompensation?: boolean | undefined;
@@ -104,10 +113,17 @@ export class ContainmentController {
         { workflow: context.workflowName },
       );
     }
-    if (context.roleId && (await this.isEngaged("role", context.roleId))) {
-      throw new DeniedError("containment.role_disabled", `Role "${context.roleId}" is disabled.`, {
-        roleId: context.roleId,
-      });
+    // Insertion order is preserved so the denial names the same role on every
+    // run: the explicitly-named acting role first, then the actor's held roles.
+    const rolesActingUnder = new Set<string>();
+    if (context.roleId) rolesActingUnder.add(context.roleId);
+    for (const role of context.actorRoles ?? []) rolesActingUnder.add(role);
+    for (const role of rolesActingUnder) {
+      if (await this.isEngaged("role", role)) {
+        throw new DeniedError("containment.role_disabled", `Role "${role}" is disabled.`, {
+          roleId: role,
+        });
+      }
     }
     if (context.integration && (await this.isEngaged("integration", context.integration))) {
       throw new DeniedError(

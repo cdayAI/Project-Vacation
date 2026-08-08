@@ -70,9 +70,13 @@ export class Authorizer {
       }
 
       // 3. Containment. Checked here so an in-flight run cannot outrun a pause.
+      //    The actor's roles are passed so a per-role switch reaches every
+      //    action performed under that role, not only the promotion path that
+      //    names a single role id.
       await this.containment.assertClear({
         workflowName: request.workflowName,
         roleId: request.roleId,
+        actorRoles: request.actor.roles,
         integration: descriptor.integration,
       });
 
@@ -284,6 +288,7 @@ export class Authorizer {
       await this.containment.assertClear({
         workflowName: request.workflowName,
         roleId: request.roleId,
+        actorRoles: request.actor.roles,
         integration: descriptor.integration,
       });
       if (!descriptor.allowedModes.includes(request.mode)) {

@@ -1,7 +1,7 @@
 import type { Clock } from "../kernel/clock.js";
 import { DeniedError } from "../kernel/errors.js";
 import { canonicalJson } from "../kernel/canonical.js";
-import { digestBytes, digestsEqual, type Digest } from "../kernel/hash.js";
+import { digestBytes, digestsEqual, digestValue, type Digest } from "../kernel/hash.js";
 import type { IdGenerator, Id } from "../kernel/ids.js";
 import type { AuditLog } from "../audit/log.js";
 import { decision as auditDecision } from "../audit/log.js";
@@ -280,7 +280,29 @@ export class ExecutionService {
           eligibleRoles: ["supervisor", "compliance_reviewer"],
           correlationId: request.correlationId,
           subject: {
+            // The write's own fields FIRST, so the approver reads what is being
+            // done — a $250,000 credit against owner own_4821 — rather than four
+            // opaque ids and "nothing to preview". Bounded exactly the way the
+            // admission chain reduces an agent-supplied subject: a short opaque
+            // reference or scalar is shown as itself, anything free-text is
+            // digested. This is the same append-only chain the record write
+            // lands in, so a raw payload cannot be allowed to persist here — but
+            // the load-bearing scalars an approver needs (an amount, an owner
+            // id, the field being changed) are exactly the shapes that survive.
+            // Spread first so the trusted markers below win any key collision.
+            ...writeSubjectProjection(request.request),
+            // The external-agent marker the admission chain writes onto its own
+            // parked approvals, runs, and audit entries. Without it `provenanceOf`
+            // reads this as a native workflow approval — indistinguishable from
+            // an impostor — and the console never shows the external-agent badge.
+            principal: "external",
             externalAgentId: request.agentId,
+            agentName: agent?.name ?? request.agentId,
+            hostPlatform: agent?.hostPlatform ?? "an external platform",
+            tool: `${request.integration}.${request.operation}`,
+            // A write performed on an agent's behalf is high-consequence by
+            // construction; stating it lets the screen read the risk back.
+            effectiveRisk: "high_consequence",
             integration: request.integration,
             operation: request.operation,
             parkedActionId: created.id,
@@ -734,6 +756,55 @@ export class ExecutionService {
       correlationId: request.correlationId ?? `external-${request.agentId}`,
     });
   }
+}
+
+/**
+ * The shape a value may keep in the approval subject and still be shown as
+ * itself — a short opaque reference or scalar. Anything else is digested.
+ *
+ * The same rule the admission chain applies to an agent-supplied subject
+ * (`external/admission.ts`), for the same reason: the approval subject is
+ * written to the append-only audit chain and screened by `assertNoRawPayloads`,
+ * so a free-text or secret-shaped value cannot be allowed to persist there.
+ * Digesting rather than dropping keeps the *field* visible to the approver
+ * while the record holds a fingerprint of its content, not the content.
+ */
+const SUBJECT_SCALAR = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+
+/** The most write fields to surface on the approval, under the subject's key cap. */
+const MAX_PROJECTED_FIELDS = 16;
+
+/**
+ * Project the write's own fields onto the approval subject.
+ *
+ * This is what turns the approver's screen from "four ids and nothing to
+ * preview" into the actual write. The record write's digest still binds the
+ * *whole* request, so this projection is a decision aid, not the authorised
+ * artifact — the digest is. It is deliberately the same discipline the
+ * admission chain uses so external work reads the same on the screen however it
+ * arrived: load-bearing scalars (an amount, an owner id, a target field) show
+ * as themselves; free text and nested structure are digested to a fingerprint.
+ */
+function writeSubjectProjection(request: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(request).slice(0, MAX_PROJECTED_FIELDS)) {
+    const boundedKey = key.slice(0, 64);
+    let rendered: string;
+    if (value === null || value === undefined) {
+      rendered = "(none)";
+    } else if (typeof value === "number") {
+      rendered = Number.isFinite(value) ? String(value) : digestValue({ value });
+    } else if (typeof value === "boolean") {
+      rendered = String(value);
+    } else if (typeof value === "string") {
+      rendered = SUBJECT_SCALAR.test(value) ? value : digestValue({ value });
+    } else {
+      // An object or array is a payload, not a reference — never readable here.
+      rendered = digestValue({ value });
+    }
+    out[boundedKey] = rendered;
+  }
+  return out;
 }
 
 /**

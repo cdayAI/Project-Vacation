@@ -361,13 +361,20 @@ export const SEED_CONTRACTS: readonly SeedContract[] = [
   },
   {
     contractId: "ctr_fl_0004",
+    // Pre-2020 on purpose. The Florida rule table carries two versions with the
+    // boundary at 1 January 2020, and only a contract formed before that date
+    // selects the earlier version (FL@1) rather than the one the 2026 contracts
+    // above resolve to (FL@2). A 2024 date — which this case used to carry —
+    // sits on the current side of the boundary and selected the same version as
+    // everything else, so the narration claimed an effective-dated selection the
+    // computation never made.
     state: "FL",
-    executedAt: "2024-03-15T17:00:00.000Z",
-    disclosureDeliveredAt: "2024-03-15T17:00:00.000Z",
+    executedAt: "2018-03-15T17:00:00.000Z",
+    disclosureDeliveredAt: "2018-03-15T17:00:00.000Z",
     financed: true,
     documentSetComplete: true,
     demonstrates:
-      "Effective dating: a 2024 contract is evaluated against the rule in force in 2024, not today's rule.",
+      "Effective dating: a contract formed in 2018 is judged against the earlier rule version in force then, not the version that governs the 2026 contracts above.",
   },
   {
     contractId: "ctr_fl_0005",

@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "../kernel/config.js";
 import { FixedClock } from "../kernel/clock.js";
 import { SeededIdGenerator, type Id } from "../kernel/ids.js";
@@ -914,10 +916,32 @@ async function runContainment(platform: Platform, out: Output): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-const isEntrypoint =
-  process.argv[1] !== undefined && process.argv[1].includes("demo");
+/**
+ * Is this module *the* process entry point?
+ *
+ * An exact path identity, resolved through symlinks — not a substring. The old
+ * `argv[1].includes("demo")` fired whenever the checkout path merely contained
+ * "demo", so the CLI dynamically importing this module (main.ts:564, :595) ran
+ * a second concurrent `runDemo()`. Its output was byte-stable, so CI's
+ * twice-and-diff gate stayed green over corrupt double output — the failure a
+ * determinism gate is least able to catch. `realpathSync` on both sides is what
+ * defeats the symlink dodge the substring match let through; anything that
+ * cannot be resolved to a real path is treated as "not the entry point", which
+ * fails closed on the side of not running a duplicate.
+ *
+ * Takes its two inputs rather than reading them, so the decision can be tested
+ * without being the process entry point.
+ */
+export function isDemoEntrypoint(entry: string | undefined, moduleUrl: string): boolean {
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
 
-if (isEntrypoint) {
+if (isDemoEntrypoint(process.argv[1], import.meta.url)) {
   runDemo()
     .then((result) => {
       process.exitCode = result.chainIntact ? 0 : 1;

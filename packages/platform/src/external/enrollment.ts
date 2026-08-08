@@ -48,8 +48,12 @@ import type {
  * action an operator can take alone in seconds, because a supervisor watching
  * an external agent misbehave must not wait for a second signature. Revoking is
  * `high_consequence` and needs an approval, because it is terminal: a revoked
- * agent never acts again and the record says who decided that. The fast control
- * and the permanent one are deliberately different actions with different gates.
+ * agent is refused all new work and the record says who decided that. Terminal
+ * is not the same as instantaneous — revocation takes effect at the agent's
+ * next contact, and the residual (an already-open run can still be finished) is
+ * stated in docs/handover/not-production-grade.md L13a rather than papered over
+ * in the approval guidance. The fast control and the permanent one are
+ * deliberately different actions with different gates.
  */
 
 // ---------------------------------------------------------------------------
@@ -125,16 +129,22 @@ export const EXTERNAL_AGENT_ACTIONS: readonly ActionDefinition[] = [
     name: REVOKE_ACTION,
     risk: "high_consequence",
     description:
-      "End an external agent's enrollment permanently. Terminal: the agent never acts again and its seat returns to the cap.",
+      "End an external agent's enrollment permanently. Terminal: the agent is refused all new work at its next admission check and its seat returns to the cap.",
     reversible: false,
     allowedRoles: [ADMIN, SUPERVISOR],
     approvalsRequired: 1,
     changesPlatformBehaviour: true,
     approvalGuidance: {
+      // Worded to the bound the platform can actually hold, not the one it would
+      // like to. An agent runs on the vendor's infrastructure, so revocation
+      // cannot reach into its process; it takes effect the next time the agent
+      // contacts this platform. Claiming instant reclamation and instant
+      // credential invalidation here would be a receipt for something the system
+      // never does — see docs/handover/not-production-grade.md L13a.
       ask: "End an external agent's enrolment for good",
       effects: [
-        "The agent stops working immediately, including any runs in flight, which are reclaimed rather than left open.",
-        "Its credentials stop verifying at the next admission check and cannot be reinstated.",
+        "The agent's next request through the admission chain is refused, and it can neither start new work nor be reinstated.",
+        "A run already in flight is not closed by the revocation itself: it is stopped on the run's next heartbeat, or reclaimed by the worker after the heartbeat window if the agent never beats again. Finishing an already-open run and polling its own approvals stay open to a revoked agent by design.",
         "Its seat returns to the deployment's cap.",
       ],
       ifRejected:
@@ -448,7 +458,20 @@ const SHARED_MAILBOXES = new Set([
   "team",
 ]);
 
-/** Fields a re-enrollment may set. Anything else is refused, not ignored. */
+/**
+ * Fields a re-enrollment may set. Anything else is refused, not ignored.
+ *
+ * `budgetPeriod` is deliberately absent. It is not metadata: the spend meter's
+ * bucket key is *derived* from it (`budgetPeriodKey` returns "lifetime" or
+ * "YYYY-MM"), and admission reads the meter at that derived key. Changing the
+ * period through re-enrollment would leave the old bucket's spend untouched in
+ * the store while pointing admission at a different, empty bucket — a spend
+ * reset that looks like nothing happened, with an audit entry that reads like
+ * routine maintenance. That is exactly the "re-enroll to clear the meter"
+ * bypass this whitelist exists to close, reached one level of indirection away.
+ * The period is fixed at enrollment; there is no operation that moves an agent's
+ * accrued spend to a new bucket, so there is no safe way to change it here.
+ */
 const UPDATABLE_FIELDS: readonly (keyof EnrollmentUpdate)[] = [
   "owner",
   "department",
@@ -457,7 +480,6 @@ const UPDATABLE_FIELDS: readonly (keyof EnrollmentUpdate)[] = [
   "allowedTools",
   "riskCeiling",
   "spendCeilingUsd",
-  "budgetPeriod",
   "wallClockCeilingMs",
   "dataScopes",
   "expiresAt",
@@ -466,9 +488,11 @@ const UPDATABLE_FIELDS: readonly (keyof EnrollmentUpdate)[] = [
 /**
  * Fields a caller might send hoping re-enrollment applies them.
  *
- * Named explicitly so the refusal is specific. These are the two routes around
- * the plane's limits — clear the meter, or clear the containment — and both are
- * refused with a message that says so rather than with "unknown field".
+ * Named explicitly so the refusal is specific. These are the three routes around
+ * the plane's limits — clear the meter directly, change the period that keys the
+ * meter (an indirect meter reset, see `UPDATABLE_FIELDS`), or clear the
+ * containment — and each is refused with a message that says so rather than with
+ * "unknown field".
  */
 const FORBIDDEN_UPDATE_FIELDS = new Set([
   "id",
@@ -482,11 +506,24 @@ const FORBIDDEN_UPDATE_FIELDS = new Set([
   "spend",
   "meter",
   "periodKey",
+  "budgetPeriod",
   "enrolledAt",
   "enrolledBy",
   "updatedAt",
   "lastSeenAt",
 ]);
+
+/**
+ * The denial ledger, as `release` needs it.
+ *
+ * A structural slice of the rate limiter — one method — so `EnrollmentService`
+ * can reset an agent's denial history on release without depending on the whole
+ * of `RateLimiter`. `RateLimiter` satisfies this directly, and the composition
+ * root passes it in.
+ */
+export interface DenialLedger {
+  clearDenials(agentId: ExternalAgentId): Promise<void>;
+}
 
 export class EnrollmentService {
   private readonly limits: EnrollmentLimits;
@@ -500,6 +537,16 @@ export class EnrollmentService {
     limits: EnrollmentLimits,
     /** The deployment's operating mode, passed to the chokepoint unchanged. */
     private readonly mode: OperatingMode,
+    /**
+     * Reset an agent's denial history when it is released.
+     *
+     * Required, not optional: a release that leaves the denial ledger intact is
+     * not a durable release — the agent re-contains on its very next denial
+     * because the denials that contained it are still counted. Making this a
+     * hard dependency means no deployment can compose an `EnrollmentService`
+     * whose release silently fails to hold.
+     */
+    private readonly denials: DenialLedger,
   ) {
     this.limits = assertLimits(limits);
   }
@@ -762,6 +809,25 @@ export class EnrollmentService {
       secondsSinceAuthentication: context.secondsSinceAuthentication,
     });
 
+    // Reset the denial ledger before flipping the status, and fail closed if it
+    // cannot be reset. Automatic containment clears the window when it engages
+    // (ratelimit.ts), but an agent contained *manually* — or one that
+    // accumulated denials below the threshold — carries a ledger that would
+    // re-contain it on the next denial the moment it is released. Releasing
+    // without clearing it produces a release that undoes itself; a release we
+    // cannot make durable must refuse rather than flip the status and leave the
+    // agent one denial away from contained again. Release is `sensitive` and
+    // burns no approval, so a refusal here costs the operator only a retry.
+    try {
+      await this.denials.clearDenials(id);
+    } catch (error) {
+      throw new DeniedError(
+        "record.unavailable",
+        `External agent ${id} was not released: its denial ledger could not be reset (${error instanceof Error ? error.message : String(error)}). A release that leaves the ledger intact re-contains the agent on its next denial, so it is refused rather than made unstable.`,
+        { agentId: id },
+      );
+    }
+
     const released = await this.agents.setAgentStatus({
       id,
       expectedStatus: "contained",
@@ -999,7 +1065,9 @@ export class EnrollmentService {
       if (FORBIDDEN_UPDATE_FIELDS.has(key)) {
         throw new DeniedError(
           "authorization.action_not_permitted",
-          `Re-enrollment cannot set "${key}". Re-enrolling adjusts ceilings and metadata; it never resets a spend meter and never changes status. Use contain, release, or revoke for status, and note that there is no operation anywhere that clears a meter.`,
+          key === "budgetPeriod"
+            ? `Re-enrollment cannot change "budgetPeriod" for external agent ${current.id}. The period selects which spend meter admission reads — flipping it points admission at a different, empty bucket and hands back the whole ceiling, an effective spend reset. The period is fixed at enrollment; adjust the ceiling instead.`
+            : `Re-enrollment cannot set "${key}". Re-enrolling adjusts ceilings and metadata; it never resets a spend meter and never changes status. Use contain, release, or revoke for status, and note that there is no operation anywhere that clears a meter.`,
           { agentId: current.id, field: key },
         );
       }
@@ -1034,9 +1102,6 @@ export class EnrollmentService {
         update.spendCeilingUsd,
         this.limits.maxSpendCeilingUsd,
       );
-    }
-    if (update.budgetPeriod !== undefined) {
-      patch["budgetPeriod"] = assertBudgetPeriod(update.budgetPeriod);
     }
     if (update.wallClockCeilingMs !== undefined) {
       patch["wallClockCeilingMs"] = boundedCount(
