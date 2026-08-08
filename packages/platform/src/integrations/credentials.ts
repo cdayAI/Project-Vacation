@@ -85,6 +85,64 @@ export class StaticSecretProvider implements SecretProvider {
 }
 
 /**
+ * Credentials resolved from the process environment.
+ *
+ * The `SecretProvider` doc names this backing explicitly: the deployment may
+ * back an outbound credential with an environment variable, a secret manager,
+ * or a short-lived token service, and everything downstream sees one interface.
+ * This is the environment-variable backing, and it is the default the
+ * composition root wraps in the revocation check — a deployment injects each
+ * credential's material from wherever its secrets actually live.
+ *
+ * For a credential asked for by reference `R`, this reads variables keyed on `R`
+ * upper-cased with every run of non-alphanumerics collapsed to one underscore
+ * (so `contract-records` becomes `CONTRACT_RECORDS`):
+ *
+ *     PV_INTEGRATION_CREDENTIAL_<KEY>          the secret value
+ *     PV_INTEGRATION_CREDENTIAL_<KEY>_HOSTS    comma-separated hosts it may be
+ *                                              presented to
+ *     PV_INTEGRATION_CREDENTIAL_<KEY>_SCHEME   bearer | basic | header (bearer)
+ *     PV_INTEGRATION_CREDENTIAL_<KEY>_HEADER   header name for scheme "header"
+ *
+ * Two fail-closed properties. An absent value returns null rather than throwing,
+ * so the egress client's refusal carries `integration.credential_missing` — the
+ * contract the interface requires, distinguishing "no credential" from an
+ * outage. And `_HOSTS` absent leaves `allowedHosts` empty, which the scope check
+ * reads as "presentable to nothing": a credential configured without its hosts
+ * is refused at every host rather than accepted at all of them. The credential
+ * is sealed on the way out, so its value cannot reach a log.
+ */
+export class EnvSecretProvider implements SecretProvider {
+  constructor(private readonly env: NodeJS.ProcessEnv = process.env) {}
+
+  async get(reference: string): Promise<IntegrationCredential | null> {
+    const key = reference.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+    if (key.length === 0) return null;
+    const value = this.env[`PV_INTEGRATION_CREDENTIAL_${key}`];
+    if (value === undefined || value.length === 0) return null;
+
+    const schemeRaw = (this.env[`PV_INTEGRATION_CREDENTIAL_${key}_SCHEME`] ?? "bearer")
+      .trim()
+      .toLowerCase();
+    const scheme: IntegrationCredential["scheme"] =
+      schemeRaw === "basic" ? "basic" : schemeRaw === "header" ? "header" : "bearer";
+    const allowedHosts = (this.env[`PV_INTEGRATION_CREDENTIAL_${key}_HOSTS`] ?? "")
+      .split(",")
+      .map((host) => host.trim())
+      .filter((host) => host.length > 0);
+    const headerName = this.env[`PV_INTEGRATION_CREDENTIAL_${key}_HEADER`]?.trim();
+
+    return sealCredential({
+      reference,
+      scheme,
+      value,
+      allowedHosts,
+      ...(headerName && headerName.length > 0 ? { headerName } : {}),
+    });
+  }
+}
+
+/**
  * A provider that consults the revocation list before answering.
  *
  * Wraps any other provider, so revocation works the same whether the secret

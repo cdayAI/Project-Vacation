@@ -19,6 +19,12 @@ import {
 } from "./approval-context.js";
 import { asRunId, describeRun, parseWorkQueueQuery, workQueuePage } from "./work-queue.js";
 import { runTimeline } from "./run-timeline.js";
+import { roleRegistryPage, roleVersionsPage } from "./role-registry.js";
+import { workflowInstanceView } from "./workflow-instance.js";
+import { improvementClustersPage } from "./improvement-clusters.js";
+import { improvementProposalsPage, improvementProposalView } from "./improvement-proposals.js";
+import { discoveryCandidatesPage } from "./discovery-backlog.js";
+import { executiveView } from "./executive.js";
 import type { Id } from "../kernel/ids.js";
 import { buildIdentityRuntime, type IdentityRuntime } from "../identity/runtime.js";
 import { mapDirectoryGroups } from "../identity/roles.js";
@@ -85,6 +91,25 @@ const DEV_ACTOR: ActorRef = {
     "platform_admin",
   ],
 };
+
+/**
+ * The `limit`/`offset` a list read is asked for, clamped.
+ *
+ * A default page of fifty and a ceiling of two hundred, matching the work
+ * queue. A non-numeric or negative value falls back rather than refusing: a
+ * paste-mangled query on a read should still return the first page rather than
+ * a 400, which the operator can do nothing useful with.
+ */
+function pageParams(query: unknown): { readonly limit: number; readonly offset: number } {
+  const record = (query ?? {}) as Record<string, string | string[] | undefined>;
+  const first = (value: string | string[] | undefined): string | undefined =>
+    Array.isArray(value) ? value[0] : value;
+  const rawLimit = Number(first(record.limit) ?? 50);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.trunc(rawLimit), 200) : 50;
+  const rawOffset = Number(first(record.offset) ?? 0);
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.trunc(rawOffset) : 0;
+  return { limit, offset };
+}
 
 function denialBody(error: DeniedError) {
   return {
@@ -983,6 +1008,114 @@ export function createServer(options: ServerOptions): FastifyInstance {
       }
       return detail;
     }),
+  );
+
+  // -------------------------------------------------------------------------
+  // The role registry — every job the platform has been given
+  // -------------------------------------------------------------------------
+  //
+  // A role is a versioned, attributable, evidenced artifact. These reads let the
+  // console show the registry and one role's full history; the authoring and
+  // promotion paths are actions of their own, reached through the CLI and gated
+  // at the chokepoint, not opened here.
+
+  app.get("/api/roles", async (request) =>
+    authorized(request, "record.read_run", async () => {
+      const { limit, offset } = pageParams(request.query);
+      return roleRegistryPage(platform, limit, offset);
+    }),
+  );
+
+  app.get("/api/roles/:roleId/versions", async (request, reply) =>
+    authorized(request, "record.read_run", async () => {
+      const { roleId } = request.params as { roleId: string };
+      const page = await roleVersionsPage(platform, roleId as Id<"role">);
+      if (!page) {
+        void reply.status(404);
+        return { error: "not_found", message: `No role ${roleId}.` };
+      }
+      return page;
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // A workflow instance, described so a supervisor can read it unaided
+  // -------------------------------------------------------------------------
+
+  app.get("/api/workflows/:instanceId", async (request, reply) =>
+    authorized(request, "record.read_run", async () => {
+      const { instanceId } = request.params as { instanceId: string };
+      const view = await workflowInstanceView(platform, instanceId as Id<"workflowInstance">);
+      if (!view) {
+        void reply.status(404);
+        return { error: "not_found", message: `No workflow instance ${instanceId}.` };
+      }
+      return view;
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // The improvement loop — clusters (real) and proposals (honestly empty)
+  // -------------------------------------------------------------------------
+  //
+  // Clusters are recomputed on demand from the corrections operators recorded;
+  // they are real data. Proposals are honestly empty on a fresh deployment,
+  // because the stage that drafts one is deliberately not wired to any route
+  // (ADR 0011). Both are reads: nothing here changes what the platform does.
+
+  app.get("/api/improvements/clusters", async (request) =>
+    authorized(request, "record.read_run", async () => {
+      const { limit, offset } = pageParams(request.query);
+      return improvementClustersPage(platform, limit, offset);
+    }),
+  );
+
+  app.get("/api/improvements/proposals", async (request) =>
+    authorized(request, "record.read_run", async () => {
+      const { limit, offset } = pageParams(request.query);
+      return improvementProposalsPage(platform, limit, offset);
+    }),
+  );
+
+  app.get("/api/improvements/proposals/:proposalId", async (request, reply) =>
+    authorized(request, "record.read_run", async () => {
+      const { proposalId } = request.params as { proposalId: string };
+      const proposal = await platform.proposals.getProposal(proposalId as Id<"proposal">);
+      if (!proposal) {
+        void reply.status(404);
+        return { error: "not_found", message: `No improvement proposal ${proposalId}.` };
+      }
+      return improvementProposalView(platform, proposal);
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Work discovery — empty when disabled, which is how this ships
+  // -------------------------------------------------------------------------
+  //
+  // The feature ships disabled; the console gates the whole screen on
+  // `health.discoveryEnabled`. When off, this serves an empty page honestly
+  // rather than inventing employee behaviour nothing observed.
+
+  app.get("/api/discovery/candidates", async (request) =>
+    authorized(request, "record.read_run", async () => {
+      const { limit, offset } = pageParams(request.query);
+      return discoveryCandidatesPage(platform, limit, offset);
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // The executive board — the business-value screen
+  // -------------------------------------------------------------------------
+  //
+  // Surfaces spend, so it authorizes through `record.read_cost` rather than
+  // `record.read_run`. Business figures are MVW's own reported results and say
+  // so; platform figures are measured from this deployment's record and say so.
+  // No business movement is credited to the platform, and no unmeasured saving
+  // is shown as a number.
+
+  app.get("/api/executive", async (request) =>
+    authorized(request, "record.read_cost", async () => executiveView(platform)),
   );
 
   // -------------------------------------------------------------------------

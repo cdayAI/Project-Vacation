@@ -23,9 +23,10 @@ import { createSandbox, type Sandbox } from "./guard/sandbox.js";
 import { buildExternalPlane, type ExternalPlane } from "./external/plane.js";
 import type { Connector } from "./external/connectors.js";
 import type { SecretResolver } from "./external/credentials.js";
-import { MemoryObservationStore } from "./improve/store.memory.js";
-import { PgObservationStore } from "./improve/store.pg.js";
+import { MemoryObservationStore, MemoryProposalStore } from "./improve/store.memory.js";
+import { PgObservationStore, PgProposalStore } from "./improve/store.pg.js";
 import { ObservationHarvester } from "./improve/harvest.js";
+import type { ObservationStore, ProposalStore } from "./improve/port.js";
 import { WorkflowCatalogue } from "./engine/definition.js";
 import { MemoryWorkflowStore } from "./engine/store.memory.js";
 import { PgWorkflowStore } from "./engine/store.pg.js";
@@ -66,6 +67,19 @@ import { TemplateRegistry } from "./documents/templates.js";
 import { DocumentGenerator } from "./documents/generate.js";
 import { DOCUMENT_ACTIONS } from "./documents/actions.js";
 import type { DocumentStore } from "./documents/port.js";
+import { FakeAssociationRecords, FakeContractRecords } from "./integrations/fakes.js";
+import { EgressClient, FetchHttpClient, type HttpClient } from "./integrations/egress.js";
+import { DegradationHandler } from "./integrations/degrade.js";
+import { EnvSecretProvider, RevocableSecretProvider } from "./integrations/credentials.js";
+import { MemoryCredentialRevocationStore, MemoryIntegrationQueueStore } from "./integrations/store.memory.js";
+import { PgCredentialRevocationStore, PgIntegrationQueueStore } from "./integrations/store.pg.js";
+import type {
+  AssociationRecordsPort,
+  ContractRecordsPort,
+  Integration,
+  IntegrationQueueStore,
+  SecretProvider,
+} from "./integrations/port.js";
 
 /**
  * The composition root.
@@ -123,6 +137,44 @@ export interface Platform {
    * what the platform does. ADR 0011.
    */
   readonly observations: ObservationHarvester;
+  /**
+   * The read side of the observation store the improvement clusters are built
+   * from.
+   *
+   * The same store the harvester writes corrections into — exposed here so the
+   * console's improvement screen reads exactly what "correct this" wrote, not a
+   * second copy. `clusterObservations` is a pure function over these rows and
+   * stores nothing, so a cluster the console shows can always be reproduced from
+   * the observations it cites. What this store cannot source is a proposal: a
+   * correction is inert evidence, and turning a cluster into a change to
+   * behaviour is the propose/evaluate/apply path that no browser reaches.
+   */
+  readonly observationStore: ObservationStore;
+  /**
+   * The read side of the improvement-proposal store.
+   *
+   * Exposed for the console's proposal screen, and read-only from the request
+   * path on purpose. The propose stage that creates a proposal is deliberately
+   * not wired to any route (ADR 0011), so `listProposals` is honestly empty on a
+   * fresh deployment — the screen renders "no proposals", which is the truth,
+   * rather than a seeded set that would imply the loop had run. The adapter is
+   * chosen from validated configuration like every other store, so the console
+   * and the CLI read one proposal record rather than two that could disagree.
+   */
+  readonly proposals: ProposalStore;
+  /**
+   * The work-discovery collector.
+   *
+   * Composed already for its retention purge; exposed here so the console's
+   * discovery screen has a subsystem to read. It ships disabled
+   * (`PV_DISCOVERY_ENABLED=false`) and stays disabled until the employment-law
+   * questions in ADR 0012 are answered in writing, so the candidates route
+   * serves an empty page honestly and the console gates the whole screen on
+   * `health.discoveryEnabled`. Discovery output is inert whatever the flag says:
+   * a candidate is a description of a repeated path, never something a browser
+   * can activate.
+   */
+  readonly discovery: DiscoveryCollector;
   /**
    * The retention policy, enforced.
    *
@@ -273,6 +325,51 @@ export interface Platform {
   readonly documentTemplates: TemplateRegistry;
   /** The document store the registry and the generator share. Exposed for the console and evidence. */
   readonly documentStore: DocumentStore;
+  /**
+   * The integrations layer, composed rather than merely built.
+   *
+   * `EgressClient`, `DegradationHandler`, and the `ContractRecordsPort` /
+   * `AssociationRecordsPort` were written, tested, and reachable from no
+   * composition root: the egress client was constructed nowhere, the degradation
+   * handler had no production caller, and the ports were implemented only by the
+   * in-process fakes, which were built only inside tests. So no system of record
+   * was ever reached from the composed platform, and `PV_EGRESS_ALLOWLIST` was a
+   * setting that bounded nothing because nothing egressed through it. A
+   * capability nothing can reach is not a capability. These fields are the
+   * wiring that makes the one governed integration path reachable end to end.
+   *
+   * **Development/fake is the shipped path, and the descriptors say so.** No real
+   * contract or association adapter exists — nobody on this project has seen
+   * MVW's systems — so the ports are the seeded fakes, which stand in for those
+   * systems and pass the same contract suite a real adapter must. The
+   * `EgressClient` is the transport a real adapter will reach a system of record
+   * through, and composing it here is what finally makes the allowlist bound
+   * something: a call to a host the allowlist does not name is refused before it
+   * leaves the process.
+   */
+  readonly contractRecords: ContractRecordsPort;
+  /** Association budget and reserve records, behind the same port a real adapter would satisfy. */
+  readonly associationRecords: AssociationRecordsPort;
+  /** The registered systems of record, for status and health. The two ports above, as `Integration`s. */
+  readonly systemsOfRecord: readonly Integration[];
+  /**
+   * The one governed outbound HTTP path, bounded by `PV_EGRESS_ALLOWLIST`.
+   *
+   * Host allowlist, per-call scoped credentials that are never logged, per-host
+   * rate limiting, timeouts, retries with idempotency keys, containment
+   * re-checked between attempts, and a step recorded before anything goes out.
+   */
+  readonly egress: EgressClient;
+  /**
+   * Explicit degradation over the integration queue.
+   *
+   * A failing integration call queues, parks for a human, or refuses — the
+   * caller's choice, never a quietly worse answer. A governance refusal is never
+   * degraded.
+   */
+  readonly degradation: DegradationHandler;
+  /** The degradation queue and parked-item store the handler runs over. Exposed for status. */
+  readonly integrationQueue: IntegrationQueueStore;
   /** Present only when the Postgres store is in use. */
   readonly db?: Db;
   /** Release connections. Safe to call more than once. */
@@ -305,6 +402,23 @@ export interface BuildOptions {
   readonly connectors?: readonly Connector[];
   /** Resolves HMAC secrets by name at verify time. */
   readonly secrets?: SecretResolver;
+  /**
+   * Outbound integration credentials, by reference.
+   *
+   * The composition seam for the governed egress path. Left unset, credentials
+   * are read from the environment (`EnvSecretProvider`), which is exactly what
+   * the `SecretProvider` interface anticipates. A test or the seeded demo passes
+   * a `StaticSecretProvider` so the path is exercisable with no environment.
+   */
+  readonly integrationSecrets?: SecretProvider;
+  /**
+   * The HTTP transport the egress client sends through.
+   *
+   * Left unset, real `fetch`. Injected by a test so the whole governed path —
+   * allowlist, credential scoping, recorded step, retry and degradation — is
+   * exercisable with no network.
+   */
+  readonly integrationHttp?: HttpClient;
 }
 
 export async function buildPlatform(
@@ -491,6 +605,14 @@ export async function buildPlatform(
     },
   );
 
+  // The improvement-proposal store's read side, chosen from validated
+  // configuration like every other adapter. Only the read side is reached from
+  // the request path: the console lists and opens proposals, and the stage that
+  // creates one is deliberately not wired to a route (ADR 0011). On a fresh
+  // deployment nothing has drafted a proposal, so the list is honestly empty.
+  const proposals: ProposalStore =
+    db instanceof PgDb ? new PgProposalStore(db) : new MemoryProposalStore(memoryDb ?? new MemoryDb());
+
   const retention = new RetentionPurgeJob(
     buildRetentionRules({ config, clock, observations: observationStore, discovery }),
     auditLog,
@@ -621,6 +743,59 @@ export async function buildPlatform(
   const groundedAnswers = new GroundedAnswerService(retriever, knowledgeStore, auditLog, clock);
   const freshness = new FreshnessMonitor(knowledgeStore, clock, authorizer);
 
+  // The integrations layer, composed here so the CLI and the API reach one
+  // governed path to MVW's systems of record.
+  //
+  // The ports are the seeded fakes: no real contract or association adapter
+  // exists, so development/fake is the shipped path and every descriptor says so
+  // (shapeConfirmedWithMvw is false). They stand in for MVW's real systems and
+  // are held to the same contract suite a real adapter must pass. They take the
+  // platform's clock like every other adapter, so the seeded demo reproduces.
+  //
+  // The queue store and the revocation list mirror every other adapter above:
+  // the concrete implementation is chosen from validated configuration and
+  // nowhere else, over the same database the integration migrations have already
+  // created. The secret provider is env-backed by default — the backing the
+  // `SecretProvider` interface names first — wrapped in the revocation check so a
+  // leaked credential is out of service the moment an operator says so, without
+  // waiting on a vault. It is overridable so a test or the demo can exercise the
+  // path with no environment.
+  //
+  // The `EgressClient` is handed `config.egressAllowlist`, which is what finally
+  // makes `PV_EGRESS_ALLOWLIST` bound something: with it composed here, a call to
+  // a host the allowlist does not name is refused before it leaves the process,
+  // rather than the allowlist being a setting that guards a path nothing takes.
+  // It is given the platform's own run store and containment controller, so every
+  // outbound call records a step before it goes out and stops at a kill switch
+  // engaged mid-retry. The degradation handler sits over the same queue store, so
+  // a failing call queues, parks, or refuses by the caller's explicit choice.
+  const contractRecords = new FakeContractRecords(clock);
+  const associationRecords = new FakeAssociationRecords(clock);
+  const systemsOfRecord: readonly Integration[] = [contractRecords, associationRecords];
+
+  const integrationQueue =
+    db instanceof PgDb
+      ? new PgIntegrationQueueStore(db)
+      : new MemoryIntegrationQueueStore(memoryDb ?? new MemoryDb());
+  const credentialRevocations =
+    db instanceof PgDb
+      ? new PgCredentialRevocationStore(db)
+      : new MemoryCredentialRevocationStore(memoryDb ?? new MemoryDb());
+  const integrationSecrets = new RevocableSecretProvider(
+    options.integrationSecrets ?? new EnvSecretProvider(),
+    credentialRevocations,
+  );
+  const egress = new EgressClient({
+    allowlist: config.egressAllowlist,
+    runs,
+    clock,
+    secrets: integrationSecrets,
+    http: options.integrationHttp ?? new FetchHttpClient(),
+    containment,
+    logger,
+  });
+  const degradation = new DegradationHandler(integrationQueue, clock, { logger });
+
   // The startup banner is not decoration. An operator must be able to see, at a
   // glance, whether the sandbox is contained and whether employee observation
   // is switched on — without reading the environment.
@@ -632,6 +807,10 @@ export async function buildPlatform(
     modelProvider: config.modelProvider,
     externalAgentsEnabled: config.externalAgentsEnabled,
     requireVerifiedStatutoryRules: config.requireVerifiedStatutoryRules,
+    // The egress allowlist now bounds a composed client: an operator can see
+    // how many hosts this deployment may reach, and that an empty list refuses
+    // every outbound integration call rather than guarding nothing.
+    egressAllowlistedHosts: config.egressAllowlist.length,
   });
   for (const warning of config.warnings) logger.warn(warning);
 
@@ -670,7 +849,16 @@ export async function buildPlatform(
     documents,
     documentTemplates,
     documentStore,
+    contractRecords,
+    associationRecords,
+    systemsOfRecord,
+    egress,
+    degradation,
+    integrationQueue,
     observations,
+    observationStore,
+    proposals,
+    discovery,
     retention,
     db,
     async close() {

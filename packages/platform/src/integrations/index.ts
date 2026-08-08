@@ -54,6 +54,7 @@ export type {
 
 export {
   CredentialRevocationService,
+  EnvSecretProvider,
   RevocableSecretProvider,
   StaticSecretProvider,
   credentialPermitsHost,

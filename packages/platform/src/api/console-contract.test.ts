@@ -44,16 +44,7 @@ const CLIENT_SOURCE = join(HERE, "../../../console/src/api/client.ts");
  * — the point — adding a new unserved endpoint fails too. It is a ratchet, not
  * a suppression.
  */
-const KNOWN_UNIMPLEMENTED = [
-  "/api/discovery/candidates",
-  "/api/executive",
-  "/api/improvements/clusters",
-  "/api/improvements/proposals",
-  "/api/improvements/proposals/:param",
-  "/api/roles",
-  "/api/roles/:param/versions",
-  "/api/workflows/:param",
-] as const;
+const KNOWN_UNIMPLEMENTED = [] as const;
 
 /**
  * Extract every path template the client builds, normalised to route syntax.
