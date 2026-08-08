@@ -48,6 +48,12 @@ test passed.
 
 Console 1,389 tests, tsc/lint clean, accessibility 18/18, bundle within budget. Not re-verified: a live browser render of the migrated panels (servers were flaky in the fix environment); the collision removal is confirmed structurally — `.pv-panel` single-defined — and by the full suite.
 
+**Wave 4 — the role factory is reachable. T-09, and critic §6.**
+
+- **T-09 / critic §6 — the role factory was built and inert; `pv evaluate --ci` reported that nothing in the registry had ever been evaluated because nothing could be.** The factory is now composed at the root and exposed on `Platform`, the lifecycle actions are registered in the one chokepoint, and `pv roles` (list, show, draft, golden publish, propose, promote, revert, disable, enable) reaches the real services with no rule re-implemented. Driven by hand against a fresh Postgres store, author → propose → approve(by a different person, real session, step-up observed) → promote → evaluate works end to end; promotion refuses without evidence, without a granted approval, and without the promoter's re-authentication; disable/enable is instant through containment. `pv evaluate --ci` now evaluates the promoted role and the banner is gone; disabling it brings the banner back. Residual: the read API routes (GET /api/roles) and the bias caller (T-10) are out of this wave, and a promoted role can act only in shadow until a widen verb exists.
+
+Platform 79 files / 2,007 tests, tsc/lint clean, no AI attribution, all Postgres contract suites active. Verified by driving the CLI and the eval gate against a real store, not by the suite alone.
+
 ---
 
 
@@ -125,12 +131,17 @@ Six independent auditors, each told to assume nothing was done and to accept a c
 **Gap.** Reachable from exactly one place — the seeded demonstration (demo/run.ts:155-174 constructs IngestionService, Retriever and GroundedAnswerService itself). platform.ts composes none of them; there is no HTTP route and no CLI verb for ingesting a document, asking a regulated question, or reviewing a stale corpus. The `knowledge.retrieve` action is registered (actions.ts:80) with no caller. So an operator cannot use the knowledge layer in the product; a demo script can.
 
 
-### T-09  [PARTIAL] (brief)
+### T-09  [RESOLVED via CLI — wave 4; API routes and bias wiring residual]
 
 **Claim.** §7 Agent roles and the role factory — versioned artifact, plain-language authoring surface producing an inert draft, promotion only on recorded evaluation evidence plus human approval, diffable/attributable/revertible, instantly disableable
 
 
 **Gap.** The factory half is inert. `draftRole` (roles/authoring.ts:149) and `RolePromotionService` (roles/promotion.ts:161) and `analyseFairness` (roles/bias.ts:144) have no caller outside tests — I grepped for constructors and call sites. There is no CLI verb and no API route to author, propose, promote, revert or disable a role; GET /api/roles and /api/roles/:id/versions are on the unimplemented ratchet (console-contract.test.ts:53-54) and I got live 404s for both. The consequence is visible in the product: `pv evaluate --ci` printed 'NOTHING IN THIS DEPLOYMENT'S ROLE REGISTRY WAS EVALUATED' because no role has ever been promoted and none could be.
+
+
+**Resolution (wave 4, commit "wire the role factory to operator surfaces").** The factory is composed at the root and reachable from a terminal. `buildPlatform` now constructs `RoleRegistry`, `RolePromotionService`, the role and evaluation stores, the model inventory, and the prompt-template registry, and exposes them on `Platform`; the action registry carries the role lifecycle actions so the one chokepoint resolves rather than refuses them. `pv roles` adds list, show, draft, golden publish, propose, promote, revert, disable, enable — every verb through the real services, no rule re-implemented. Driven by hand against a fresh Postgres store: `draft` produced an inert draft that cannot act; `propose` evaluated it 100% and recorded the evidence; `promote` **refused** without recorded evidence (`record.unavailable`), without a granted approval (`approval.required`), and without the promoter's re-authentication (`authorization.step_up_required`), each exit 1; a **different** person (role `supervisor`, via a real session with step-up observed) granted through `pv approvals decide`; only then did `promote` succeed; `disable` engaged containment and `enable` released it with no fresh approval. After promotion `pv evaluate --ci` evaluates the role (2/2, PASS, exit 0) and the "NOTHING WAS EVALUATED" banner is gone; disabling the role brings it back. This closes critic §6.
+
+**Residual.** Two halves are deliberately out of this wave. (1) The read API routes GET /api/roles and /api/roles/:id/versions are still on the unimplemented ratchet — the CLI is the operator surface wired here, not the console's role screen. (2) `analyseFairness` / bias.ts still has no caller (that is T-10, not T-09), and `draftRole` produces shadow-only roles with no verb to widen operating modes, so a promoted role can currently act only in shadow — which is the mode the gate exercises, so the gate is honest, but an assisted/supervised effect is not yet reachable from the CLI.
 
 
 ### T-10  [PARTIAL] (brief)
@@ -1045,6 +1056,8 @@ The registry holds no promoted role... Promote a role and this gate starts cover
 ```
 
 The remedy it offers is impossible twice over: there is no promotion surface (`RolePromotionService` has no caller outside tests), and `role.promote` is one of the ten un-grantable actions from finding 1. The banner is honest about the state; its instruction cannot be followed.
+
+**Resolved (wave 4, with finding 1 already fixed in wave 1).** The promotion surface exists — `pv roles` reaches the composed `RolePromotionService` — and `role.promote` is grantable now that step-up and the `pv approvals decide` verb are wired. Driven by hand: a role authored, evaluated, approved by a second person, and promoted, after which `pv evaluate --ci` prints the promoted role's result (PASS) and the banner is absent. The instruction the banner gives can now be followed end to end. See T-09's resolution note above.
 
 ---
 
