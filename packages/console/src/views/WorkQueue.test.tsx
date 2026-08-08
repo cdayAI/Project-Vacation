@@ -1,9 +1,26 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { expectNoAccessibilityViolations, renderSurface } from "../test/axe";
 import { workQueueItems } from "../test/fixtures";
 import { WorkQueue } from "./WorkQueue";
+
+/**
+ * Pin "now" to the fixtures' own week.
+ *
+ * The age band — "Within SLA", "Due soon", "Past due" — is computed in the
+ * browser from each item's SLA window and the current time, on purpose: the
+ * platform sends a target, never a colour. The fixtures carry fixed early-August
+ * dates, so with the real clock every item eventually crosses the 80% "due soon"
+ * line and no row is left "Within SLA" — a test that quietly rots as the wall
+ * clock moves past the data, not as the code changes. Mocking the clock source
+ * to a fixed instant inside the fixtures' window makes the age assertions test
+ * the rendering rule rather than today's date. Only the clock is fixed; nothing
+ * about what the rows say is relaxed.
+ */
+vi.mock("../useNow", () => ({
+  useNow: () => new Date("2026-08-06T12:00:00.000Z"),
+}));
 
 /**
  * Counts are derived from the fixture rather than written in.
