@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Resource } from "./api/useResource";
-import { Button, Callout } from "./components";
+import { Button, Callout } from "./ui";
 import { Denial } from "./views/Denial";
 
 export interface ResourceViewProps<T> {

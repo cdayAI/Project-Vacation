@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type {
   OperatingMode,
@@ -7,21 +7,11 @@ import type {
   WorkQueueOwner,
 } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DataTable,
-  EmptyState,
-  Field,
-  ModePill,
-  RunStatusPill,
-  modeLabel,
-  runStatusLabel,
-  type Column,
-} from "../components";
 import { formatAge, formatDateTime, formatUsd, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import type { StatusTone } from "../theme/tokens";
+import { Badge, Callout, EmptyState, Field, IconAlert } from "../ui";
 import { useNow } from "../useNow";
 
 /**
@@ -69,6 +59,53 @@ const MODE_OPTIONS: readonly OperatingMode[] = [
   "supervised",
   "bounded_autonomy",
 ];
+
+/**
+ * The console's run-status vocabulary, held here rather than reached for.
+ *
+ * The design system has a status-pill family, but it lives in the legacy
+ * `components/` layer this screen is being taken off; its `src/ui` successor is
+ * the `Badge` primitive plus a per-screen map of what the words and tone are.
+ * Every entry carries a written label — colour and mark are redundant channels
+ * on top of it, never the carrier (WCAG 1.4.1). `denied` is a tone of its own,
+ * not a shade of `danger`: a refusal is the governance working, and painting it
+ * the colour of a breach teaches operators to read control as breakage.
+ */
+const RUN_STATUS: Readonly<Record<RunStatus, { readonly label: string; readonly tone: StatusTone }>> =
+  {
+    pending: { label: "Pending", tone: "neutral" },
+    running: { label: "Running", tone: "info" },
+    awaiting_human: { label: "Awaiting a person", tone: "warning" },
+    awaiting_approval: { label: "Awaiting approval", tone: "warning" },
+    succeeded: { label: "Succeeded", tone: "success" },
+    failed: { label: "Failed", tone: "danger" },
+    cancelled: { label: "Cancelled", tone: "neutral" },
+    denied: { label: "Refused", tone: "denied" },
+  };
+
+function runStatusLabel(status: RunStatus): string {
+  return RUN_STATUS[status].label;
+}
+
+function RunStatusPill({ status }: { readonly status: RunStatus }) {
+  const presentation = RUN_STATUS[status];
+  return <Badge tone={presentation.tone}>{presentation.label}</Badge>;
+}
+
+const MODE_LABELS: Readonly<Record<OperatingMode, string>> = {
+  shadow: "Shadow",
+  assisted: "Assisted",
+  supervised: "Supervised",
+  bounded_autonomy: "Bounded autonomy",
+};
+
+function modeLabel(mode: OperatingMode): string {
+  return MODE_LABELS[mode];
+}
+
+function ModePill({ mode }: { readonly mode: OperatingMode }) {
+  return <Badge tone="neutral">{MODE_LABELS[mode]}</Badge>;
+}
 
 /** Work that has ended. Nobody is waiting on it, so no deadline applies. */
 const TERMINAL_STATUSES: readonly RunStatus[] = ["succeeded", "failed", "cancelled", "denied"];
@@ -237,13 +274,14 @@ export function WorkQueue({ items, total, totalIsExact = true }: WorkQueueProps)
           <span className={`pv-stack-tight pv-age pv-age-${band}`}>
             <time dateTime={started}>{formatAge(started, now)}</time>
             {band === "breached" ? (
-              <Badge tone="danger" glyph="▲">
+              // The triangle rather than the tone's default cross: a cross reads
+              // as "this failed", and a breach is a deadline to weigh, not a run
+              // that broke — the same reason the risk vocabulary warns with ▲.
+              <Badge tone="danger" icon={<IconAlert size="sm" />}>
                 {BAND_LABEL.breached}
               </Badge>
             ) : band === "due_soon" ? (
-              <Badge tone="warning" glyph="▲">
-                {BAND_LABEL.due_soon}
-              </Badge>
+              <Badge tone="warning">{BAND_LABEL.due_soon}</Badge>
             ) : (
               <span className="pv-meta">{BAND_LABEL[band]}</span>
             )}
@@ -450,7 +488,7 @@ export function WorkQueue({ items, total, totalIsExact = true }: WorkQueueProps)
           headingLevel={2}
         />
       ) : (
-        <DataTable
+        <QueueTable
           caption={`Work queue, ${pluralise(visible.length, "item", "items")}.`}
           columns={columns}
           rows={visible}
@@ -474,5 +512,168 @@ export function WorkQueueRoute() {
         <WorkQueue items={page.items} total={page.total} totalIsExact={page.totalIsExact} />
       )}
     </ResourceView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The queue's table
+//
+// A real `<table>`, hand-rolled in the view rather than drawn from the design
+// system's `Table`. That component is a virtualized `role="grid"` cursor widget
+// built for ten thousand rows, and it deliberately offers no per-row styling
+// hook — but the breach signal on this screen needs one. Two of the four
+// channels that state a breach are row-level: the tinted row and the bar down
+// its leading edge, both drawn from `rowClassName`. Losing them to reach the
+// grid would drop the "scan from across a room" half of a signal the whole
+// screen is organised around, so the semantic table stays here, carrying the
+// `<caption>`, `<th scope>` on both axes, and `aria-sort` a screen reader
+// needs. The `pv-dt-` class prefix keeps its styles clear of `pv-table-`, which
+// the grid owns.
+// ---------------------------------------------------------------------------
+
+interface Column<T> {
+  readonly key: string;
+  readonly header: string;
+  /** Right-aligned and tabular-figured. Use for money, counts, durations. */
+  readonly numeric?: boolean;
+  /** Supply to make the column sortable. Omit and the header is plain text. */
+  readonly sortValue?: (row: T) => string | number;
+  /** Exactly one column should set this: it becomes the row's `<th scope="row">`. */
+  readonly rowHeader?: boolean;
+  readonly render: (row: T) => ReactNode;
+}
+
+interface SortState {
+  readonly columnKey: string;
+  readonly direction: "ascending" | "descending";
+}
+
+function compare(a: string | number, b: string | number): number {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function QueueTable<T>({
+  caption,
+  columns,
+  rows,
+  rowKey,
+  rowClassName,
+  defaultSort,
+}: {
+  readonly caption: string;
+  readonly columns: readonly Column<T>[];
+  readonly rows: readonly T[];
+  readonly rowKey: (row: T) => string;
+  readonly rowClassName?: (row: T) => string | undefined;
+  readonly defaultSort?: SortState;
+}) {
+  const captionId = useId();
+  const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
+
+  const sortedRows = useMemo(() => {
+    if (sort === null) return rows;
+    const column = columns.find((candidate) => candidate.key === sort.columnKey);
+    if (column?.sortValue === undefined) return rows;
+    const sortValue = column.sortValue;
+    const direction = sort.direction === "ascending" ? 1 : -1;
+    // Decorated so the sort is stable: equal keys keep their original order,
+    // which is what makes "sorted by status, oldest first within a status"
+    // actually behave that way.
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((left, right) => {
+        const result = compare(sortValue(left.row), sortValue(right.row));
+        return result !== 0 ? result * direction : left.index - right.index;
+      })
+      .map((entry) => entry.row);
+  }, [rows, columns, sort]);
+
+  function toggleSort(columnKey: string): void {
+    setSort((current) => {
+      if (current?.columnKey !== columnKey) return { columnKey, direction: "ascending" };
+      return {
+        columnKey,
+        direction: current.direction === "ascending" ? "descending" : "ascending",
+      };
+    });
+  }
+
+  return (
+    <div className="pv-dt-scroll" tabIndex={0} role="region" aria-labelledby={captionId}>
+      <table className="pv-dt">
+        <caption id={captionId}>{caption}</caption>
+        <thead>
+          <tr>
+            {columns.map((column) => {
+              const isSorted = sort?.columnKey === column.key;
+              const className = column.numeric === true ? "pv-dt-numeric" : undefined;
+
+              if (column.sortValue === undefined) {
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    className={
+                      className === undefined ? "pv-dt-plain-header" : `pv-dt-plain-header ${className}`
+                    }
+                  >
+                    {column.header}
+                  </th>
+                );
+              }
+
+              const nextDirection =
+                isSorted && sort.direction === "ascending" ? "descending" : "ascending";
+
+              return (
+                <th
+                  key={column.key}
+                  scope="col"
+                  className={className}
+                  aria-sort={isSorted ? sort.direction : "none"}
+                >
+                  {/* The button fills its header cell, so the hit target is the
+                      whole header rather than a small glyph inside it (WCAG
+                      2.2 2.5.8). */}
+                  <button type="button" className="pv-dt-sort" onClick={() => toggleSort(column.key)}>
+                    {column.header}
+                    <span className="pv-dt-sort-indicator" aria-hidden="true">
+                      {isSorted ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}
+                    </span>
+                    <span className="pv-sr-only">
+                      {isSorted
+                        ? `, sorted ${sort.direction}. Activate to sort ${nextDirection}.`
+                        : `, not sorted. Activate to sort ascending.`}
+                    </span>
+                  </button>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRows.map((row) => (
+            <tr key={rowKey(row)} className={rowClassName?.(row)}>
+              {columns.map((column) => {
+                const className = column.numeric === true ? "pv-dt-numeric" : undefined;
+                if (column.rowHeader === true) {
+                  return (
+                    <th key={column.key} scope="row" className={className}>
+                      {column.render(row)}
+                    </th>
+                  );
+                }
+                return (
+                  <td key={column.key} className={className}>
+                    {column.render(row)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

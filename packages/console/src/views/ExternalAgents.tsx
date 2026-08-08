@@ -1,24 +1,17 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type {
   CredentialKind,
   ExternalAgentStatus,
   ExternalAgentView,
+  RiskTier,
 } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DataTable,
-  EmptyState,
-  Field,
-  RiskPill,
-  riskLabel,
-  type Column,
-} from "../components";
 import { formatDateTime, formatUsd, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import type { StatusTone } from "../theme/tokens";
+import { Badge, Callout, EmptyState, Field, IconAlert } from "../ui";
 
 /**
  * The roster of agents running outside this platform.
@@ -55,8 +48,7 @@ const STATUS_OPTIONS: readonly ExternalAgentStatus[] = ["active", "contained", "
 
 interface StatePresentation {
   readonly label: string;
-  readonly tone: "neutral" | "success" | "warning" | "danger" | "denied";
-  readonly glyph: string;
+  readonly tone: StatusTone;
 }
 
 /**
@@ -69,10 +61,10 @@ interface StatePresentation {
  * reading a date column is discovering it too late.
  */
 const STATE: Readonly<Record<string, StatePresentation>> = {
-  active: { label: "Running", tone: "success", glyph: "✓" },
-  contained: { label: "Contained", tone: "danger", glyph: "⊘" },
-  revoked: { label: "Revoked", tone: "denied", glyph: "⊟" },
-  expired: { label: "Enrollment expired", tone: "warning", glyph: "▲" },
+  active: { label: "Running", tone: "success" },
+  contained: { label: "Contained", tone: "danger" },
+  revoked: { label: "Revoked", tone: "denied" },
+  expired: { label: "Enrollment expired", tone: "warning" },
 };
 
 export function agentState(agent: ExternalAgentView): string {
@@ -84,11 +76,34 @@ export function agentState(agent: ExternalAgentView): string {
 function AgentStatePill({ agent }: { readonly agent: ExternalAgentView }) {
   const presentation = STATE[agentState(agent)] ?? STATE["active"];
   if (presentation === undefined) return null;
-  return (
-    <Badge tone={presentation.tone} glyph={presentation.glyph}>
-      {presentation.label}
-    </Badge>
-  );
+  // The tone contributes the mark; the word is the carrier. A state read only
+  // from colour is no state at all to a monochrome export or a screen reader.
+  return <Badge tone={presentation.tone}>{presentation.label}</Badge>;
+}
+
+/**
+ * The risk ceiling, as a word.
+ *
+ * The design system's pill family lived in the legacy `components/` layer this
+ * screen is being taken off; its `src/ui` successor is the `Badge` primitive
+ * plus a per-screen map of the words and tone. `prohibited` is `denied` rather
+ * than a shade of `danger` — a ceiling that forbids an action is the governance
+ * holding, not a fault — matching the run vocabulary elsewhere in the console.
+ */
+const RISK: Readonly<Record<RiskTier, { readonly label: string; readonly tone: StatusTone }>> = {
+  routine: { label: "Routine", tone: "neutral" },
+  sensitive: { label: "Sensitive", tone: "info" },
+  high_consequence: { label: "High consequence", tone: "danger" },
+  prohibited: { label: "Prohibited", tone: "denied" },
+};
+
+function riskLabel(risk: RiskTier): string {
+  return RISK[risk].label;
+}
+
+function RiskPill({ risk }: { readonly risk: RiskTier }) {
+  const presentation = RISK[risk];
+  return <Badge tone={presentation.tone}>{presentation.label} risk</Badge>;
 }
 
 const CREDENTIAL_LABEL: Readonly<Record<CredentialKind, string>> = {
@@ -213,7 +228,10 @@ export function ExternalAgents({ agents, total }: ExternalAgentsProps) {
             {agent.budgetPeriod === "lifetime" ? "Lifetime" : `Period ${agent.periodKey}`}
           </span>
           {agent.overBudget && (
-            <Badge tone="danger" glyph="▲">
+            // The triangle rather than the tone's default cross: a cross reads
+            // as "this failed", and a ceiling reached is a limit to weigh, not a
+            // run that broke — the same reason the risk vocabulary warns with ▲.
+            <Badge tone="danger" icon={<IconAlert size="sm" />}>
               Over ceiling
             </Badge>
           )}
@@ -232,9 +250,7 @@ export function ExternalAgents({ agents, total }: ExternalAgentsProps) {
       sortValue: (agent) => agent.credentialKinds.join(","),
       render: (agent) =>
         agent.credentialKinds.length === 0 ? (
-          <Badge tone="warning" glyph="○">
-            None held
-          </Badge>
+          <Badge tone="warning">None held</Badge>
         ) : (
           <span className="pv-stack-tight">
             {agent.credentialKinds.map((kind) => (
@@ -390,7 +406,7 @@ export function ExternalAgents({ agents, total }: ExternalAgentsProps) {
           headingLevel={2}
         />
       ) : (
-        <DataTable
+        <AgentTable
           caption={`External agents, ${pluralise(visible.length, "agent", "agents")}.`}
           columns={columns}
           rows={visible}
@@ -420,5 +436,168 @@ export function ExternalAgentsRoute() {
     <ResourceView resource={resource} attempted="the external agent roster">
       {(page) => <ExternalAgents agents={page.items} total={page.total} />}
     </ResourceView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The roster's table
+//
+// A real `<table>`, hand-rolled in the view rather than drawn from the design
+// system's `Table`. That component is a virtualized `role="grid"` cursor widget
+// built for ten thousand rows, and it deliberately offers no per-row styling
+// hook — but the roster's alarm signals need one. Containment, revocation, over
+// budget and expiry are each carried in words in a cell AND in a tinted row, so
+// a state survives greyscale, a screen reader, and a scan from across a room
+// (WCAG 1.4.1); the tint is drawn from `rowClassName`. Reaching for the grid
+// would drop that second channel, so the semantic table stays here, carrying
+// the `<caption>`, `<th scope>` on both axes, and `aria-sort` a screen reader
+// needs. The `pv-dt-` class prefix keeps its styles clear of `pv-table-`, which
+// the grid owns.
+// ---------------------------------------------------------------------------
+
+interface Column<T> {
+  readonly key: string;
+  readonly header: string;
+  /** Right-aligned and tabular-figured. Use for money, counts, durations. */
+  readonly numeric?: boolean;
+  /** Supply to make the column sortable. Omit and the header is plain text. */
+  readonly sortValue?: (row: T) => string | number;
+  /** Exactly one column should set this: it becomes the row's `<th scope="row">`. */
+  readonly rowHeader?: boolean;
+  readonly render: (row: T) => ReactNode;
+}
+
+interface SortState {
+  readonly columnKey: string;
+  readonly direction: "ascending" | "descending";
+}
+
+function compare(a: string | number, b: string | number): number {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function AgentTable<T>({
+  caption,
+  columns,
+  rows,
+  rowKey,
+  rowClassName,
+  defaultSort,
+}: {
+  readonly caption: string;
+  readonly columns: readonly Column<T>[];
+  readonly rows: readonly T[];
+  readonly rowKey: (row: T) => string;
+  readonly rowClassName?: (row: T) => string | undefined;
+  readonly defaultSort?: SortState;
+}) {
+  const captionId = useId();
+  const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
+
+  const sortedRows = useMemo(() => {
+    if (sort === null) return rows;
+    const column = columns.find((candidate) => candidate.key === sort.columnKey);
+    if (column?.sortValue === undefined) return rows;
+    const sortValue = column.sortValue;
+    const direction = sort.direction === "ascending" ? 1 : -1;
+    // Decorated so the sort is stable: equal keys keep their original order,
+    // which is what makes the default "contained first, then within a state the
+    // order they arrived" actually behave that way.
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((left, right) => {
+        const result = compare(sortValue(left.row), sortValue(right.row));
+        return result !== 0 ? result * direction : left.index - right.index;
+      })
+      .map((entry) => entry.row);
+  }, [rows, columns, sort]);
+
+  function toggleSort(columnKey: string): void {
+    setSort((current) => {
+      if (current?.columnKey !== columnKey) return { columnKey, direction: "ascending" };
+      return {
+        columnKey,
+        direction: current.direction === "ascending" ? "descending" : "ascending",
+      };
+    });
+  }
+
+  return (
+    <div className="pv-dt-scroll" tabIndex={0} role="region" aria-labelledby={captionId}>
+      <table className="pv-dt">
+        <caption id={captionId}>{caption}</caption>
+        <thead>
+          <tr>
+            {columns.map((column) => {
+              const isSorted = sort?.columnKey === column.key;
+              const className = column.numeric === true ? "pv-dt-numeric" : undefined;
+
+              if (column.sortValue === undefined) {
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    className={
+                      className === undefined ? "pv-dt-plain-header" : `pv-dt-plain-header ${className}`
+                    }
+                  >
+                    {column.header}
+                  </th>
+                );
+              }
+
+              const nextDirection =
+                isSorted && sort.direction === "ascending" ? "descending" : "ascending";
+
+              return (
+                <th
+                  key={column.key}
+                  scope="col"
+                  className={className}
+                  aria-sort={isSorted ? sort.direction : "none"}
+                >
+                  {/* The button fills its header cell, so the hit target is the
+                      whole header rather than a small glyph inside it (WCAG
+                      2.2 2.5.8). */}
+                  <button type="button" className="pv-dt-sort" onClick={() => toggleSort(column.key)}>
+                    {column.header}
+                    <span className="pv-dt-sort-indicator" aria-hidden="true">
+                      {isSorted ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}
+                    </span>
+                    <span className="pv-sr-only">
+                      {isSorted
+                        ? `, sorted ${sort.direction}. Activate to sort ${nextDirection}.`
+                        : `, not sorted. Activate to sort ascending.`}
+                    </span>
+                  </button>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRows.map((row) => (
+            <tr key={rowKey(row)} className={rowClassName?.(row)}>
+              {columns.map((column) => {
+                const className = column.numeric === true ? "pv-dt-numeric" : undefined;
+                if (column.rowHeader === true) {
+                  return (
+                    <th key={column.key} scope="row" className={className}>
+                      {column.render(row)}
+                    </th>
+                  );
+                }
+                return (
+                  <td key={column.key} className={className}>
+                    {column.render(row)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

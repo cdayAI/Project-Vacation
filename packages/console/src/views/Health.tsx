@@ -1,12 +1,7 @@
-import type { ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type { HealthView as HealthViewModel } from "../api/contract";
 import { useResource } from "../api/useResource";
-// The containment table is the one thing on this screen still drawn by the old
-// component layer. See the note above it: `ui/surfaces/Table` has no
-// `rowClassName`, and that class is what makes a stopped row readable as
-// stopped from across the room.
-import { DataTable, type Column } from "../components";
 import { formatCount, formatDateTime, formatUsd, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
@@ -68,6 +63,173 @@ function DefinitionList({ items }: { readonly items: readonly DefinitionItem[] }
         </div>
       ))}
     </dl>
+  );
+}
+
+interface Column<T> {
+  readonly key: string;
+  readonly header: string;
+  /** Right-aligned and tabular-figured. Use for money, counts, durations. */
+  readonly numeric?: boolean;
+  /** Supply to make the column sortable. Omit and the header is plain text. */
+  readonly sortValue?: (row: T) => string | number;
+  /** Exactly one column should set this: it becomes the row's `<th scope="row">`. */
+  readonly rowHeader?: boolean;
+  readonly render: (row: T) => ReactNode;
+}
+
+type SortDirection = "ascending" | "descending";
+
+interface SortState {
+  readonly columnKey: string;
+  readonly direction: SortDirection;
+}
+
+function compareCells(a: string | number, b: string | number): number {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+}
+
+/**
+ * A sortable document table, inlined rather than reached for.
+ *
+ * The design system's `ui/surfaces/Table` is the wrong instrument here, not a
+ * missing feature. It is a `role="grid"` — a keyboard widget that promises
+ * arrow-key cell reading and row selection — and it virtualizes, mounting only
+ * the rows in view. This screen wants the opposite of both: a plain document
+ * table a screen reader reads as prose, every row present, and — the part with
+ * no equivalent on the grid — a whole stopped row painted in the denied tone
+ * via `rowClassName`. A stopped switch is a refusal, and the refusal has to be
+ * legible as the row it is, not as a badge buried in one cell. So the semantic
+ * table lives here, keeping its `<caption>`, `<th scope>` on both axes, and
+ * `aria-sort` — none of which survive being rebuilt out of the grid.
+ */
+function DataTable<T>({
+  caption,
+  columns,
+  rows,
+  rowKey,
+  rowClassName,
+  defaultSort,
+}: {
+  /** Always rendered. A table without a caption is one nobody can identify out of context. */
+  readonly caption: string;
+  readonly columns: readonly Column<T>[];
+  readonly rows: readonly T[];
+  readonly rowKey: (row: T) => string;
+  readonly rowClassName?: (row: T) => string | undefined;
+  readonly defaultSort?: SortState;
+}) {
+  const captionId = useId();
+  const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
+
+  const sortedRows = useMemo(() => {
+    if (sort === null) return rows;
+    const column = columns.find((candidate) => candidate.key === sort.columnKey);
+    if (column?.sortValue === undefined) return rows;
+    const sortValue = column.sortValue;
+    const direction = sort.direction === "ascending" ? 1 : -1;
+    // Decorated so the sort is stable: equal keys keep their original order,
+    // which is what keeps engaged switches grouped without scrambling the order
+    // the platform reported them in.
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((left, right) => {
+        const result = compareCells(sortValue(left.row), sortValue(right.row));
+        return result !== 0 ? result * direction : left.index - right.index;
+      })
+      .map((entry) => entry.row);
+  }, [rows, columns, sort]);
+
+  function toggleSort(columnKey: string): void {
+    setSort((current) => {
+      if (current?.columnKey !== columnKey) return { columnKey, direction: "ascending" };
+      return {
+        columnKey,
+        direction: current.direction === "ascending" ? "descending" : "ascending",
+      };
+    });
+  }
+
+  return (
+    <div className="pv-dt-scroll" tabIndex={0} role="region" aria-labelledby={captionId}>
+      <table className="pv-dt">
+        <caption id={captionId}>{caption}</caption>
+        <thead>
+          <tr>
+            {columns.map((column) => {
+              const isSorted = sort?.columnKey === column.key;
+              const className = column.numeric === true ? "pv-dt-numeric" : undefined;
+
+              if (column.sortValue === undefined) {
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    className={
+                      className === undefined
+                        ? "pv-dt-plain-header"
+                        : `pv-dt-plain-header ${className}`
+                    }
+                  >
+                    {column.header}
+                  </th>
+                );
+              }
+
+              const nextDirection =
+                isSorted && sort.direction === "ascending" ? "descending" : "ascending";
+
+              return (
+                <th
+                  key={column.key}
+                  scope="col"
+                  className={className}
+                  aria-sort={isSorted ? sort.direction : "none"}
+                >
+                  <button
+                    type="button"
+                    className="pv-dt-sort"
+                    onClick={() => toggleSort(column.key)}
+                  >
+                    {column.header}
+                    <span className="pv-dt-sort-indicator" aria-hidden="true">
+                      {isSorted ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}
+                    </span>
+                    <span className="pv-sr-only">
+                      {isSorted
+                        ? `, sorted ${sort.direction}. Activate to sort ${nextDirection}.`
+                        : `, not sorted. Activate to sort ascending.`}
+                    </span>
+                  </button>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRows.map((row) => (
+            <tr key={rowKey(row)} className={rowClassName?.(row)}>
+              {columns.map((column) => {
+                const className = column.numeric === true ? "pv-dt-numeric" : undefined;
+                if (column.rowHeader === true) {
+                  return (
+                    <th key={column.key} scope="row" className={className}>
+                      {column.render(row)}
+                    </th>
+                  );
+                }
+                return (
+                  <td key={column.key} className={className}>
+                    {column.render(row)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -342,12 +504,10 @@ export function Health({ health }: HealthProps) {
                 ? `${pluralise(health.containment.length, "switch", "switches")} on record, none engaged.`
                 : `${pluralise(engagedSwitches.length, "switch is", "switches are")} engaged. Anything they cover is stopped.`}
             </p>
-            {/* Still the old DataTable, deliberately. `rowClassName` is what
-                paints a stopped row in the denied tone with a bar down its
-                leading edge, and `ui/surfaces/Table` has no equivalent: it
-                hardcodes the row's class. Pushing the tone into a cell instead
-                would be a weaker claim — the whole row is what reads as
-                stopped. Swap this the moment Table takes a `rowClassName`. */}
+            {/* The local semantic table above, not the design system's grid.
+                `rowClassName` paints a stopped row in the denied tone with a
+                bar down its leading edge; pushing that into a cell would be a
+                weaker claim, because the whole row is what reads as stopped. */}
             <DataTable
               caption={`Containment switches known to the platform, ${pluralise(health.containment.length, "switch", "switches")}.`}
               columns={containmentColumns}

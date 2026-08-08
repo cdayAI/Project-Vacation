@@ -1,13 +1,8 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { isDenial } from "../api/client";
 import { useClient } from "../api/ClientProvider";
 import type { ContainmentView, DenialView } from "../api/contract";
 import { useResource } from "../api/useResource";
-// The switch table is the one thing on this screen still drawn by the old
-// component layer. See the note above it: `ui/surfaces/Table` has no
-// `rowClassName`, and that class is what makes a stopped row readable as
-// stopped from across the room.
-import { DataTable, type Column } from "../components";
 import { formatDateTime, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Badge, Button, Callout, Input, Modal, Panel, Select, Textarea } from "../ui";
@@ -96,6 +91,174 @@ function DefinitionList({ items }: { readonly items: readonly DefinitionItem[] }
         </div>
       ))}
     </dl>
+  );
+}
+
+type SortDirection = "ascending" | "descending";
+
+interface SortState {
+  readonly columnKey: string;
+  readonly direction: SortDirection;
+}
+
+interface Column<T> {
+  readonly key: string;
+  readonly header: string;
+  /** Right-aligned and tabular-figured. Use for money, counts, durations. */
+  readonly numeric?: boolean;
+  /** Supply to make the column sortable. Omit and the header is plain text. */
+  readonly sortValue?: (row: T) => string | number;
+  /** Exactly one column should set this: it becomes the row's `<th scope="row">`. */
+  readonly rowHeader?: boolean;
+  readonly render: (row: T) => ReactNode;
+}
+
+function compareValues(a: string | number, b: string | number): number {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+}
+
+/**
+ * A real, sortable `<table>` for the switch record — inlined here rather than
+ * taken from `ui/surfaces/Table`.
+ *
+ * The design-system table is a virtualised `role="grid"` with a column chooser
+ * and a keyboard cursor: the right tool for a ten-thousand-row queue and the
+ * wrong one for four switches an operator reads at a glance. Two things this
+ * screen needs have no expression there. A stopped row has to carry the denied
+ * tone down its whole length so "which of these is stopped" is legible without
+ * reading a cell — and the grid hardcodes its row class, collapsing that second
+ * channel. And the record is a document an operator scans, not a widget they
+ * drive. So the markup lives here, on the `pv-dt-*` classes, keeping the
+ * caption, `th` scope on both axes, and `aria-sort` that let a screen reader
+ * read a row aloud in context.
+ */
+function SwitchTable<T>({
+  caption,
+  columns,
+  rows,
+  rowKey,
+  rowClassName,
+  defaultSort,
+}: {
+  readonly caption: string;
+  readonly columns: readonly Column<T>[];
+  readonly rows: readonly T[];
+  readonly rowKey: (row: T) => string;
+  readonly rowClassName?: (row: T) => string | undefined;
+  readonly defaultSort?: SortState;
+}) {
+  const captionId = useId();
+  const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
+
+  const sortedRows = useMemo(() => {
+    if (sort === null) return rows;
+    const column = columns.find((candidate) => candidate.key === sort.columnKey);
+    if (column?.sortValue === undefined) return rows;
+    const sortValue = column.sortValue;
+    const direction = sort.direction === "ascending" ? 1 : -1;
+    // Decorated so the sort is stable: equal keys keep their original order, so
+    // "stopped first" leaves the stopped rows in the order the platform gave them.
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((left, right) => {
+        const result = compareValues(sortValue(left.row), sortValue(right.row));
+        return result !== 0 ? result * direction : left.index - right.index;
+      })
+      .map((entry) => entry.row);
+  }, [rows, columns, sort]);
+
+  function toggleSort(columnKey: string): void {
+    setSort((current) => {
+      if (current?.columnKey !== columnKey) return { columnKey, direction: "ascending" };
+      return {
+        columnKey,
+        direction: current.direction === "ascending" ? "descending" : "ascending",
+      };
+    });
+  }
+
+  return (
+    <div className="pv-dt-scroll" tabIndex={0} role="region" aria-labelledby={captionId}>
+      <table className="pv-dt">
+        <caption id={captionId}>{caption}</caption>
+        <thead>
+          <tr>
+            {columns.map((column) => {
+              const isSorted = sort?.columnKey === column.key;
+              const numericClass = column.numeric === true ? "pv-dt-numeric" : undefined;
+
+              if (column.sortValue === undefined) {
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    className={
+                      numericClass === undefined
+                        ? "pv-dt-plain-header"
+                        : `pv-dt-plain-header ${numericClass}`
+                    }
+                  >
+                    {column.header}
+                  </th>
+                );
+              }
+
+              const nextDirection =
+                isSorted && sort.direction === "ascending" ? "descending" : "ascending";
+
+              return (
+                <th
+                  key={column.key}
+                  scope="col"
+                  className={numericClass}
+                  aria-sort={isSorted ? sort.direction : "none"}
+                >
+                  {/* The button fills the header cell, so the hit target is the
+                      whole header rather than a glyph inside it (WCAG 2.2 2.5.8). */}
+                  <button
+                    type="button"
+                    className="pv-dt-sort"
+                    onClick={() => toggleSort(column.key)}
+                  >
+                    {column.header}
+                    <span className="pv-dt-sort-indicator" aria-hidden="true">
+                      {isSorted ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}
+                    </span>
+                    <span className="pv-sr-only">
+                      {isSorted
+                        ? `, sorted ${sort.direction}. Activate to sort ${nextDirection}.`
+                        : `, not sorted. Activate to sort ascending.`}
+                    </span>
+                  </button>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRows.map((row) => (
+            <tr key={rowKey(row)} className={rowClassName?.(row)}>
+              {columns.map((column) => {
+                const numericClass = column.numeric === true ? "pv-dt-numeric" : undefined;
+                if (column.rowHeader === true) {
+                  return (
+                    <th key={column.key} scope="row" className={numericClass}>
+                      {column.render(row)}
+                    </th>
+                  );
+                }
+                return (
+                  <td key={column.key} className={numericClass}>
+                    {column.render(row)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -400,14 +563,12 @@ export function ContainmentControls({
             : `${pluralise(switches.length, "switch", "switches")} on record, ${engaged.length} engaged.`}
         </p>
 
-        {/* Still the old DataTable, deliberately. `rowClassName` is what paints
-            a stopped row in the denied tone with a bar down its leading edge,
-            and `ui/surfaces/Table` has no equivalent: it hardcodes the row's
-            class. Pushing the tone into a cell instead would be a weaker claim
-            — the whole row is what reads as stopped. Swap this the moment Table
-            takes a `rowClassName`. */}
+        {/* `rowClassName` paints a stopped row in the denied tone with a bar
+            down its leading edge — the second channel a sighted operator scans
+            for. See SwitchTable's note for why this is a document table here
+            and not the design-system grid. */}
         {switches.length > 0 && (
-          <DataTable
+          <SwitchTable
             caption={`Containment switches, ${pluralise(switches.length, "switch", "switches")}.`}
             columns={columns}
             rows={switches}
