@@ -101,6 +101,9 @@ export {
   DevelopmentIdentityProvider,
 } from "./dev-provider.js";
 
+export type { IdentityAvailability, IdentityRuntime, IdentityRuntimeDeps } from "./runtime.js";
+export { buildIdentityRuntime } from "./runtime.js";
+
 export type { IssueServiceAccountInput, IssuedCredential } from "./service-accounts.js";
 export {
   MAX_CREDENTIAL_LIFETIME_MS,

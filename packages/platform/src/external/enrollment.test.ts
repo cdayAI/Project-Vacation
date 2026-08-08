@@ -148,6 +148,25 @@ class FakeEnrollmentStore implements EnrollmentStore {
   }
 }
 
+/**
+ * A denial ledger that records how often it was cleared.
+ *
+ * Release resets the ledger through this; the counter lets a test prove the
+ * release path itself cleared it, without reaching into the rate limiter.
+ */
+class FakeDenialLedger {
+  clears: ExternalAgentId[] = [];
+  failNext = false;
+
+  async clearDenials(agentId: ExternalAgentId): Promise<void> {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error("denial ledger unreachable");
+    }
+    this.clears.push(agentId);
+  }
+}
+
 /** Enough of a spend store to prove re-enrollment never touches it. */
 class FakeSpendStore {
   readonly meters = new Map<string, SpendMeter>();
@@ -177,6 +196,7 @@ interface Harness {
   clock: FixedClock;
   store: FakeEnrollmentStore;
   spend: FakeSpendStore;
+  denials: FakeDenialLedger;
   approvals: ApprovalService;
   audit: AuditLog;
   auditStore: MemoryAuditStore;
@@ -207,6 +227,7 @@ function build(seatCap = 5): Harness {
   const authorizer = new Authorizer(registry, containment, ceilings, approvals, audit, clock, 300);
 
   const store = new FakeEnrollmentStore();
+  const denials = new FakeDenialLedger();
   const service = new EnrollmentService(
     store,
     authorizer,
@@ -222,9 +243,10 @@ function build(seatCap = 5): Harness {
       maxDataScopes: 25,
     },
     "supervised",
+    denials,
   );
 
-  return { clock, store, spend: new FakeSpendStore(), approvals, audit, auditStore, service };
+  return { clock, store, spend: new FakeSpendStore(), denials, approvals, audit, auditStore, service };
 }
 
 function enrollRequest(overrides: Partial<EnrollRequest> = {}): EnrollRequest {
@@ -234,7 +256,7 @@ function enrollRequest(overrides: Partial<EnrollRequest> = {}): EnrollRequest {
     department: "owner-services",
     hostPlatform: "vendor-crm",
     purpose: "Drafts renewal follow-ups for owner-services and files them for review.",
-    allowedTools: [{ tool: "crm.read_contact" }, { tool: "crm.draft_note" }],
+    allowedTools: [{ tool: "crm.read_contact", operatorRisk: "routine" }, { tool: "crm.draft_note", operatorRisk: "routine" }],
     riskCeiling: "sensitive",
     spendCeilingUsd: 250,
     budgetPeriod: "monthly",
@@ -312,7 +334,7 @@ describe("enrolling an external agent", () => {
     const harness = build();
     const agent = await enrol(harness, {
       name: "CRM-Renewal-Assistant",
-      allowedTools: [{ tool: "crm.draft_note" }, { tool: "crm.read_contact" }],
+      allowedTools: [{ tool: "crm.draft_note", operatorRisk: "routine" }, { tool: "crm.read_contact", operatorRisk: "routine" }],
       dataScopes: ["owners", "contracts", "owners"],
     });
 
@@ -439,7 +461,7 @@ describe("enrolling an external agent", () => {
     const many = Array.from({ length: 30 }, (_, index) => ({ tool: `crm.tool_${index}` }));
     await expect(enrol(harness, { allowedTools: many })).rejects.toBeInstanceOf(InvalidInputError);
     await expect(
-      enrol(harness, { allowedTools: [{ tool: "crm.read" }, { tool: "crm.read" }] }),
+      enrol(harness, { allowedTools: [{ tool: "crm.read", operatorRisk: "routine" }, { tool: "crm.read", operatorRisk: "routine" }] }),
     ).rejects.toBeInstanceOf(InvalidInputError);
   });
 
@@ -455,6 +477,7 @@ describe("enrolling an external agent", () => {
           new SeededIdGenerator("x"),
           { seatCap: 0 } as never,
           "supervised",
+          harness.denials,
         ),
     ).toThrow(DeniedError);
   });
@@ -493,6 +516,31 @@ describe("re-enrolling", () => {
     // already spent, which is what would make re-enrollment the documented way
     // around a budget.
     expect((await harness.spend.getMeter(agent.id, period))?.spentUsd).toBe(180);
+  });
+
+  it("refuses changing budgetPeriod, because it would switch the meter bucket and reset spend in effect", async () => {
+    const harness = build();
+    const agent = await enrol(harness); // enrolled monthly
+    expect(agent.budgetPeriod).toBe("monthly");
+
+    // budgetPeriod is not metadata: the meter's bucket key is derived from it,
+    // so flipping monthly->lifetime points admission at an empty bucket and
+    // hands back the whole ceiling. Refused, not applied. Before this fix
+    // budgetPeriod sat in the updatable whitelist and the change went through.
+    await expect(
+      harness.service.reEnroll(operator(), agent.id, {
+        budgetPeriod: "lifetime",
+      } as EnrollmentUpdate),
+    ).rejects.toMatchObject({
+      name: "DeniedError",
+      reason: "authorization.action_not_permitted",
+    });
+
+    // Refused, not ignored: the period is unchanged, so budgetPeriodKey still
+    // resolves to the same bucket admission has been metering against.
+    const after = await harness.service.require(agent.id);
+    expect(after.budgetPeriod).toBe("monthly");
+    expect(budgetPeriodKey(after.budgetPeriod, START)).toBe(budgetPeriodKey("monthly", START));
   });
 
   it("NEVER lifts a containment", async () => {
@@ -592,6 +640,36 @@ describe("containment, release, and revocation", () => {
     expect(verifyChain(await harness.audit.readChain()).intact).toBe(true);
   });
 
+  it("resets the denial ledger on release, so a released agent does not re-contain on its next denial", async () => {
+    const harness = build();
+    const agent = await enrol(harness);
+    await harness.service.contain(operator(), agent.id, "asking for a tool it was never granted");
+
+    await harness.service.release(operator(), agent.id, "vendor fixed the tool name");
+
+    // The release path itself cleared the ledger. Without this, the denials that
+    // contained the agent are still counted, and one further denial re-contains
+    // it instantly — the bug this asserts is closed. clearDenials had no
+    // production caller before; the release path is now that caller.
+    expect(harness.denials.clears).toContain(agent.id);
+  });
+
+  it("refuses the release, and leaves the agent contained, when the denial ledger cannot be reset", async () => {
+    const harness = build();
+    const agent = await enrol(harness);
+    await harness.service.contain(operator(), agent.id, "spending anomaly");
+
+    // A ledger we cannot reset is a release we cannot make durable. Fail closed:
+    // refuse rather than flip the status and leave the agent one denial from
+    // contained again.
+    harness.denials.failNext = true;
+    await expect(
+      harness.service.release(operator(), agent.id, "vendor patched it"),
+    ).rejects.toMatchObject({ name: "DeniedError", reason: "record.unavailable" });
+
+    expect((await harness.service.require(agent.id)).status).toBe("contained");
+  });
+
   it("is idempotent, so pressing stop twice never suggests the first press missed", async () => {
     const harness = build();
     const agent = await enrol(harness);
@@ -658,6 +736,38 @@ describe("containment, release, and revocation", () => {
     await expect(
       harness.service.contain(operator(), "eag_missing" as ExternalAgentId, "n/a"),
     ).rejects.toMatchObject({ name: "DeniedError" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The revocation approval guidance tells the truth about its bound
+// ---------------------------------------------------------------------------
+
+describe("revocation approval guidance", () => {
+  const revoke = EXTERNAL_AGENT_ACTIONS.find((action) => action.name === "external_agent.revoke");
+  const effects = (revoke?.approvalGuidance?.effects ?? []).join(" ");
+
+  it("does not claim revocation instantly stops work in flight", () => {
+    // The human approving a revocation must not be handed a receipt for an
+    // effect the platform does not produce. revoke holds no run store, so it
+    // cannot close a run in flight; a heartbeat or the reclaim worker does.
+    expect(effects).not.toMatch(/stops working immediately, including any runs in flight/i);
+    expect(effects).not.toMatch(/reclaimed rather than left open/i);
+  });
+
+  it("does not claim the agent's credentials stop verifying", () => {
+    // credentials.verify never consults enrollment status, and the run-finish
+    // endpoint runs no admission check, so a revoked agent can still close an
+    // already-open run. Claiming the credential stops verifying would be false.
+    expect(effects).not.toMatch(/credentials stop verifying/i);
+  });
+
+  it("states the real bound: next contact, next heartbeat, worker reclaim", () => {
+    expect(effects).toMatch(/next request through the admission chain is refused/i);
+    expect(effects).toMatch(/next heartbeat/i);
+    expect(effects).toMatch(/reclaimed by the worker/i);
+    // And it is honest that two calls stay open to a revoked agent.
+    expect(effects).toMatch(/finishing an already-open run/i);
   });
 });
 

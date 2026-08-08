@@ -15,9 +15,17 @@ import type { IsoTimestamp } from "../record/types.js";
  *
  * Two layers, deliberately:
  *
- *   `assertRetentionWithinCeiling` refuses a configured value over the
- *   ceiling outright, at startup and at enrollment, so that a deployment asking
- *   for ninety days is told no rather than silently given thirty.
+ *   `assertRetentionWithinCeiling` refuses a configured value over the ceiling
+ *   outright. It guards the enrollment path (`EnrollmentService`), where a
+ *   request for ninety days is told no rather than silently accepted. It does
+ *   NOT guard process startup: the composition root builds the collector's
+ *   settings through the clamp below rather than through this refusal (the
+ *   reasoning is written out at the call site in `platform.ts`), so an
+ *   over-ceiling `PV_DISCOVERY_RETENTION_DAYS` shortens the purge to the ceiling
+ *   instead of failing the boot. The ceiling therefore always holds — thirty
+ *   days is the most that is ever kept — but a startup value past it is clamped,
+ *   not refused. A caller that wants a configured value refused rather than
+ *   clamped uses `discoverySettings`, or this function directly.
  *
  *   `effectiveRetentionDays` clamps whatever it is handed. This is not dead
  *   code behind the assertion: enrollments carry their own retention value and

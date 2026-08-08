@@ -33,7 +33,7 @@ import { buildReviewHarness, REVIEW_AGENT } from "./harness.js";
 describe("subject references arriving from an external agent", () => {
   it("does not carry an owner's contact details into the hash chain", async () => {
     const harness = await buildReviewHarness({
-      tools: [{ tool: "crm.lookup_owner" }],
+      tools: [{ tool: "crm.lookup_owner", operatorRisk: "routine" }],
       connectors: [
         { integration: "crm", operations: [{ operation: "lookup_owner", mode: "read" }] },
       ],
@@ -74,7 +74,7 @@ describe("subject references arriving from an external agent", () => {
     // into the chain — and a refused request is the one an attacker can always
     // make, because it needs no valid tool grant.
     const harness = await buildReviewHarness({
-      tools: [{ tool: "crm.lookup_owner" }],
+      tools: [{ tool: "crm.lookup_owner", operatorRisk: "routine" }],
       connectors: [
         { integration: "crm", operations: [{ operation: "lookup_owner", mode: "read" }] },
       ],

@@ -26,18 +26,73 @@ jobs:
   secrets:
     name: Secret scanning
     runs-on: ubuntu-latest
+    env:
+      # Pinned, not floating. `.gitleaks.toml` is written around two allowlist
+      # fields this exact version silently ignores, and the narrow form it
+      # settled on is only narrow under this version — see the *Secret scanning
+      # exemptions* section of docs/assurance/vulnerability-policy.md. A scanner
+      # that moves underneath that config widens the exemption with nothing
+      # going red, so the version and its checksum move together, deliberately,
+      # and the allowlist is re-verified when they do.
+      GITLEAKS_VERSION: "8.24.3"
+      GITLEAKS_SHA256: "9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c"
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history: a secret removed in the most recent commit is still a
-          # secret, and scanning only the tip would miss it.
+          # Every commit on every ref, because the history scan below asks for
+          # `--all`. Against a shallow clone that resolves to almost nothing
+          # and still reports success.
           fetch-depth: 0
 
-      - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --output gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          # The scanner is itself a supply-chain input, and this one is fetched
+          # over the network on every build.
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check --strict -
+          tar --extract --gzip --file gitleaks.tar.gz gitleaks
+          ./gitleaks version
+
+      # gitleaks-action@v2 is deliberately not used here. It derives the commit
+      # range from the event payload rather than from `fetch-depth`, so a push
+      # scans only that push's commits and a merge onto the default branch
+      # scans nothing at all — a green check over zero bytes, which is what this
+      # job reported for the whole of its previous life. The two steps below
+      # name the range themselves so it is reviewable in the diff.
+
+      - name: Scan the working tree
+        run: |
+          ./gitleaks detect --no-git --source . \
+            --config .gitleaks.toml \
+            --redact --no-banner --verbose --exit-code 1
+
+      - name: Scan full history
+        # `--all` covers every branch and tag fetched above, not just this ref.
+        # `--diff-merges=first-parent` is what keeps merge commits in scope:
+        # gitleaks shells out to `git log -p`, which emits no patch for a merge
+        # unless asked, and merging is how content reaches the default branch.
+        # It costs about 60% more scanned bytes on this repository and catches
+        # a credential introduced in a conflict resolution and nowhere else.
+        run: |
+          ./gitleaks detect --source . \
+            --log-opts="--all --diff-merges=first-parent" \
+            --config .gitleaks.toml \
+            --redact --no-banner --verbose --exit-code 1
+
+      - name: No AI-authorship attribution
+        # The brief forbids AI attribution in commits, PR text, comments and
+        # docs. It was violated three times before this ran — two PR bodies and
+        # a branch name in two merge subjects. The scanner matches authorship
+        # claims, never the vendor/model names the product legitimately
+        # operates on; see tools/check-attribution.mjs for the distinction. The
+        # commit range is every commit on this ref not already on the default
+        # branch, so a merge subject carrying a branch name is in scope.
+        run: |
+          RANGE="origin/${{ github.event.repository.default_branch }}..HEAD"
+          git rev-parse --verify "origin/${{ github.event.repository.default_branch }}" >/dev/null 2>&1 || RANGE=""
+          node tools/check-attribution.mjs "$RANGE"
 
   # ---------------------------------------------------------------------------
   # Types, lint, and the whole test suite, with a real Postgres so the

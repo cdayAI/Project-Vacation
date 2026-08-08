@@ -58,10 +58,26 @@ Project Vacation — operator commands
                                   release, revoke, credential, runs, parked.
                                   Run "agents" alone for the full usage.
 
+  roles <verb>                    Author, evaluate, promote, and stop the roles
+                                  this platform runs. list, show, draft, golden,
+                                  propose, promote, revert, disable, enable.
+                                  Run "roles" alone for the full usage.
+
+  contact <verb>                  Record consent and clear outbound messages
+                                  through the compliance gate. consent grant,
+                                  consent revoke, consent state, dnc add, check,
+                                  send. Run "contact" alone for the full usage.
+
   actions list                    Show the action registry with risk tiers
 
   approvals list [--status <a,b>] [--ageing] [--within <minutes>]
                                   Parked human decisions, least time left first
+  approvals decide <id> --grant|--reject --note <text> [--session-file <path>]
+                                  Decide one, through the same chokepoint the
+                                  console posts to. Granting a high-consequence
+                                  action needs a session this platform can see
+                                  the authentication instant of; rejecting does
+                                  not. Run "approvals" alone for how to get one.
   cost report [--since <iso> | --hours <n>] [--group-by workflow,role]
                                   Spend in a window, and the runs that spent it
   models degradation [--since <iso> | --hours <n>]
@@ -146,10 +162,26 @@ function emit(value: unknown, args: Args): void {
  * the audit record shows both the name and that it came from the CLI rather
  * than from an authenticated console session. Anything less would make the
  * audit trail claim more than it knows.
+ *
+ * The role is asserted the same way, and for the same reason. `--role`
+ * (repeatable) names the role the operator is acting in, defaulting to
+ * `platform_admin` — which is what every verb assumed before `contact`, whose
+ * actions are deliberately not an admin's to perform: `consent.record` is for
+ * owner-services staff and their supervisors, and `contact.send_owner_message`
+ * is a supervisor's. The command line cannot prove the operator holds the role
+ * any more than it can prove their name, so it is stated and the audit record
+ * shows it came from the CLI. The chokepoint still refuses a role the asserted
+ * one does not include, so asserting one buys nothing an operator was not
+ * already entitled to.
  */
 function cliActor(args: Args): { actorId: string; kind: "human"; roles: string[] } {
   const operator = first(args, "operator") ?? process.env.USER ?? "unknown-operator";
-  return { actorId: `cli:${operator}`, kind: "human", roles: ["platform_admin"] };
+  const roles = (args.flags.role ?? []).filter((role) => role !== "true");
+  return {
+    actorId: `cli:${operator}`,
+    kind: "human",
+    roles: roles.length > 0 ? roles : ["platform_admin"],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -656,7 +688,14 @@ async function main(): Promise<number> {
         // code, and the commands reached for during an incident should not pay
         // to parse it.
         const { commandOperations } = await import("./operations.js");
-        return await commandOperations(args, { platform });
+        return await commandOperations(args, {
+          platform,
+          // Only `approvals decide` writes anything; the reports ignore it.
+          // Passed unconditionally so a second verb that acts cannot be added
+          // without one, which is how a decision ends up attributed to nobody.
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
       }
       case "evaluate": {
         // Imported here rather than at the top so that the commands an operator
@@ -664,6 +703,33 @@ async function main(): Promise<number> {
         // harness, the model gateway, and the shipped golden set.
         const { commandEvaluate } = await import("./evaluate.js");
         return await commandEvaluate(args, { platform, actor: cliActor(args) });
+      }
+      case "roles": {
+        // Imported here rather than at the top for the same reason `agents` and
+        // `evaluate` are: the role factory pulls in the promotion service, the
+        // evaluation harness, and the model gateway, and a process that only
+        // serves requests should not pay to parse them.
+        const { commandRoles } = await import("./roles.js");
+        return await commandRoles(args, {
+          platform,
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
+      }
+      case "contact": {
+        // Imported here rather than at the top for the same reason the verbs
+        // above are: a process that only serves requests should not pay to
+        // parse the contact gate, the consent ledger, and their store adapters.
+        const { commandContact, CONTACT_USAGE } = await import("./contact.js");
+        if (args.positional[1] === undefined) {
+          console.error(CONTACT_USAGE);
+          return 2;
+        }
+        return await commandContact(args, {
+          platform,
+          actor: cliActor(args),
+          correlationId: first(args, "correlation-id"),
+        });
       }
       case "health":
         return await commandHealth(args, platform);

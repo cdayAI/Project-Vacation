@@ -309,7 +309,10 @@ export class WorkflowEngine {
       if (step.handler !== undefined) this.deps.handlers.require(step.handler);
     }
 
-    await this.deps.containment.assertClear({ workflowName: definition.name });
+    await this.deps.containment.assertClear({
+      workflowName: definition.name,
+      actorRoles: input.requestedBy.roles,
+    });
 
     const start = definition.steps.find((step) => step.type !== "compensation");
     if (!start) {
@@ -1103,6 +1106,7 @@ export class WorkflowEngine {
       // See guard/containment.ts.
       await this.deps.containment.assertClear({
         workflowName: definition.name,
+        actorRoles: instance.requestedBy.roles,
         isCompensation: step.type === "compensation",
       });
 

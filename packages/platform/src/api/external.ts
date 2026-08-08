@@ -523,15 +523,33 @@ export function registerExternalRoutes(
         // against the ceiling here would make the report refusable precisely
         // when spend is highest, and a meter that stops counting near the limit
         // is worse than no meter.
-        const decision = await plane.admission.admit({
-          agentId: identity.agentId,
-          operation: "report",
-          tool: body.tool,
-          declaredRisk: "routine",
-          subject: body.subject,
-          correlationId: correlation,
-        });
-        assertAdmitted(decision, "report");
+        //
+        // `deferApproval` because a report is a record of work that ALREADY
+        // happened. The operator's rating floors the declaration in the chain,
+        // so a report under a high-rated tool comes back `approval_required` —
+        // but there is nothing to approve before-the-fact about something that
+        // is already done. Left to raise, the floor parks an `external.report`
+        // approval nobody can act on and refuses the report, so completed work
+        // under a high-rated tool could never reach the operating record — the
+        // exact opposite of the one-record promise. Deferring keeps the floor
+        // from parking anything; the enrollment, revocation, containment, tool
+        // grant, ceiling and scope checks all still gate the report.
+        const decision = await plane.admission.admit(
+          {
+            agentId: identity.agentId,
+            operation: "report",
+            tool: body.tool,
+            declaredRisk: "routine",
+            subject: body.subject,
+            correlationId: correlation,
+          },
+          { deferApproval: true },
+        );
+        // Only a genuine refusal stops a report. An `approval_required` here
+        // means "high-rated, and already done", which lands like any other.
+        if (decision.outcome === "denied") {
+          assertAdmitted(decision, "report");
+        }
 
         const ingested = await plane.reports.ingest({
           agentId: identity.agentId,

@@ -1,15 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type { RiskTier, RoleView } from "../api/contract";
 import { useResource } from "../api/useResource";
-// Still the old DataTable, deliberately, and it is the only thing on this
-// screen that has not moved. `rowClassName` is what paints the whole row of a
-// disabled role, and `ui/surfaces/Table` has no equivalent — it hardcodes the
-// row's class and offers only selection and cursor state. Marking the badge
-// instead of the row would be a weaker claim than the one the registry makes:
-// a disabled role is not a normal row with one loud cell in it. Swap this the
-// moment Table takes a `rowClassName`.
-import { DataTable, type Column } from "../components";
 import { formatDateTime, formatPercent, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
@@ -138,7 +130,7 @@ export function RoleRegistry({ roles, total }: RoleRegistryProps) {
   );
   const unevaluated = roles.filter((role) => role.latestEvaluation === undefined);
 
-  const columns: readonly Column<RoleView>[] = [
+  const columns: readonly SortableColumn<RoleView>[] = [
     {
       key: "name",
       header: "Role",
@@ -305,7 +297,7 @@ export function RoleRegistry({ roles, total }: RoleRegistryProps) {
           headingLevel={2}
         />
       ) : (
-        <DataTable
+        <SortableTable
           caption={`Agent roles, ${pluralise(visible.length, "role", "roles")}.`}
           columns={columns}
           rows={visible}
@@ -314,6 +306,190 @@ export function RoleRegistry({ roles, total }: RoleRegistryProps) {
           defaultSort={{ columnKey: "availability", direction: "ascending" }}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The table
+// ---------------------------------------------------------------------------
+
+/**
+ * A sortable table, kept here rather than reached for from `ui/surfaces/Table`.
+ *
+ * The registry's one non-negotiable is that a disabled role reads as stopped
+ * from across the room: the *whole row* is marked, not one cell in it, because
+ * a disabled role is not an ordinary row with a loud badge — it is a row that
+ * does not run. That is a `rowClassName`, and the design-system Table has none;
+ * it hardcodes the row class and exposes only cursor and selection state, so
+ * the strongest claim it could make here is a marked badge, which is a weaker
+ * statement than the one this screen owes its operator.
+ *
+ * The gallery Table is also a virtualised `role="grid"` widget — a keyboard
+ * cursor over ten thousand rows — where this is a real `<table>` a screen
+ * reader reads as a document: `<caption>`, `<th scope>` on both axes, and
+ * `aria-sort` on the sorted column, none of which survive being rebuilt as a
+ * grid of divs. A registry is read, not driven; the document table is the
+ * honest role for it. Move to the shared Table the moment it takes a
+ * `rowClassName` and a role a reader can still parse.
+ *
+ * The `pv-dt-` class prefix is shared with the other document tables on the
+ * platform (styled once, centrally); it is deliberately distinct from the
+ * gallery grid's `pv-table-` so the two stylesheets never land on each other's
+ * elements.
+ */
+type SortDirection = "ascending" | "descending";
+
+interface SortState {
+  readonly columnKey: string;
+  readonly direction: SortDirection;
+}
+
+interface SortableColumn<T> {
+  readonly key: string;
+  readonly header: string;
+  /** Right-aligned and tabular-figured. For money, counts, durations. */
+  readonly numeric?: boolean;
+  /** Supply to make the column sortable. Omit and the header is plain text. */
+  readonly sortValue?: (row: T) => string | number;
+  /** Exactly one column should set this: it becomes the row's `<th scope="row">`. */
+  readonly rowHeader?: boolean;
+  readonly render: (row: T) => ReactNode;
+}
+
+interface SortableTableProps<T> {
+  /** Always rendered. A table without a caption is one nobody can identify out of context. */
+  readonly caption: string;
+  readonly columns: readonly SortableColumn<T>[];
+  readonly rows: readonly T[];
+  readonly rowKey: (row: T) => string;
+  readonly rowClassName?: (row: T) => string | undefined;
+  readonly defaultSort?: SortState;
+}
+
+function compare(a: string | number, b: string | number): number {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+}
+
+function SortableTable<T>({
+  caption,
+  columns,
+  rows,
+  rowKey,
+  rowClassName,
+  defaultSort,
+}: SortableTableProps<T>) {
+  const captionId = useId();
+  const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
+
+  const sortedRows = useMemo(() => {
+    if (sort === null) return rows;
+    const column = columns.find((candidate) => candidate.key === sort.columnKey);
+    if (column?.sortValue === undefined) return rows;
+    const sortValue = column.sortValue;
+    const direction = sort.direction === "ascending" ? 1 : -1;
+    // Decorated so the sort is stable: equal keys keep their original order, so
+    // "available, then oldest first within available" actually behaves so.
+    return rows
+      .map((row, index) => ({ row, index }))
+      .sort((left, right) => {
+        const result = compare(sortValue(left.row), sortValue(right.row));
+        return result !== 0 ? result * direction : left.index - right.index;
+      })
+      .map((entry) => entry.row);
+  }, [rows, columns, sort]);
+
+  function toggleSort(columnKey: string): void {
+    setSort((current) => {
+      if (current?.columnKey !== columnKey) return { columnKey, direction: "ascending" };
+      return {
+        columnKey,
+        direction: current.direction === "ascending" ? "descending" : "ascending",
+      };
+    });
+  }
+
+  return (
+    <div className="pv-dt-scroll" tabIndex={0} role="region" aria-labelledby={captionId}>
+      <table className="pv-dt">
+        <caption id={captionId}>{caption}</caption>
+        <thead>
+          <tr>
+            {columns.map((column) => {
+              const isSorted = sort?.columnKey === column.key;
+              const className = column.numeric === true ? "pv-dt-numeric" : undefined;
+
+              if (column.sortValue === undefined) {
+                return (
+                  <th
+                    key={column.key}
+                    scope="col"
+                    className={
+                      className === undefined
+                        ? "pv-dt-plain-header"
+                        : `pv-dt-plain-header ${className}`
+                    }
+                  >
+                    {column.header}
+                  </th>
+                );
+              }
+
+              const nextDirection =
+                isSorted && sort.direction === "ascending" ? "descending" : "ascending";
+
+              return (
+                <th
+                  key={column.key}
+                  scope="col"
+                  className={className}
+                  aria-sort={isSorted ? sort.direction : "none"}
+                >
+                  {/* The button fills the header cell, so the target is the whole
+                      header rather than a glyph inside it (WCAG 2.2 2.5.8). */}
+                  <button
+                    type="button"
+                    className="pv-dt-sort"
+                    onClick={() => toggleSort(column.key)}
+                  >
+                    {column.header}
+                    <span className="pv-dt-sort-indicator" aria-hidden="true">
+                      {isSorted ? (sort.direction === "ascending" ? "▲" : "▼") : "↕"}
+                    </span>
+                    <span className="pv-sr-only">
+                      {isSorted
+                        ? `, sorted ${sort.direction}. Activate to sort ${nextDirection}.`
+                        : `, not sorted. Activate to sort ascending.`}
+                    </span>
+                  </button>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRows.map((row) => (
+            <tr key={rowKey(row)} className={rowClassName?.(row)}>
+              {columns.map((column) => {
+                const className = column.numeric === true ? "pv-dt-numeric" : undefined;
+                if (column.rowHeader === true) {
+                  return (
+                    <th key={column.key} scope="row" className={className}>
+                      {column.render(row)}
+                    </th>
+                  );
+                }
+                return (
+                  <td key={column.key} className={className}>
+                    {column.render(row)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

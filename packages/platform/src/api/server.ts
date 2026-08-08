@@ -20,6 +20,11 @@ import {
 import { asRunId, describeRun, parseWorkQueueQuery, workQueuePage } from "./work-queue.js";
 import { runTimeline } from "./run-timeline.js";
 import type { Id } from "../kernel/ids.js";
+import { buildIdentityRuntime, type IdentityRuntime } from "../identity/runtime.js";
+import { mapDirectoryGroups } from "../identity/roles.js";
+import { SESSION_COOKIE_NAME } from "../identity/session.js";
+import type { ResolvedSession } from "../identity/session.js";
+import { rejectionSignature } from "../guard/approvals.js";
 
 /**
  * The HTTP surface.
@@ -90,9 +95,44 @@ function denialBody(error: DeniedError) {
   };
 }
 
+/** Per-request identity, resolved once by the hook below and read by both. */
+interface RequestIdentity {
+  readonly session?: ResolvedSession;
+  /** Why the presented cookie was refused. Rethrown when a caller needs a name. */
+  readonly failure?: unknown;
+}
+
 export function createServer(options: ServerOptions): FastifyInstance {
   const { platform } = options;
   const decisionContext = options.decisionContext ?? {};
+
+  // Identity is composed here, once, rather than reached for per request.
+  //
+  // Unavailable is a state this server serves in rather than refuses to start
+  // in: health, and the reason a sign-in is impossible, are exactly what an
+  // operator needs from a deployment that has no session secret. What it must
+  // not do is quietly behave as though everyone is authenticated, so an
+  // unavailable runtime leaves every request with no session at all — which is
+  // the state that refuses a high-consequence grant.
+  const identityAvailability = buildIdentityRuntime({
+    config: platform.config,
+    clock: platform.clock,
+    ids: platform.ids,
+    audit: platform.audit,
+    logger: platform.logger,
+    db: platform.db,
+  });
+  const identity: IdentityRuntime | undefined = identityAvailability.available
+    ? identityAvailability.runtime
+    : undefined;
+  const identityUnavailableReason = identityAvailability.available
+    ? undefined
+    : identityAvailability.reason;
+  if (identityUnavailableReason) {
+    platform.logger.warn("sessions are unavailable on this API", {
+      reason: identityUnavailableReason,
+    });
+  }
   const app = Fastify({
     // The platform's own logger already writes structured, redacted lines to
     // stderr. A second logger here would produce a parallel stream with
@@ -162,36 +202,72 @@ export function createServer(options: ServerOptions): FastifyInstance {
     void reply.status(500).send({ error: "internal_error" });
   });
 
+  // Resolve the session cookie once per request, before any handler runs.
+  //
+  // A refusal is *stored* rather than thrown here on purpose. Health is
+  // deliberately unauthenticated, and a stale cookie in a browser tab must not
+  // be able to stop an operator reading why the platform is unwell. Every route
+  // that needs to know who is calling goes through `actorFor`, which rethrows.
+  app.addHook("preHandler", async (request) => {
+    const cookie = request.cookies?.[SESSION_COOKIE_NAME];
+    if (!identity || typeof cookie !== "string" || cookie.length === 0) return;
+    const attach = (value: RequestIdentity): void => {
+      (request as FastifyRequest & { identity?: RequestIdentity }).identity = value;
+    };
+    try {
+      attach({ session: await identity.sessions.resolve(cookie) });
+    } catch (error) {
+      // allow-swallow: held and rethrown by `actorFor`. Refusing here would
+      // turn "this session expired" into a failure of endpoints that never
+      // needed a session.
+      attach({ failure: error });
+    }
+  });
+
+  function identityOf(request: FastifyRequest): RequestIdentity {
+    return (request as FastifyRequest & { identity?: RequestIdentity }).identity ?? {};
+  }
+
   /**
    * How long ago this caller authenticated, or undefined when nobody knows.
    *
-   * `SessionService.resolve` computes a real figure and clamps an unparseable
-   * stamp to `+Infinity` so it fails closed — the value exists and this route
-   * simply did not read it. Until session resolution is wired into the request
-   * path there is no session to ask, and the honest answer is "unknown", which
-   * the approval service treats as "no step-up". Returning a number here would
-   * be inventing an observation.
+   * `SessionService.resolve` computes the figure from the session's
+   * `authenticatedAt` — which sign-in stamps and a step-up moves forward — and
+   * clamps an unparseable stamp to `+Infinity` so it fails closed.
+   *
+   * Undefined still happens, and still means what it says: no session was
+   * presented, or this deployment cannot open one. The approval service reads
+   * that as "no step-up has been observed" and refuses a grant that requires
+   * one. What has changed is that the other answer is now reachable — before,
+   * this returned undefined unconditionally, so no approval could ever be
+   * granted on any deployment.
    */
-  function secondsSinceAuthenticationFor(_request: FastifyRequest): number | undefined {
-    return undefined;
+  function secondsSinceAuthenticationFor(request: FastifyRequest): number | undefined {
+    return identityOf(request).session?.secondsSinceAuthentication;
   }
 
   function actorFor(request: FastifyRequest): ActorRef {
+    const resolved = identityOf(request);
+    // A presented-and-refused cookie is a refusal, never a fall-through to the
+    // development actor: otherwise an expired session would silently gain the
+    // six roles DEV_ACTOR holds.
+    if (resolved.failure !== undefined) throw resolved.failure;
+    if (resolved.session) {
+      // Entitlements come from the actor record, re-read on every request, so a
+      // directory group removed since sign-in is gone by the next click.
+      return resolved.session.actorRef;
+    }
+
     if (platform.config.oidcIssuer) {
-      // Session resolution against the identity provider is handled by the
-      // identity module; until a session cookie is present this refuses rather
-      // than falling back to the development actor.
-      const session = request.cookies?.pv_session;
-      if (!session) {
-        throw new DeniedError(
-          "authorization.action_not_permitted",
-          "No authenticated session. Sign in through the identity provider.",
-          {},
-        );
-      }
+      // A session resolved above is honoured whatever minted it, so this branch
+      // is only reached when there is none. Sign-in against a configured
+      // provider is still the OIDC flow's job, and that flow has no route yet —
+      // so this refuses rather than falling back to the development actor.
       throw new DeniedError(
         "authorization.action_not_permitted",
-        "Session verification against the configured identity provider is not wired into this route yet.",
+        identityUnavailableReason
+          ? `No authenticated session, and this deployment cannot open one. ${identityUnavailableReason}`
+          : "No authenticated session. Sign in through the identity provider.",
         {},
       );
     }
@@ -350,7 +426,156 @@ export function createServer(options: ServerOptions): FastifyInstance {
         )
         .map((descriptor) => descriptor.name),
       readOnly: isAuditor,
+      /**
+       * The window a grant has to happen inside, so a screen can say so before
+       * somebody spends a minute reading an approval and then loses it.
+       */
+      stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
+      /** Null when this deployment can open a session; the reason when it cannot. */
+      sessionsUnavailable: identityUnavailableReason ?? null,
     };
+  });
+
+  /**
+   * Sign in, and step up, against the development identity provider.
+   *
+   * These two routes exist because a step-up requirement nothing can satisfy is
+   * not a control, it is a wall: every approval on this platform could be
+   * rejected and none could be granted, on every deployment, because nothing
+   * had ever opened a session for the HTTP layer to read an authentication
+   * instant from.
+   *
+   * They are the *development* provider's routes and refuse to be anything
+   * else. It authenticates nobody — it mints an identity for whatever subject
+   * and directory groups the caller asks for — so it is confined to the one
+   * environment where that is a stated property rather than a breach, and it is
+   * absent the moment an OIDC issuer is configured. Signing in against a real
+   * provider is the authorization-code flow in `identity/oidc.ts`, which has no
+   * route here yet; until it does, a deployment with an issuer configured can
+   * resolve a session it was given and open none.
+   *
+   * What makes the step-up honest is that nothing here asserts a fact. The
+   * session carries the instant the provider authenticated, `resolve` computes
+   * the age from it, and a grant passes only while that age is inside
+   * `PV_STEP_UP_MAX_AGE_SECONDS`. Nobody signed in an hour ago passes.
+   */
+  function requireDevelopmentSignIn(): {
+    readonly runtime: IdentityRuntime;
+    readonly provider: NonNullable<IdentityRuntime["developmentProvider"]>;
+  } {
+    if (!identity) {
+      throw new DeniedError(
+        "config.missing",
+        `This deployment cannot open a session. ${identityUnavailableReason ?? ""}`.trim(),
+        {},
+      );
+    }
+    if (!identity.developmentProvider) {
+      throw new DeniedError(
+        "authorization.action_not_permitted",
+        platform.config.oidcIssuer
+          ? "An identity provider is configured, so sign-in is its authorization-code flow rather than this route. That flow is not wired into this API yet."
+          : `The development identity provider does not run in ${platform.config.environment}. It performs no authentication.`,
+        { environment: platform.config.environment },
+      );
+    }
+    return { runtime: identity, provider: identity.developmentProvider };
+  }
+
+  function readSubject(body: unknown): { subject: string; groups: readonly string[] } {
+    const input = (body ?? {}) as { subject?: unknown; groups?: unknown };
+    if (typeof input.subject !== "string" || input.subject.trim().length === 0) {
+      throw new InvalidInputError("A sign-in needs a subject — who is signing in.", "subject");
+    }
+    // An absent group claim is refused rather than read as "no groups": a
+    // provider that stops emitting groups would otherwise deprovision
+    // everybody, and `mapDirectoryGroups` is explicit that the two differ.
+    if (!Array.isArray(input.groups) || input.groups.some((g) => typeof g !== "string")) {
+      throw new InvalidInputError(
+        "A sign-in needs the directory groups the provider asserts, as an array of strings. Roles come from group membership and from nowhere else, so an absent claim is refused rather than treated as no groups.",
+        "groups",
+      );
+    }
+    return { subject: input.subject.trim(), groups: input.groups as readonly string[] };
+  }
+
+  app.post("/api/session/sign-in", async (request, reply) => {
+    const { runtime, provider } = requireDevelopmentSignIn();
+    const { subject, groups } = readSubject(request.body);
+
+    const issued = await runtime.sessions.start({
+      identity: provider.authenticate({ subject, groups }),
+      // The same mapping a real sign-in goes through. No role is asserted here:
+      // one is held because a directory group says so.
+      entitlements: mapDirectoryGroups(groups, runtime.roleMapping),
+      correlationId: (request as FastifyRequest & { correlationId?: string }).correlationId,
+    });
+
+    void reply.setCookie(SESSION_COOKIE_NAME, issued.cookie, issued.cookieAttributes);
+    return {
+      actor: {
+        actorId: issued.actorRef.actorId,
+        displayName: issued.actorRef.actorId,
+        roles: issued.actorRef.roles,
+      },
+      sessionId: issued.session.id,
+      authenticatedAt: issued.session.authenticatedAt,
+      expiresAt: issued.session.expiresAt,
+      authenticationMethods: issued.session.authenticationMethods,
+      stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
+      // Not decoration: this session was opened by a provider that checked
+      // nothing, and the response says so wherever it is read.
+      warning:
+        "Signed in through the development identity provider, which authenticates nobody. Any caller may claim any subject and any directory group.",
+    };
+  });
+
+  app.post("/api/session/step-up", async (request) => {
+    const { runtime, provider } = requireDevelopmentSignIn();
+    const resolved = identityOf(request);
+    if (resolved.failure !== undefined) throw resolved.failure;
+    if (!resolved.session) {
+      throw new DeniedError(
+        "authorization.action_not_permitted",
+        "There is no session to step up. Sign in first: a step-up moves an existing session's authentication instant forward, it does not create one.",
+        {},
+      );
+    }
+
+    // The subject is presented again rather than read back from the actor
+    // record, which holds only a digest of it. `stepUp` recomputes that digest
+    // and refuses a mismatch, so one person's re-authentication cannot step up
+    // somebody else's session.
+    const { subject } = readSubject({ ...(request.body as object), groups: [] });
+    const stepped = await runtime.sessions.stepUp({
+      sessionId: resolved.session.session.id,
+      identity: provider.authenticate({ subject, groups: [] }),
+      correlationId: (request as FastifyRequest & { correlationId?: string }).correlationId,
+    });
+
+    return {
+      actor: {
+        actorId: stepped.actorRef.actorId,
+        displayName: stepped.actorRef.actorId,
+        roles: stepped.actorRef.roles,
+      },
+      authenticatedAt: stepped.session.authenticatedAt,
+      // Observed, not asserted: computed from the stamp that was just written.
+      secondsSinceAuthentication: stepped.secondsSinceAuthentication,
+      stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
+      authenticationMethods: stepped.session.authenticationMethods,
+    };
+  });
+
+  app.post("/api/session/sign-out", async (request, reply) => {
+    const resolved = identityOf(request);
+    // A sign-out never refuses on a bad cookie. Whoever is holding one wants it
+    // to stop working, and that is the outcome either way.
+    if (identity && resolved.session) {
+      await identity.sessions.revoke(resolved.session.session.id, "signed_out");
+    }
+    if (identity) void reply.header("set-cookie", identity.sessions.clearedCookie());
+    return { signedOut: true };
   });
 
   // -------------------------------------------------------------------------
@@ -537,11 +762,17 @@ export function createServer(options: ServerOptions): FastifyInstance {
       actor,
       decision,
       note: body?.note,
+      // Closed when the action is not in the registry at all.
+      //
+      // Every registered action states this in `actions.ts`, so the fallback is
+      // reached only by an approval raised for something the registry does not
+      // know about — which is a deployment holding an approval for an effect
+      // nobody classified. That is exactly the case to refuse hardest.
       requiresStepUp: descriptor?.requiresStepUp ?? true,
       // Whatever the session actually says, and `undefined` when nothing does.
       //
       // This was the literal `0`, which made `0 <= stepUpMaxAgeSeconds` true on
-      // every call: the step-up requirement that `actions.ts` promises for
+      // every call: the step-up requirement that `actions.ts` declares for
       // every high-consequence action could not fail on the only approval path
       // a person can reach. The bypass is the smaller half. The larger half is
       // that `steppedUp: true` was then written into the `approval.granted`
@@ -550,10 +781,11 @@ export function createServer(options: ServerOptions): FastifyInstance {
       // in a product whose whole claim is that the record is true is the worst
       // class of defect there is.
       //
-      // Passing `undefined` fails closed: a high-consequence approval is now
-      // refused until identity is wired, rather than granted on a fiction. That
-      // refusal is loud and correct, and it is the same posture the CLI already
-      // took by requiring an explicit `--reauthenticated`.
+      // It then became an unconditional `undefined`, which failed closed and
+      // could do nothing else: no session was ever resolved, so no grant of a
+      // step-up action could succeed on any deployment. Now it is the age of
+      // the session this caller presented — observed, and absent when there is
+      // no session to observe.
       secondsSinceAuthentication: secondsSinceAuthenticationFor(request),
       stepUpMaxAgeSeconds: platform.config.stepUpMaxAgeSeconds,
     });
@@ -567,7 +799,7 @@ export function createServer(options: ServerOptions): FastifyInstance {
       try {
         await platform.observations.rejectedProposal({
           runId: approval.runId,
-          signature: signatureForAction(approval.action),
+          signature: rejectionSignature(approval.action),
           note: body?.note ?? `Approval for ${approval.action} was rejected without a note.`,
           observedBy: actor,
           mode: "supervised",
@@ -764,19 +996,6 @@ export function createServer(options: ServerOptions): FastifyInstance {
   registerExternalRoutes(app, externalRouteDeps(platform));
 
   return app;
-}
-
-/**
- * The failure signature a rejection is filed under.
- *
- * Derived from the action name so it stays inside the controlled vocabulary
- * the harvester enforces — dotted lower_snake_case — and so every rejection of
- * the same action clusters together. A free-text signature would produce one
- * cluster per approver and nothing would ever recur.
- */
-function signatureForAction(action: string): string {
-  const normalised = action.replace(/[^a-z0-9_.]/gi, "_").toLowerCase();
-  return `approval.rejected.${normalised}`.slice(0, 96);
 }
 
 export async function startServer(platform: Platform): Promise<FastifyInstance> {

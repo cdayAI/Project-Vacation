@@ -940,6 +940,37 @@ describe("containment", () => {
     });
     expect(entries).toHaveLength(2);
   });
+
+  it("disables the role it names and only that role", async () => {
+    // A role switch shown as ENGAGED in the console must actually stop work
+    // performed under that role, or an operator believes a role is halted
+    // while its actions keep landing. The switch is keyed by the role name an
+    // actor holds, so it reaches every actor acting under that role.
+    await h.containment.engage(
+      "role",
+      "owner_services_agent",
+      "operator-1",
+      "role producing bad rescission calls",
+    );
+
+    // An action performed under the disabled role is refused.
+    await expect(
+      h.authorizer.authorize({
+        action: "contract.check_rescission",
+        actor: actor("agent-1", ["owner_services_agent"]),
+        mode: "supervised",
+      }),
+    ).rejects.toMatchObject({ reason: "containment.role_disabled" });
+
+    // The same action performed under a different, un-disabled role proceeds.
+    await expect(
+      h.authorizer.authorize({
+        action: "contract.check_rescission",
+        actor: actor("sup-1", ["supervisor"]),
+        mode: "supervised",
+      }),
+    ).resolves.toBeDefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

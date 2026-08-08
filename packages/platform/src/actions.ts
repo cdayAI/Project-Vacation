@@ -33,6 +33,23 @@ import { IMPROVEMENT_ACTIONS } from "./improve/actions.js";
  * seconds of a supervisor's attention. The cost of an unapproved consumer-facing
  * action is a regulatory finding.
  *
+ * **Every action states `requiresStepUp` beside its risk tier.** Step-up is
+ * re-authentication within the last `PV_STEP_UP_MAX_AGE_SECONDS`, and it is
+ * demanded at one moment: when a person grants an approval. High-consequence
+ * actions require it, because that grant is the last thing standing between a
+ * proposal and an irreversible effect. Sensitive and routine ones do not — a
+ * step-up in front of a read teaches people to re-authenticate without reading
+ * the prompt, and a prompt nobody reads is evidence of nothing.
+ *
+ * The field is declared here rather than left to the tier default in
+ * `guard/registry.ts`, because it decides whether an approval can be granted at
+ * all. Read as an unset field it says nothing, and it was: `requiresStepUp`
+ * appeared nowhere in this file, the API defaulted a missing descriptor to
+ * `true`, and the whole question of which actions deserve a second proof of
+ * identity had no answer anybody could read. It is one line next to the tier it
+ * follows from, so a reviewer sees the classification and its consequence
+ * together.
+ *
  * **Anything that parks for a human decision also declares `approvalGuidance`.**
  * That is the text the approval screen renders: the ask in plain language, the
  * concrete effects of saying yes, what happens instead on a rejection, and how
@@ -63,6 +80,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Read a run and its step trail from the operating record.",
     reversible: true,
     allowedRoles: [AGENT, SUPERVISOR, COMPLIANCE, ASSOCIATION, FINANCE, ADMIN, AUDITOR, SYSTEM],
+    requiresStepUp: false,
   },
   {
     name: "record.read_cost",
@@ -70,6 +88,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Read cost figures for a run, workflow, or department.",
     reversible: true,
     allowedRoles: [SUPERVISOR, FINANCE, ADMIN, AUDITOR, SYSTEM],
+    requiresStepUp: false,
   },
   {
     name: "audit.read",
@@ -77,6 +96,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Read the audit chain and its verification status.",
     reversible: true,
     allowedRoles: [COMPLIANCE, ADMIN, AUDITOR, SYSTEM],
+    requiresStepUp: false,
   },
   {
     name: "knowledge.retrieve",
@@ -84,6 +104,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Retrieve passages from a governed corpus, with provenance.",
     reversible: true,
     allowedRoles: [AGENT, SUPERVISOR, COMPLIANCE, ASSOCIATION, SYSTEM],
+    requiresStepUp: false,
   },
   {
     name: "timeline.compute_deadline",
@@ -92,6 +113,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Compute a statutory deadline and its full derivation. Produces evidence, not an effect.",
     reversible: true,
     allowedRoles: [AGENT, SUPERVISOR, COMPLIANCE, SYSTEM],
+    requiresStepUp: false,
   },
   {
     name: "model.invoke_draft",
@@ -99,6 +121,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Invoke a model to produce a draft that no one but a reviewer will see.",
     reversible: true,
     allowedRoles: [AGENT, SUPERVISOR, COMPLIANCE, ASSOCIATION, SYSTEM],
+    requiresStepUp: false,
   },
 
   // ---------------------------------------------------------------------
@@ -111,6 +134,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Check a contract's rescission window against effective-dated authority and record the finding.",
     reversible: true,
     allowedRoles: [AGENT, SUPERVISOR, COMPLIANCE, SYSTEM],
+    requiresStepUp: false,
     integration: "contract-records",
   },
   {
@@ -119,6 +143,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Flag a contract for compliance review and place it on a human queue.",
     reversible: true,
     allowedRoles: [AGENT, SUPERVISOR, COMPLIANCE, SYSTEM],
+    requiresStepUp: false,
   },
   {
     name: "association.read_records",
@@ -126,6 +151,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Read association budget and reserve data from the system of record.",
     reversible: true,
     allowedRoles: [ASSOCIATION, FINANCE, SYSTEM],
+    requiresStepUp: false,
     integration: "association-records",
   },
   {
@@ -135,6 +161,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Generate an internal document, such as an association board pack. Not seen by a consumer.",
     reversible: true,
     allowedRoles: [ASSOCIATION, SUPERVISOR, FINANCE, SYSTEM],
+    requiresStepUp: false,
   },
   {
     name: "knowledge.ingest_document",
@@ -143,6 +170,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Ingest a document into a governed corpus after screening, classification, and scoping.",
     reversible: true,
     allowedRoles: [COMPLIANCE, ADMIN],
+    requiresStepUp: false,
   },
   {
     name: "consent.record",
@@ -150,6 +178,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Record a consent or revocation event with its provenance.",
     reversible: true,
     allowedRoles: [AGENT, SUPERVISOR, COMPLIANCE, SYSTEM],
+    requiresStepUp: false,
   },
 
   // ---------------------------------------------------------------------
@@ -163,6 +192,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Send a message to an owner. Passes the contact gate and requires approval; a sent message cannot be unsent.",
     reversible: false,
     allowedRoles: [SUPERVISOR],
+    requiresStepUp: true,
     approvalsRequired: 1,
     integration: "messaging",
     approvalGuidance: {
@@ -184,6 +214,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Generate a document that will be delivered to an owner.",
     reversible: false,
     allowedRoles: [SUPERVISOR, COMPLIANCE],
+    requiresStepUp: true,
     approvalsRequired: 1,
     approvalGuidance: {
       ask: "Produce a document an owner will receive",
@@ -205,6 +236,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Export an owner's personal data, for a subject-rights request. Two approvers, because the data leaves the platform.",
     reversible: false,
     allowedRoles: [COMPLIANCE, ADMIN],
+    requiresStepUp: true,
     approvalsRequired: 2,
     approvalGuidance: {
       ask: "Export one owner's personal data out of the platform",
@@ -225,6 +257,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Delete an owner's personal data in fulfilment of a subject-rights request.",
     reversible: false,
     allowedRoles: [COMPLIANCE, ADMIN],
+    requiresStepUp: true,
     approvalsRequired: 2,
     approvalGuidance: {
       ask: "Delete one owner's personal data",
@@ -246,6 +279,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Promote a role version so it may act. Changes what the platform will do without further review.",
     reversible: true,
     allowedRoles: [ADMIN, SUPERVISOR],
+    requiresStepUp: true,
     approvalsRequired: 1,
     changesPlatformBehaviour: true,
     approvalGuidance: {
@@ -268,6 +302,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Apply an improvement proposal. Changes the platform's behaviour; there is no configuration that removes this gate.",
     reversible: true,
     allowedRoles: [ADMIN, SUPERVISOR, COMPLIANCE],
+    requiresStepUp: true,
     approvalsRequired: 1,
     changesPlatformBehaviour: true,
     approvalGuidance: {
@@ -290,6 +325,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Revert a previously applied improvement. Deliberately easier than applying one: undoing a bad change should never wait for a second approver.",
     reversible: true,
     allowedRoles: [ADMIN, SUPERVISOR, COMPLIANCE],
+    requiresStepUp: false,
     changesPlatformBehaviour: true,
   },
   {
@@ -298,6 +334,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Issue a machine credential.",
     reversible: true,
     allowedRoles: [ADMIN],
+    requiresStepUp: true,
     approvalsRequired: 1,
     changesPlatformBehaviour: true,
     approvalGuidance: {
@@ -320,6 +357,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
       "Enrol a person and device for work-discovery observation. Requires the employment-law prerequisites to have been satisfied in writing.",
     reversible: true,
     allowedRoles: [ADMIN],
+    requiresStepUp: true,
     approvalsRequired: 2,
     changesPlatformBehaviour: true,
     approvalGuidance: {
@@ -351,6 +389,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Stop work: globally, or for one workflow, role, or integration.",
     reversible: true,
     allowedRoles: [SUPERVISOR, COMPLIANCE, ADMIN],
+    requiresStepUp: false,
   },
   {
     name: "containment.release",
@@ -358,6 +397,7 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
     description: "Resume work after a containment switch was engaged.",
     reversible: true,
     allowedRoles: [SUPERVISOR, COMPLIANCE, ADMIN],
+    requiresStepUp: false,
   },
 
   // ---------------------------------------------------------------------
@@ -366,6 +406,11 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
   // They are listed rather than merely absent so the refusal is visible to a
   // reviewer, and so an attempt to perform one is refused with a reason instead
   // of an "unknown action" error that reads like an oversight.
+  //
+  // These are the only entries that state no `requiresStepUp`, and the omission
+  // is the honest reading: there is no approval to grant and no path that
+  // performs one, so a boolean either way would describe a decision nobody can
+  // reach. `true` would imply a re-authentication makes this possible.
   // ---------------------------------------------------------------------
   {
     name: "model.train_on_owner_data",
@@ -409,6 +454,11 @@ export const PLATFORM_ACTIONS: readonly ActionDefinition[] = [
   // spliced in here so that this file remains the one list a reviewer reads.
   // Governing an agent MVW already has is an effect this platform produces
   // like any other, and it is refused if it is not in this registry.
+  //
+  // Both spliced-in groups declare their tiers in their own modules and state
+  // no `requiresStepUp`, so `defineAction` derives it from the tier — the same
+  // policy the entries above write out. Enrolling and revoking an external
+  // agent are high-consequence and therefore require step-up; the rest do not.
   // ---------------------------------------------------------------------
   ...EXTERNAL_AGENT_ACTIONS,
 

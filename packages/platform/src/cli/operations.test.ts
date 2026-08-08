@@ -7,7 +7,12 @@ import { createNullLogger } from "../kernel/logger.js";
 import { defineWorkflow } from "../engine/definition.js";
 import type { WorkflowStep } from "../engine/types.js";
 import { buildPlatform, type Platform } from "../platform.js";
-import { commandOperations, type CommandArgs } from "./operations.js";
+import { commandOperations, type CommandArgs, type OperationsContext } from "./operations.js";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DeniedError } from "../kernel/errors.js";
+import type { ActorRef } from "../record/types.js";
 
 /**
  * The four verbs the runbooks send an operator to.
@@ -54,7 +59,28 @@ interface Captured {
   readonly stderr: string;
 }
 
-async function run(platform: Platform, line: string): Promise<Captured> {
+async function run(
+  platform: Platform,
+  line: string,
+  extra: Partial<OperationsContext> = {},
+): Promise<Captured> {
+  const captured = await capture(platform, line, extra);
+  if (captured.thrown) throw captured.thrown;
+  return captured;
+}
+
+/**
+ * Run a command that is expected to be refused.
+ *
+ * A `DeniedError` is deliberately not caught by `commandOperations` — the
+ * operator has to see the refusal and its reason code — so a test asserting on
+ * one has to keep the output it printed on the way past.
+ */
+async function capture(
+  platform: Platform,
+  line: string,
+  extra: Partial<OperationsContext> = {},
+): Promise<Captured & { readonly thrown?: unknown }> {
   const out: string[] = [];
   const err: string[] = [];
   const realLog = console.log;
@@ -62,8 +88,10 @@ async function run(platform: Platform, line: string): Promise<Captured> {
   console.log = (message?: unknown) => out.push(String(message));
   console.error = (message?: unknown) => err.push(String(message));
   try {
-    const code = await commandOperations(args(line), { platform });
+    const code = await commandOperations(args(line), { platform, ...extra });
     return { code, stdout: out.join("\n"), stderr: err.join("\n") };
+  } catch (thrown) {
+    return { code: 1, stdout: out.join("\n"), stderr: err.join("\n"), thrown };
   } finally {
     console.log = realLog;
     console.error = realError;
@@ -416,6 +444,156 @@ describe("the operator reports the runbooks call for", () => {
       // The failure this whole verb was written for: nothing scheduled and
       // nothing sweeping print the same empty table.
       expect(result.stderr).toMatch(/pv worker/);
+    });
+  });
+
+  // ------------------------------------------------------- approvals decide
+
+  /**
+   * The verb that did not exist, and whose absence meant a headless install
+   * could fill an approval queue and never empty it.
+   *
+   * The interesting assertions are the two directions: a rejection goes
+   * through on an identity the command line merely asserts, and a grant does
+   * not. That asymmetry is the control, not an inconvenience — a refusal stops
+   * the action, and demanding a second proof of identity in order to stop
+   * something only leaves it pending.
+   */
+  describe("approvals decide", () => {
+    async function park(): Promise<string> {
+      const request = await platform.approvals.request({
+        action: "contact.send_owner_message",
+        proposalDigest: digestValue({ summary: "a first arrears notice" }),
+        summary: "a first arrears notice",
+        requestedBy: REQUESTER,
+        approvalsRequired: 1,
+        eligibleRoles: ["supervisor"],
+        subject: { contractId: "ctr_0001" },
+        ttlMs: 30 * 60 * 1000,
+      });
+      return request.id;
+    }
+
+    const SUPERVISOR: ActorRef = {
+      actorId: "act_supervisor",
+      kind: "human",
+      roles: ["supervisor"],
+    };
+
+    it("records a rejection on an identity the command line only asserts", async () => {
+      const approvalId = await park();
+      const result = await run(
+        platform,
+        `approvals decide ${approvalId} --reject --note template-out-of-date`,
+        { actor: SUPERVISOR },
+      );
+
+      expect(result.code).toBe(0);
+      const after = await platform.approvals.get(approvalId as Id<"approval">);
+      expect(after?.status).toBe("rejected");
+      expect(after?.decisions[0]?.note).toBe("template-out-of-date");
+    });
+
+    it("refuses a grant nobody has re-authenticated for, and says where a session comes from", async () => {
+      const approvalId = await park();
+      const result = await capture(
+        platform,
+        `approvals decide ${approvalId} --grant --note checked-against-FL`,
+        { actor: SUPERVISOR },
+      );
+
+      expect(result.thrown).toBeInstanceOf(DeniedError);
+      expect((result.thrown as DeniedError).reason).toBe("authorization.step_up_required");
+      // The refusal on its own tells an operator nothing they can act on.
+      expect(result.stderr).toContain("--session-file");
+
+      // And nothing was written. A refused grant that half-lands is worse than
+      // one that does not land at all.
+      const after = await platform.approvals.get(approvalId as Id<"approval">);
+      expect(after?.status).toBe("pending");
+      expect(after?.decisions).toEqual([]);
+    });
+
+    it("requires a reason in both directions", async () => {
+      const approvalId = await park();
+      for (const decision of ["--grant", "--reject"]) {
+        const result = await run(platform, `approvals decide ${approvalId} ${decision}`, {
+          actor: SUPERVISOR,
+        });
+        expect(result.code).toBe(2);
+        expect(result.stderr).toContain("--note");
+      }
+    });
+
+    it("refuses to guess which decision was meant", async () => {
+      const approvalId = await park();
+
+      const neither = await run(
+        platform,
+        `approvals decide ${approvalId} --note deliberate-ambiguity`,
+        { actor: SUPERVISOR },
+      );
+      expect(neither.code).toBe(2);
+      expect(neither.stderr).toMatch(/--grant or --reject/);
+
+      const both = await run(
+        platform,
+        `approvals decide ${approvalId} --grant --reject --note deliberate-ambiguity`,
+        { actor: SUPERVISOR },
+      );
+      expect(both.code).toBe(2);
+
+      const after = await platform.approvals.get(approvalId as Id<"approval">);
+      expect(after?.status).toBe("pending");
+    });
+
+    it("does not decide an approval that is not there", async () => {
+      const result = await run(
+        platform,
+        "approvals decide apr_nothing --reject --note no-such-approval",
+        { actor: SUPERVISOR },
+      );
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain("apr_nothing");
+    });
+
+    it("keeps segregation of duties: the person who asked cannot be the person who agrees", async () => {
+      const approvalId = await park();
+      const result = await capture(
+        platform,
+        `approvals decide ${approvalId} --reject --note changed-my-mind`,
+        { actor: REQUESTER },
+      );
+
+      // The rule belongs to the approvals service and the CLI must not have
+      // acquired its own opinion of it on the way past.
+      expect(result.thrown).toBeInstanceOf(DeniedError);
+      const after = await platform.approvals.get(approvalId as Id<"approval">);
+      expect(after?.status).toBe("pending");
+    });
+
+    it("says plainly that a memory-backed deployment cannot resolve a session from another process", async () => {
+      // Not "your cookie is invalid", which is what resolving would have said,
+      // and which reads as a forged credential rather than as the truth: the
+      // session is in the API server's heap and this is a different process.
+      const approvalId = await park();
+      const directory = mkdtempSync(join(tmpdir(), "pv-session-"));
+      const sessionFile = join(directory, "cookie");
+      writeFileSync(sessionFile, "pv_session=whatever");
+
+      const result = await capture(
+        platform,
+        `approvals decide ${approvalId} --grant --note checked --session-file ${sessionFile}`,
+        { actor: SUPERVISOR },
+      );
+
+      // Either refusal is correct and both are specific. Which one fires
+      // depends on whether this deployment has a session secret at all; what
+      // must never happen is the vague "your cookie is invalid", which reads
+      // as a forged credential rather than as a deployment that cannot resolve
+      // another process's session.
+      expect(result.thrown).toBeInstanceOf(DeniedError);
+      expect(String(result.thrown)).toMatch(/PV_STORE=postgres|PV_SESSION_SECRET/);
     });
   });
 

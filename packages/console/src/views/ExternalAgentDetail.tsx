@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from "react";
 import { useClient } from "../api/ClientProvider";
 import type {
   ExternalAgentDenialView,
@@ -7,21 +8,24 @@ import type {
   ExternalCredentialView,
   ExternalParkedActionView,
   ExternalRunStatus,
+  RiskTier,
 } from "../api/contract";
 import { useResource } from "../api/useResource";
-import {
-  Badge,
-  Callout,
-  DataTable,
-  DefinitionList,
-  EmptyState,
-  RiskPill,
-  type Column,
-  type DefinitionItem,
-} from "../components";
 import { NOT_RECORDED, formatDateTime, formatUsd, pluralise } from "../format";
 import { ResourceView } from "../ResourceView";
 import { Link } from "../routing";
+import type { StatusTone } from "../theme/tokens";
+import {
+  Badge,
+  Callout,
+  EmptyState,
+  IconBlocked,
+  Panel,
+  Table,
+  type TableColumn,
+  type TableProps,
+  type TableSort,
+} from "../ui";
 import { agentState, credentialKindLabel } from "./ExternalAgents";
 
 /**
@@ -163,15 +167,125 @@ export function denialPresentation(reason: string): DenialPresentation {
   };
 }
 
+/**
+ * Run outcomes, in words.
+ *
+ * The label is the carrier; the tone and the mark are redundant channels on top
+ * of it, so a run that was stopped still says so printed in greyscale (WCAG
+ * 1.4.1). A mark is named only where the tone's own default would collapse two
+ * different outcomes onto one shape — both "stopped" and "reclaimed" are
+ * warnings, and a deliberate stop and a silence must not scan as the same glyph.
+ */
 const RUN_STATE: Readonly<
-  Record<ExternalRunStatus, { readonly label: string; readonly tone: "neutral" | "success" | "warning" | "danger" | "info"; readonly glyph: string }>
+  Record<ExternalRunStatus, { readonly label: string; readonly tone: StatusTone; readonly icon?: ReactNode }>
 > = {
-  running: { label: "Running now", tone: "info", glyph: "◐" },
-  finished: { label: "Finished", tone: "success", glyph: "✓" },
-  failed: { label: "Failed", tone: "danger", glyph: "✕" },
-  stopped: { label: "Stopped by this platform", tone: "warning", glyph: "⊘" },
-  reclaimed: { label: "Stopped answering", tone: "warning", glyph: "▲" },
+  running: { label: "Running now", tone: "info" },
+  finished: { label: "Finished", tone: "success" },
+  failed: { label: "Failed", tone: "danger" },
+  stopped: { label: "Stopped by this platform", tone: "warning", icon: <IconBlocked size="sm" /> },
+  reclaimed: { label: "Stopped answering", tone: "warning" },
 };
+
+/**
+ * The risk ceiling, as a badge.
+ *
+ * "Prohibited" is the denial tone rather than a louder danger: a ceiling that
+ * forbids a class of tool is the governance working, not a fault. The word
+ * carries the meaning; the tone and mark only reinforce it.
+ */
+const RISK: Readonly<Record<RiskTier, { readonly label: string; readonly tone: StatusTone }>> = {
+  routine: { label: "Routine", tone: "neutral" },
+  sensitive: { label: "Sensitive", tone: "info" },
+  high_consequence: { label: "High consequence", tone: "danger" },
+  prohibited: { label: "Prohibited", tone: "denied" },
+};
+
+function RiskBadge({ risk }: { readonly risk: RiskTier }) {
+  const presentation = RISK[risk];
+  return <Badge tone={presentation.tone}>{presentation.label} risk</Badge>;
+}
+
+interface Fact {
+  readonly term: string;
+  readonly description: ReactNode;
+}
+
+/**
+ * A real `<dl>`, with each pair wrapped in a `<div>` so the grid can lay it out
+ * without breaking the term/description association. Screen readers announce
+ * "definition list, N items" and pair each term with its description, which a
+ * two-column grid of divs does not.
+ */
+function FactList({ items }: { readonly items: readonly Fact[] }) {
+  return (
+    <dl className="pv-dl">
+      {items.map((item) => (
+        <div key={item.term}>
+          <dt>{item.term}</dt>
+          <dd>{item.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * Order the rows the table is being told it is showing.
+ *
+ * `Table` sorts for itself only while it owns the sort state, and it starts
+ * that state at "unsorted"; a screen that wants to open on a particular column
+ * *and* have `aria-sort` admit it has to hold the sort here and hand the table
+ * rows already in that order. The comparison matches the table's own: numbers
+ * numerically, everything else with a numeric, case-insensitive collation, ties
+ * broken by original position so the order is stable.
+ */
+function orderBy<T>(
+  rows: readonly T[],
+  columns: readonly TableColumn<T>[],
+  sort: TableSort | null,
+): readonly T[] {
+  const sortValue = sort === null ? undefined : columns.find((c) => c.key === sort.columnKey)?.sortValue;
+  if (sort === null || sortValue === undefined) return rows;
+
+  const direction = sort.direction === "ascending" ? 1 : -1;
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const a = sortValue(left.row);
+      const b = sortValue(right.row);
+      const result =
+        typeof a === "number" && typeof b === "number"
+          ? a - b
+          : String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
+      return result !== 0 ? result * direction : left.index - right.index;
+    })
+    .map((entry) => entry.row);
+}
+
+/**
+ * A `Table` that opens on a chosen column and keeps `aria-sort` honest about it.
+ *
+ * Every table on this screen opens sorted — newest containment first, live
+ * credentials before revoked ones — and holds that state here so re-sorting by
+ * a header click still works and the header still announces the truth.
+ */
+function SortableTable<T>({
+  columns,
+  rows,
+  defaultSort,
+  ...rest
+}: Omit<TableProps<T>, "sort" | "onSortChange"> & { readonly defaultSort: TableSort }) {
+  const [sort, setSort] = useState<TableSort | null>(defaultSort);
+  return (
+    <Table
+      {...rest}
+      columns={columns}
+      rows={orderBy(rows, columns, sort)}
+      sort={sort}
+      onSortChange={setSort}
+    />
+  );
+}
 
 export interface ExternalAgentDetailProps {
   readonly detail: ExternalAgentDetailView;
@@ -190,7 +304,7 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
   const sampledCost = detail.runs.reduce((sum, run) => sum + run.costUsd, 0);
   const currentMeter = detail.spendMeters.find((meter) => meter.periodKey === agent.periodKey);
 
-  const definitionItems: DefinitionItem[] = [
+  const definitionItems: Fact[] = [
     { term: "Identifier", description: <span className="pv-mono">{agent.agentId}</span> },
     { term: "What it is for", description: agent.purpose },
     {
@@ -210,17 +324,13 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
         </span>
       ),
     },
-    { term: "Risk ceiling", description: <RiskPill risk={agent.riskCeiling} /> },
+    { term: "Risk ceiling", description: <RiskBadge risk={agent.riskCeiling} /> },
     {
       term: "Enrollment expires",
       description: (
         <span className="pv-stack-tight">
           <time dateTime={agent.expiresAt}>{formatDateTime(agent.expiresAt)}</time>
-          {agent.expired && (
-            <Badge tone="warning" glyph="▲">
-              Expired — everything it asks for is refused
-            </Badge>
-          )}
+          {agent.expired && <Badge tone="warning">Expired — everything it asks for is refused</Badge>}
         </span>
       ),
     },
@@ -235,13 +345,13 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
     },
   ];
 
-  const credentialColumns: readonly Column<ExternalCredentialView>[] = [
+  const credentialColumns: readonly TableColumn<ExternalCredentialView>[] = [
     {
       key: "label",
       header: "Credential",
       rowHeader: true,
       sortValue: (credential) => credential.label,
-      render: (credential) => (
+      cell: (credential) => (
         <span className="pv-stack-tight">
           <span>{credential.label}</span>
           <span className="pv-meta pv-mono">{credential.credentialId}</span>
@@ -252,17 +362,13 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "kind",
       header: "How it authenticates",
       sortValue: (credential) => credential.kind,
-      render: (credential) => (
+      cell: (credential) => (
         <span className="pv-stack-tight">
           <span>{credentialKindLabel(credential.kind)}</span>
           {credential.strong ? (
-            <Badge tone="success" glyph="✓">
-              Proves possession of a key
-            </Badge>
+            <Badge tone="success">Proves possession of a key</Badge>
           ) : (
-            <Badge tone="warning" glyph="▲">
-              Proves possession of a string
-            </Badge>
+            <Badge tone="warning">Proves possession of a string</Badge>
           )}
         </span>
       ),
@@ -271,14 +377,12 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "state",
       header: "State",
       sortValue: (credential) => (credential.revokedAt === undefined ? 1 : 0),
-      render: (credential) =>
+      cell: (credential) =>
         credential.revokedAt === undefined ? (
-          <Badge tone="success" glyph="✓">
-            Live
-          </Badge>
+          <Badge tone="success">Live</Badge>
         ) : (
           <span className="pv-stack-tight">
-            <Badge tone="neutral" glyph="⊘">
+            <Badge tone="neutral" icon={<IconBlocked size="sm" />}>
               Revoked
             </Badge>
             {credential.revokedReason !== undefined && (
@@ -291,7 +395,7 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "expiresAt",
       header: "Expires",
       sortValue: (credential) => credential.expiresAt ?? "￿",
-      render: (credential) =>
+      cell: (credential) =>
         credential.expiresAt === undefined ? (
           <span className="pv-meta">No expiry set</span>
         ) : (
@@ -302,7 +406,7 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "lastUsedAt",
       header: "Last used",
       sortValue: (credential) => credential.lastUsedAt ?? "",
-      render: (credential) =>
+      cell: (credential) =>
         credential.lastUsedAt === undefined ? (
           <span className="pv-meta">Never used</span>
         ) : (
@@ -311,13 +415,13 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
     },
   ];
 
-  const runColumns: readonly Column<ExternalAgentRunView>[] = [
+  const runColumns: readonly TableColumn<ExternalAgentRunView>[] = [
     {
       key: "goal",
       header: "What it was doing",
       rowHeader: true,
       sortValue: (run) => run.goal,
-      render: (run) => (
+      cell: (run) => (
         <span className="pv-stack-tight">
           <span>{run.goal}</span>
           <Link to={`/runs/${run.runId}`}>Open the run record</Link>
@@ -328,11 +432,11 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "status",
       header: "How it ended",
       sortValue: (run) => RUN_STATE[run.status].label,
-      render: (run) => {
+      cell: (run) => {
         const presentation = RUN_STATE[run.status];
         return (
           <span className="pv-stack-tight">
-            <Badge tone={presentation.tone} glyph={presentation.glyph}>
+            <Badge tone={presentation.tone} icon={presentation.icon}>
               {presentation.label}
             </Badge>
             {run.status === "reclaimed" && (
@@ -348,7 +452,7 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "outcome",
       header: "Outcome recorded",
       sortValue: (run) => run.outcome ?? "",
-      render: (run) =>
+      cell: (run) =>
         run.outcome === undefined ? (
           <span className="pv-meta">{NOT_RECORDED}</span>
         ) : (
@@ -359,24 +463,24 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "startedAt",
       header: "Started",
       sortValue: (run) => run.startedAt,
-      render: (run) => <time dateTime={run.startedAt}>{formatDateTime(run.startedAt)}</time>,
+      cell: (run) => <time dateTime={run.startedAt}>{formatDateTime(run.startedAt)}</time>,
     },
     {
       key: "costUsd",
       header: "Cost",
       numeric: true,
       sortValue: (run) => run.costUsd,
-      render: (run) => <span>{formatUsd(run.costUsd)}</span>,
+      cell: (run) => <span>{formatUsd(run.costUsd)}</span>,
     },
   ];
 
-  const denialColumns: readonly Column<ExternalAgentDenialView>[] = [
+  const denialColumns: readonly TableColumn<ExternalAgentDenialView>[] = [
     {
       key: "reason",
       header: "What was refused, and why",
       rowHeader: true,
       sortValue: (denial) => denialPresentation(denial.reason).title,
-      render: (denial) => {
+      cell: (denial) => {
         const presentation = denialPresentation(denial.reason);
         return (
           <span className="pv-stack-tight">
@@ -391,7 +495,7 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "tool",
       header: "Tool",
       sortValue: (denial) => denial.tool ?? "",
-      render: (denial) =>
+      cell: (denial) =>
         denial.tool === undefined ? (
           <span className="pv-meta">Not a tool call</span>
         ) : (
@@ -402,7 +506,7 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "message",
       header: "What the platform said at the time",
       sortValue: (denial) => denial.message ?? "",
-      render: (denial) =>
+      cell: (denial) =>
         denial.message === undefined ? (
           <span className="pv-meta">{NOT_RECORDED}</span>
         ) : (
@@ -413,24 +517,19 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "recordedAt",
       header: "When",
       sortValue: (denial) => denial.recordedAt,
-      render: (denial) => (
-        <time dateTime={denial.recordedAt}>{formatDateTime(denial.recordedAt)}</time>
-      ),
+      cell: (denial) => <time dateTime={denial.recordedAt}>{formatDateTime(denial.recordedAt)}</time>,
     },
   ];
 
-  const containmentColumns: readonly Column<ExternalContainmentEventView>[] = [
+  const containmentColumns: readonly TableColumn<ExternalContainmentEventView>[] = [
     {
       key: "change",
       header: "What happened",
       rowHeader: true,
       sortValue: (event) => event.change,
-      render: (event) => (
+      cell: (event) => (
         <span className="pv-stack-tight">
-          <Badge
-            tone={event.change === "released" ? "success" : "danger"}
-            glyph={event.change === "released" ? "✓" : "⊘"}
-          >
+          <Badge tone={event.change === "released" ? "success" : "danger"}>
             {event.change === "contained"
               ? "Stopped"
               : event.change === "released"
@@ -449,13 +548,11 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "by",
       header: "Decided by",
       sortValue: (event) => event.by,
-      render: (event) => (
+      cell: (event) => (
         <span className="pv-stack-tight">
           <span className="pv-mono">{event.by}</span>
           {event.automatic ? (
-            <Badge tone="warning" glyph="▲">
-              Automatic, after repeated refusals
-            </Badge>
+            <Badge tone="warning">Automatic, after repeated refusals</Badge>
           ) : (
             <span className="pv-meta">A person decided this</span>
           )}
@@ -466,7 +563,7 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "reason",
       header: "Reason given",
       sortValue: (event) => event.reason ?? "",
-      render: (event) =>
+      cell: (event) =>
         event.reason === undefined ? (
           <span className="pv-meta">No reason recorded</span>
         ) : (
@@ -477,17 +574,17 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "at",
       header: "When",
       sortValue: (event) => event.at,
-      render: (event) => <time dateTime={event.at}>{formatDateTime(event.at)}</time>,
+      cell: (event) => <time dateTime={event.at}>{formatDateTime(event.at)}</time>,
     },
   ];
 
-  const parkedColumns: readonly Column<ExternalParkedActionView>[] = [
+  const parkedColumns: readonly TableColumn<ExternalParkedActionView>[] = [
     {
       key: "operation",
       header: "Action it asked us to take",
       rowHeader: true,
       sortValue: (action) => `${action.integration}.${action.operation}`,
-      render: (action) => (
+      cell: (action) => (
         <span className="pv-stack-tight">
           <span className="pv-mono">
             {action.integration}.{action.operation}
@@ -500,38 +597,30 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
       key: "status",
       header: "Where it got to",
       sortValue: (action) => action.status,
-      render: (action) =>
+      cell: (action) =>
         action.status === "indeterminate" ? (
           <span className="pv-stack-tight">
-            <Badge tone="danger" glyph="▲">
-              Indeterminate — somebody has to go and look
-            </Badge>
+            <Badge tone="danger">Indeterminate — somebody has to go and look</Badge>
             <span className="pv-meta">
               The worker stopped between starting this and recording it. It may or may not have
               landed, and only the other system knows.
             </span>
           </span>
         ) : (
-          <Badge tone={action.status === "committed" ? "success" : "neutral"}>
-            {action.status}
-          </Badge>
+          <Badge tone={action.status === "committed" ? "success" : "neutral"}>{action.status}</Badge>
         ),
     },
     {
       key: "createdAt",
       header: "Parked",
       sortValue: (action) => action.createdAt,
-      render: (action) => (
-        <time dateTime={action.createdAt}>{formatDateTime(action.createdAt)}</time>
-      ),
+      cell: (action) => <time dateTime={action.createdAt}>{formatDateTime(action.createdAt)}</time>,
     },
     {
       key: "expiresAt",
       header: "Expires",
       sortValue: (action) => action.expiresAt,
-      render: (action) => (
-        <time dateTime={action.expiresAt}>{formatDateTime(action.expiresAt)}</time>
-      ),
+      cell: (action) => <time dateTime={action.expiresAt}>{formatDateTime(action.expiresAt)}</time>,
     },
   ];
 
@@ -609,21 +698,14 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
         </Callout>
       )}
 
-      <section className="pv-panel" aria-labelledby="agent-definition">
-        <h2 className="pv-panel-heading" id="agent-definition">
-          What this agent is
-        </h2>
+      <Panel title="What this agent is">
         <p className="pv-meta">
           Current state: <strong>{state === "active" ? "running" : state}</strong>.
         </p>
-        <DefinitionList items={definitionItems} />
-      </section>
+        <FactList items={definitionItems} />
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="agent-authority">
-        <h2 className="pv-panel-heading" id="agent-authority">
-          What it is permitted to do
-        </h2>
-
+      <Panel title="What it is permitted to do">
         <h3>Tools it may call</h3>
         <p className="pv-meta">
           Anything not listed is refused. The operator&rsquo;s risk rating for a tool overrides
@@ -654,13 +736,10 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
             ))}
           </ul>
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="agent-spend">
-        <h2 className="pv-panel-heading" id="agent-spend">
-          What it has cost
-        </h2>
-        <DefinitionList
+      <Panel title="What it has cost">
+        <FactList
           items={[
             {
               term: "Current period",
@@ -685,28 +764,30 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
           ]}
         />
         {detail.spendMeters.length > 1 && (
-          <DataTable
+          <SortableTable
             caption={`Spend by budget period for ${agent.name}, ${pluralise(detail.spendMeters.length, "period", "periods")}.`}
+            tableId="external-agent-spend-periods"
+            rowNoun="periods"
             columns={[
               {
                 key: "periodKey",
                 header: "Period",
                 rowHeader: true,
                 sortValue: (meter) => meter.periodKey,
-                render: (meter) => <span className="pv-mono">{meter.periodKey}</span>,
+                cell: (meter) => <span className="pv-mono">{meter.periodKey}</span>,
               },
               {
                 key: "spentUsd",
                 header: "Spent",
                 numeric: true,
                 sortValue: (meter) => meter.spentUsd,
-                render: (meter) => <span>{formatUsd(meter.spentUsd)}</span>,
+                cell: (meter) => <span>{formatUsd(meter.spentUsd)}</span>,
               },
               {
                 key: "updatedAt",
                 header: "Last movement",
                 sortValue: (meter) => meter.updatedAt,
-                render: (meter) => (
+                cell: (meter) => (
                   <time dateTime={meter.updatedAt}>{formatDateTime(meter.updatedAt)}</time>
                 ),
               },
@@ -716,12 +797,9 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
             defaultSort={{ columnKey: "periodKey", direction: "descending" }}
           />
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="agent-credentials">
-        <h2 className="pv-panel-heading" id="agent-credentials">
-          Credentials it holds
-        </h2>
+      <Panel title="Credentials it holds">
         <p className="pv-meta">
           Which kinds, never any value. A bearer token is shown once when it is minted and stored
           only as a hash; an HMAC secret is stored as the name of a secret-manager entry. There is
@@ -730,23 +808,19 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
         {detail.credentials.length === 0 ? (
           <p>None. This agent cannot authenticate.</p>
         ) : (
-          <DataTable
+          <SortableTable
             caption={`Credentials held by ${agent.name}, ${pluralise(detail.credentials.length, "credential", "credentials")}.`}
+            tableId="external-agent-credentials"
+            rowNoun="credentials"
             columns={credentialColumns}
             rows={detail.credentials}
             rowKey={(credential) => credential.credentialId}
-            rowClassName={(credential) =>
-              credential.revokedAt === undefined ? undefined : "pv-row-denied"
-            }
             defaultSort={{ columnKey: "state", direction: "descending" }}
           />
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="agent-runs">
-        <h2 className="pv-panel-heading" id="agent-runs">
-          What it has been doing
-        </h2>
+      <Panel title="What it has been doing">
         {detail.runs.length === 0 ? (
           <EmptyState
             title="No runs recorded"
@@ -754,25 +828,19 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
             headingLevel={3}
           />
         ) : (
-          <DataTable
+          <SortableTable
             caption={`Runs by ${agent.name}, showing ${pluralise(detail.runs.length, "run", "runs")} of ${detail.runsTotal}.`}
+            tableId="external-agent-runs"
+            rowNoun="runs"
             columns={runColumns}
             rows={detail.runs}
             rowKey={(run) => run.externalRunId}
-            rowClassName={(run) =>
-              run.status === "failed" || run.status === "stopped" || run.status === "reclaimed"
-                ? "pv-row-breached"
-                : undefined
-            }
             defaultSort={{ columnKey: "startedAt", direction: "descending" }}
           />
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="agent-denials">
-        <h2 className="pv-panel-heading" id="agent-denials">
-          What was refused
-        </h2>
+      <Panel title="What was refused">
         {detail.denials.length === 0 ? (
           <p>
             Nothing has been refused. Every request this agent has made was within its grants, its
@@ -788,8 +856,10 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
             {agentDenials.length === 0 ? (
               <p>None. Every refusal below was this platform&rsquo;s own doing.</p>
             ) : (
-              <DataTable
+              <SortableTable
                 caption={`Refusals caused by ${agent.name}, ${pluralise(agentDenials.length, "refusal", "refusals")}.`}
+                tableId="external-agent-agent-denials"
+                rowNoun="refusals"
                 columns={denialColumns}
                 rows={agentDenials}
                 rowKey={(denial) => denial.entryId}
@@ -807,8 +877,10 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
             {platformDenials.length === 0 ? (
               <p>None.</p>
             ) : (
-              <DataTable
+              <SortableTable
                 caption={`Refusals caused by this platform while serving ${agent.name}, ${pluralise(platformDenials.length, "refusal", "refusals")}.`}
+                tableId="external-agent-platform-denials"
+                rowNoun="refusals"
                 columns={denialColumns}
                 rows={platformDenials}
                 rowKey={(denial) => denial.entryId}
@@ -817,12 +889,9 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
             )}
           </div>
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="agent-actions">
-        <h2 className="pv-panel-heading" id="agent-actions">
-          Actions it asked this platform to take
-        </h2>
+      <Panel title="Actions it asked this platform to take">
         <p className="pv-meta">
           A write an external agent wants performed is parked with a preview a person reads, and
           committed only after somebody approves it. The agent re-sends the identical request to
@@ -831,39 +900,36 @@ export function ExternalAgentDetail({ detail }: ExternalAgentDetailProps) {
         {detail.parkedActions.length === 0 ? (
           <p>None. This agent has not asked the platform to perform a write on its behalf.</p>
         ) : (
-          <DataTable
+          <SortableTable
             caption={`Actions ${agent.name} asked this platform to take, ${pluralise(detail.parkedActions.length, "action", "actions")}.`}
+            tableId="external-agent-parked"
+            rowNoun="actions"
             columns={parkedColumns}
             rows={detail.parkedActions}
             rowKey={(action) => action.parkedActionId}
-            rowClassName={(action) =>
-              action.status === "indeterminate" ? "pv-row-denied" : undefined
-            }
             defaultSort={{ columnKey: "createdAt", direction: "descending" }}
           />
         )}
-      </section>
+      </Panel>
 
-      <section className="pv-panel" aria-labelledby="agent-containment">
-        <h2 className="pv-panel-heading" id="agent-containment">
-          Every time it has been stopped
-        </h2>
+      <Panel title="Every time it has been stopped">
         {detail.containmentHistory.length === 0 ? (
           <p>
             This agent has never been contained or revoked. It has run under its enrollment
             throughout.
           </p>
         ) : (
-          <DataTable
+          <SortableTable
             caption={`Containment history for ${agent.name}, ${pluralise(detail.containmentHistory.length, "event", "events")}.`}
+            tableId="external-agent-containment"
+            rowNoun="events"
             columns={containmentColumns}
             rows={detail.containmentHistory}
             rowKey={(event) => `${event.at}-${event.change}`}
-            rowClassName={(event) => (event.change === "released" ? undefined : "pv-row-denied")}
             defaultSort={{ columnKey: "at", direction: "descending" }}
           />
         )}
-      </section>
+      </Panel>
     </div>
   );
 }

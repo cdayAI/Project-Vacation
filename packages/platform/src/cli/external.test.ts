@@ -178,7 +178,7 @@ const ENROLL_FLAGS: Readonly<Record<string, string | readonly string[] | true>> 
   "budget-period": "monthly",
   "wall-clock-ms": "60000",
   expires: "2026-11-01T00:00:00.000Z",
-  tool: ["crm.issue_refund:high_consequence", "crm.read_contract"],
+  tool: ["crm.issue_refund:high_consequence", "crm.read_contract:routine"],
   scope: ["contracts.metadata"],
 };
 
@@ -360,7 +360,7 @@ describe("pv agents — re-enrollment", () => {
 
   it("warns that a tool grant is replaced rather than added to", async () => {
     const { agentId, name } = await enrolledAgent();
-    const result = await run(args(["update", name], { tool: ["crm.read_contract"] }));
+    const result = await run(args(["update", name], { tool: ["crm.read_contract:routine"] }));
 
     expect(result.stderr).toMatch(/REPLACE the whole grant/);
     const after = await platform.external.stores.agents.getAgent(agentId);

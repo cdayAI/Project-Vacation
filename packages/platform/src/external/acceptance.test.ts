@@ -137,12 +137,16 @@ async function harness(
         hostPlatform: "vendor CRM agent runtime",
         purpose: "Drafts owner correspondence and looks up account status.",
         allowedTools: [
-          { tool: "lookup_owner" },
-          { tool: "draft_reply" },
+          // Every tool the operator grants, they rate. A read of an owner
+          // record is routine; drafting a reply that a human still sends is
+          // routine. The operator states it rather than leaving the platform to
+          // read the agent's own word for it.
+          { tool: "lookup_owner", operatorRisk: "routine" },
+          { tool: "draft_reply", operatorRisk: "routine" },
           // The operator says this one is high-consequence whatever the agent
           // declares. Behaviour 2 is built on this grant.
           { tool: "issue_refund", operatorRisk: "high_consequence" },
-          { tool: "owner_records.lookup_owner" },
+          { tool: "owner_records.lookup_owner", operatorRisk: "routine" },
           { tool: "owner_records.issue_goodwill_credit", operatorRisk: "high_consequence" },
         ],
         riskCeiling: "high_consequence",
@@ -279,6 +283,45 @@ describe("governing an agent that runs elsewhere", () => {
     expect(decision.effectiveRisk).toBe("high_consequence");
     expect(decision.outcome).toBe("approval_required");
     expect(decision.approvalId).toBeTruthy();
+    await h.platform.close();
+  });
+
+  it("refuses to grant a tool the operator never rated, at enrollment", async () => {
+    // The one surface where the caller is a third party. A tool granted with
+    // no operator rating used to be admitted at the agent's own declared risk,
+    // which defaults to routine — so a high-consequence action performed under
+    // the word "routine" slipped through with no approval. The operator must
+    // classify every tool they grant, and enrollment is where that is demanded.
+    const h = await harness();
+    await expect(
+      h.enroll({ allowedTools: [{ tool: "crm.wire_transfer" }] }),
+    ).rejects.toMatchObject({ field: "allowedTools" });
+    await h.platform.close();
+  });
+
+  it("refuses an unrated grant in the admission chain too, as a backstop", async () => {
+    // Defence in depth: even if a grant reaches the store without a rating —
+    // a direct write, a migration, a row predating this rule — the admission
+    // chain will not act on it. The two chokepoints, internal and external,
+    // now refuse an unclassified action with the same reason code.
+    const h = await harness();
+    const agent = await h.enroll();
+    // Reach past enrollment and put an unrated grant on the record directly.
+    await h.platform.external.stores.agents.updateAgent(
+      agent.id,
+      { allowedTools: [{ tool: "crm.wire_transfer" }] },
+      START,
+    );
+
+    const decision = await h.platform.external.admission.admit({
+      agentId: agent.id,
+      operation: "screen",
+      tool: "crm.wire_transfer",
+      declaredRisk: "routine",
+    });
+
+    expect(decision.outcome).toBe("denied");
+    expect(decision.reason).toBe("authorization.risk_unclassified");
     await h.platform.close();
   });
 
@@ -685,9 +728,10 @@ describe("governing an agent that runs elsewhere", () => {
     expect(blocked.outcome).toBe("denied");
     expect(blocked.reason).toBe("containment.role_disabled");
 
-    // A human releases it. Nothing else can.
+    // A human releases it. Nothing else can. The release resets the denial
+    // ledger on its own — no separate clearDenials step, because no operator
+    // surface performs one — so a tool it holds is served again.
     await h.platform.external.enrollment.release({ actor: ADMIN }, agent.id, "Vendor fixed the tool name in their config.");
-    await h.platform.external.rateLimiter.clearDenials(agent.id);
 
     const released = await h.platform.external.admission.admit({
       agentId: agent.id,
@@ -696,6 +740,44 @@ describe("governing an agent that runs elsewhere", () => {
       declaredRisk: "routine",
     });
     expect(released.outcome).toBe("allowed");
+    await h.platform.close();
+  });
+
+  it("release resets the denial ledger, so a released agent does not re-contain on its next denial", async () => {
+    const h = await harness({ PV_EXTERNAL_DENIALS_BEFORE_CONTAINMENT: "3" });
+    const agent = await h.enroll();
+
+    // Two denials below the threshold: enough to arm the ledger, not enough to
+    // trip automatic containment (which clears its own window when it engages).
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const denied = await h.platform.external.admission.admit({
+        agentId: agent.id,
+        operation: "screen",
+        tool: "delete_contract",
+        declaredRisk: "routine",
+      });
+      expect(denied.outcome).toBe("denied");
+    }
+    expect((await h.platform.external.enrollment.require(agent.id)).status).toBe("active");
+
+    // An operator contains it by hand — the stop button, which does not touch
+    // the denial ledger — then releases it. The release is the whole operator
+    // interaction; no route, CLI verb or console control clears the ledger, so
+    // if release does not, the two armed denials survive it.
+    await h.platform.external.enrollment.contain({ actor: ADMIN }, agent.id, "Investigating its behaviour.");
+    await h.platform.external.enrollment.release({ actor: ADMIN }, agent.id, "Cleared — false alarm.");
+
+    // One further denial. With the ledger reset by the release this is 1 of 3
+    // and must NOT re-contain. Before the fix the two pre-containment denials
+    // were still counted and this third one re-contained the agent instantly.
+    const afterRelease = await h.platform.external.admission.admit({
+      agentId: agent.id,
+      operation: "screen",
+      tool: "delete_contract",
+      declaredRisk: "routine",
+    });
+    expect(afterRelease.outcome).toBe("denied");
+    expect((await h.platform.external.enrollment.require(agent.id)).status).toBe("active");
     await h.platform.close();
   });
 
@@ -724,7 +806,7 @@ describe("governing an agent that runs elsewhere", () => {
   // 8. Revocation
   // -------------------------------------------------------------------------
 
-  it("stops an agent instantly on revocation, including work in flight", async () => {
+  it("stops an agent at its next contact on revocation — the bound revocation actually holds", async () => {
     const h = await harness();
     const agent = await h.enroll();
 
@@ -753,7 +835,15 @@ describe("governing an agent that runs elsewhere", () => {
         "Vendor contract ended.",
       );
 
-    // In flight: the next heartbeat stops it.
+    // The honest bound: revocation holds no run store, so it does not itself
+    // close a run already in flight. The moment after revoke returns, the run is
+    // still open. This is the residual recorded at not-production-grade.md L13a,
+    // and it is why the approval guidance no longer claims instant reclamation.
+    const midflight = await h.platform.external.stores.runs.getExternalRun(run.id);
+    expect(midflight?.status).toBe("running");
+
+    // What IS bounded: the run's next heartbeat returns stop, so an agent that
+    // keeps beating is halted at its next contact.
     const beat = await h.platform.external.liveRuns.heartbeat(agent.id, run.id);
     expect(beat.directive).toBe("stop");
 

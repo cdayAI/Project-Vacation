@@ -6,11 +6,11 @@
 #
 # ## What is exempted, and how narrowly
 #
-# Six exact literals, matched against the *secret* a rule extracted — not
+# Seven exact literals, matched against the *secret* a rule extracted — not
 # against a file, a directory, or a rule. Nothing about a path is exempted, so
 # every one of these test files is still fully scanned: a real credential
 # committed beside one of these fixtures fails the build exactly as it would
-# anywhere else. Six specific invented strings are declared not to be secrets,
+# anywhere else. Seven specific invented strings are declared not to be secrets,
 # because they are not.
 #
 # Path-scoping was the first thing tried and was removed on purpose. Within a
@@ -81,4 +81,16 @@ regexes = [
   # The same shape: a deduplication key on an approval decision, asserting the
   # console client forwards the caller's idempotency key.
   '''d0c8a1f2-4b6e-4c3a-9f11-5a2b7c9e0d34''',
+
+  # docs/review/triple-check.md — an invented illustration inside a finding.
+  # The triple-check wrote out, in prose, that the audit chain did not screen
+  # `correlationId` for secrets, and used a Stripe-shaped token as the material
+  # it fed through to prove it. That finding was then fixed (audit/log.ts now
+  # screens the identifier fields; see chain.test.ts), and the current document
+  # neutered the token to a placeholder. But the scan covers full history, and
+  # the commit that first wrote the finding still holds the shaped literal — the
+  # exact case the header above describes. It authenticated nothing; a real
+  # Stripe token committed anywhere still fails, because this exempts the
+  # literal and nothing about a path.
+  '''sk_live_ABCDEFGHIJKLMNOP''',
 ]

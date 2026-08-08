@@ -36,6 +36,20 @@ import { PgDiscoveryStore } from "./discovery/store.pg.js";
 import { effectiveRetentionDays } from "./discovery/retention.js";
 import { RetentionPurgeJob, buildRetentionRules } from "./retention.js";
 import { PLATFORM_ACTIONS } from "./actions.js";
+import { defaultInventory, type ModelInventory } from "./models/inventory.js";
+import { PromptTemplateRegistry } from "./models/templates.js";
+import { MemoryEvaluationStore, MemoryRoleStore } from "./roles/store.memory.js";
+import { PgEvaluationStore, PgRoleStore } from "./roles/store.pg.js";
+import { RoleRegistry } from "./roles/registry.js";
+import { RolePromotionService } from "./roles/promotion.js";
+import { ROLE_ACTIONS } from "./roles/actions.js";
+import type { EvaluationStore, RoleStore } from "./roles/port.js";
+import { MemoryContactStore } from "./contact/store.memory.js";
+import { PgContactStore } from "./contact/store.pg.js";
+import { ConsentLedger } from "./contact/consent.js";
+import { ContactGate } from "./contact/gate.js";
+import { CONTACT_ACTIONS } from "./contact/actions.js";
+import type { ContactStore } from "./contact/port.js";
 
 /**
  * The composition root.
@@ -136,6 +150,56 @@ export interface Platform {
   readonly handlers: StepHandlerRegistry;
   /** Published workflow definitions. */
   readonly catalogue: WorkflowCatalogue;
+  /**
+   * The role factory, composed rather than merely written.
+   *
+   * `RoleRegistry`, `RolePromotionService`, and the two stores below were built,
+   * tested, and reachable from no composition root: `draftRole`, the registry,
+   * the promotion service, and the fairness analysis had no caller outside
+   * tests, no CLI verb, and no API route, so no role could ever be authored or
+   * promoted and `pv evaluate --ci` reported that nothing in the registry had
+   * been evaluated because nothing could be. These fields are the wiring that
+   * makes the factory reachable end to end. A capability nothing can reach is
+   * not a capability.
+   *
+   * The properties the factory guarantees — versioned, diffable, attributable,
+   * evidenced, approved, revertible, instantly disableable — live in the modules
+   * below; exposing them here is what lets one instance serve the CLI and the
+   * API rather than each surface building its own and drifting.
+   */
+  readonly roles: RoleRegistry;
+  /** The role store the registry and promotion service share. Read for the harness and the console. */
+  readonly roleStore: RoleStore;
+  /** Golden sets and recorded evaluation runs — the evidence a promotion is checked against. */
+  readonly evaluations: EvaluationStore;
+  /** The only path from a definition to a role that may act: evidence plus a human approval. */
+  readonly rolePromotion: RolePromotionService;
+  /** The model inventory a role's task resolves through. Read on the promotion drift check. */
+  readonly inventory: ModelInventory;
+  /** The prompt templates a role references. Read on the promotion drift check and by the harness. */
+  readonly templates: PromptTemplateRegistry;
+  /**
+   * The outbound contact-compliance gate, composed rather than merely written.
+   *
+   * `ContactGate` and `ConsentLedger` were built, tested, and reachable from no
+   * composition root: they were constructed only inside their own tests, so the
+   * gate had never gated a message outside them. There was no CLI verb, no API
+   * route, and no consent-recording surface, which made §10 of the design — one
+   * chokepoint verifying consent, revocation, do-not-call, quiet hours and
+   * frequency caps, with the evidence stored beside the message — a proof rather
+   * than a capability. A control nothing can reach refuses nothing. These three
+   * fields are the wiring that makes the gate reachable end to end.
+   *
+   * The gate and the ledger share one store on purpose: a consent recorded
+   * through the ledger has to be the consent the gate reads, and two instances
+   * over two stores would answer the same question differently on the day it
+   * mattered most.
+   */
+  readonly contactGate: ContactGate;
+  /** Records consent grants, revocations, and do-not-call entries. The gate reads what it writes. */
+  readonly consentLedger: ConsentLedger;
+  /** The contact store the gate and the ledger share. Exposed for the console and evidence. */
+  readonly contactStore: ContactStore;
   /** Present only when the Postgres store is in use. */
   readonly db?: Db;
   /** Release connections. Safe to call more than once. */
@@ -240,7 +304,22 @@ export async function buildPlatform(
     runs,
   );
 
-  const registry = new ActionRegistry(PLATFORM_ACTIONS);
+  // The shipped catalogue plus the role and contact lifecycle actions.
+  // `role.promote`, `consent.record` and `contact.send_owner_message` are
+  // already in the catalogue; the rest — `role.propose`, `role.evaluate`,
+  // `role.revert`, `contact.send_high_risk_message`, `contact.record_do_not_call`
+  // — live in their modules' `actions.ts` and are spliced in here so the one
+  // chokepoint can resolve them. Without this the promotion service's `propose`,
+  // the harness's evaluate, the registry's `revert`, the elevated send path, and
+  // a do-not-call write would each be refused with an "unknown action" the
+  // moment they were reached — which is why they never were. Filtered by name so
+  // the day those move into `src/actions.ts`, where they belong, this keeps
+  // working rather than failing on a duplicate registration.
+  const registry = new ActionRegistry([
+    ...PLATFORM_ACTIONS,
+    ...ROLE_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
+    ...CONTACT_ACTIONS.filter((action) => !PLATFORM_ACTIONS.some((entry) => entry.name === action.name)),
+  ]);
 
   const authorizer = new Authorizer(
     registry,
@@ -338,6 +417,53 @@ export async function buildPlatform(
     ...(options.secrets ? { secrets: options.secrets } : {}),
   });
 
+  // The role factory, composed here so the CLI and the API reach one instance.
+  //
+  // The stores mirror every other adapter above: the concrete implementation is
+  // chosen from validated configuration and nowhere else. The inventory and the
+  // template registry are the two the promotion service reads to refuse evidence
+  // that describes a model or prompt that is no longer what would run — so they
+  // are constructed once here rather than at each call site, where one caller
+  // resolving them differently is how a drift check quietly stops checking.
+  const inventory = defaultInventory(config.modelProvider);
+  const templates = new PromptTemplateRegistry();
+  const roleStore =
+    db instanceof PgDb ? new PgRoleStore(db) : new MemoryRoleStore(memoryDb ?? new MemoryDb());
+  const evaluations =
+    db instanceof PgDb
+      ? new PgEvaluationStore(db)
+      : new MemoryEvaluationStore(memoryDb ?? new MemoryDb());
+  const roles = new RoleRegistry(roleStore, registry, clock, ids, auditLog, authorizer);
+  const rolePromotion = new RolePromotionService({
+    roles: roleStore,
+    evaluations,
+    actions: registry,
+    authorizer,
+    approvals,
+    containment,
+    inventory,
+    templates,
+    audit: auditLog,
+    clock,
+  });
+
+  // The contact-compliance gate, composed here so the CLI and the API reach one
+  // instance.
+  //
+  // The store mirrors every other adapter above: the concrete implementation is
+  // chosen from validated configuration and nowhere else. The ledger and the
+  // gate are handed the same store deliberately — the gate reads consent the
+  // ledger wrote, and two stores would be two answers. Both take the platform's
+  // authorizer, so recording a consent, suppressing a destination, and clearing
+  // a send each pass the one chokepoint: `consent.record`,
+  // `contact.record_do_not_call` and `contact.send_owner_message` are registered
+  // actions, and an actor without them is refused. The gate is given no policy
+  // override, so it measures against the shipped artifact in `contact/policy.ts`.
+  const contactStore =
+    db instanceof PgDb ? new PgContactStore(db) : new MemoryContactStore(memoryDb ?? new MemoryDb());
+  const consentLedger = new ConsentLedger(contactStore, authorizer, auditLog, clock, ids);
+  const contactGate = new ContactGate(contactStore, authorizer, auditLog, clock, ids);
+
   // The startup banner is not decoration. An operator must be able to see, at a
   // glance, whether the sandbox is contained and whether employee observation
   // is switched on — without reading the environment.
@@ -370,6 +496,15 @@ export async function buildPlatform(
     engine,
     handlers,
     catalogue,
+    roles,
+    roleStore,
+    evaluations,
+    rolePromotion,
+    inventory,
+    templates,
+    contactGate,
+    consentLedger,
+    contactStore,
     observations,
     retention,
     db,

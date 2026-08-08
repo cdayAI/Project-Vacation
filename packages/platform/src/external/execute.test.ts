@@ -10,6 +10,7 @@ import { MemoryApprovalStore, MemoryContainmentStore } from "../guard/store.memo
 import { ApprovalService } from "../guard/approvals.js";
 import { ContainmentController } from "../guard/containment.js";
 import { AdmissionService } from "./admission.js";
+import { provenanceOf } from "../api/approval-context.js";
 import { ExecutionService, type GovernedIntegration } from "./execute.js";
 import type {
   EnrollmentStore,
@@ -353,6 +354,48 @@ describe("governed writes", () => {
     const approval = await h.approvals.get(outcome.approvalId);
     expect(approval?.summary).toMatch(/\[external agent\]/);
     expect(approval?.subject.externalAgentId).toBe(AGENT);
+  });
+
+  it("labels the parked write as an external agent's, not a native workflow", async () => {
+    // The impostor case. Without the external marker on the subject,
+    // `provenanceOf` reads this exactly like an approval a colleague raised —
+    // the one thing the external-agent badge exists to prevent. The admission
+    // screen path writes this marker; the execute-write path used to omit it,
+    // so the two above-threshold paths disagreed in the record.
+    const outcome = await h.execution.execute(WRITE);
+    if (outcome.kind !== "approval_required") throw new Error("expected a parked action");
+
+    const approval = await h.approvals.get(outcome.approvalId);
+    expect(approval?.subject.principal).toBe("external");
+    expect(approval?.subject.agentName).toBe(h.enrollment.agent.name);
+    expect(approval?.subject.hostPlatform).toBe(h.enrollment.agent.hostPlatform);
+
+    const provenance = provenanceOf(approval!, undefined);
+    expect(provenance.kind).toBe("external_agent");
+    // Not the raw eag_ id — the agent's name, as the badge reads it.
+    expect(provenance.label).toBe(h.enrollment.agent.name);
+    expect(provenance.origin).toBe(h.enrollment.agent.hostPlatform);
+  });
+
+  it("surfaces the write's fields to the approver, digesting free text", async () => {
+    // The approver of a $250,000 credit must see the amount and the owner, not
+    // four ids and "nothing to preview". Load-bearing scalars show as
+    // themselves; free text is fingerprinted, because the approval subject is
+    // written to the append-only chain and a raw payload cannot persist there.
+    const outcome = await h.execution.execute({
+      ...WRITE,
+      request: { owner: "own_4821", amountUsd: 250_000, note: "please expedite, the owner is upset" },
+    });
+    if (outcome.kind !== "approval_required") throw new Error("expected a parked action");
+
+    const approval = await h.approvals.get(outcome.approvalId);
+    expect(approval?.subject.owner).toBe("own_4821");
+    expect(approval?.subject.amountUsd).toBe("250000");
+    // The free-text field is a fingerprint, never the raw sentence.
+    expect(approval?.subject.note).toMatch(/^sha256:/);
+    expect(approval?.subject.note).not.toContain("expedite");
+    // What the operator reads is Object.entries(subject); the money is in it.
+    expect(JSON.stringify(approval?.subject)).toContain("250000");
   });
 
   it("commits the byte-identical request once approved", async () => {

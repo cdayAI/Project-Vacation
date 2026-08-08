@@ -242,6 +242,41 @@ function formatterFor(timeZone: string): Intl.DateTimeFormat {
 const OFFSET_LIKE_ZONE = /^[+-]/;
 
 /**
+ * The tz database's fixed-offset aliases, which `Intl` resolves but which carry
+ * no daylight-saving rule.
+ *
+ * `EST`, `MST`, `HST` and `GMT` name an offset rather than a place: `EST` is a
+ * frozen UTC-5 that never becomes EDT, so it reads an hour early for the whole
+ * of daylight saving. They are the same fault as a bare `-05:00`, wearing an
+ * IANA-shaped name, and whoever wrote one almost certainly meant a place that
+ * *does* move its clock. `America/New_York` is right; `EST` is wrong for half
+ * the year, in the direction that clears a call the recipient's real clock
+ * forbids.
+ */
+const FIXED_OFFSET_ALIAS = new Set(["EST", "MST", "HST", "GMT"]);
+
+/**
+ * A fixed-offset zone masquerading as a named IANA zone.
+ *
+ * Two shapes. The `Etc/*` namespace is non-geographic in its entirety —
+ * `Etc/GMT+5` is a frozen offset and even inverts the sign, `Etc/UTC` and its
+ * siblings are UTC aliases — so the whole prefix is refused. And the bare
+ * abbreviation aliases above are matched by name. Neither observes a location's
+ * real daylight-saving rule, which is the property a recipient's timezone has
+ * to carry.
+ *
+ * Deliberately *not* a "must contain a slash" or "reject any zone with no DST"
+ * predicate: both of those also reject legitimate single-part zones that name a
+ * real place which happens not to move its clock — `Singapore`, `Japan`,
+ * `Iceland` — and the honest `UTC` identifier, none of which is ever wrong by
+ * an hour. This is a curated deny-list of the aliases, which is a data decision.
+ */
+function isFixedOffsetAlias(timeZone: string): boolean {
+  if (/^Etc\//i.test(timeZone)) return true;
+  return FIXED_OFFSET_ALIAS.has(timeZone.toUpperCase());
+}
+
+/**
  * True if the runtime can resolve this as a *named* IANA zone.
  *
  * `Intl.DateTimeFormat` also accepts a bare UTC offset — `new
@@ -258,10 +293,15 @@ const OFFSET_LIKE_ZONE = /^[+-]/;
  *     reads "A fixed offset is not acceptable: it is wrong twice a year".
  *
  * With `-05:00` accepted, an owner in New York in August reads as 11:00 when it
- * is 12:00 — so a 21:30 call clears a 21:00 quiet-hours check.
+ * is 12:00 — so a 21:30 call clears a 21:00 quiet-hours check. The tz database's
+ * abbreviation aliases (`EST`, `Etc/GMT+5`) are the same fault under an
+ * IANA-shaped name and are refused for the same reason — see
+ * {@link isFixedOffsetAlias}.
  */
 export function isKnownTimeZone(timeZone: string): boolean {
-  if (typeof timeZone !== "string" || OFFSET_LIKE_ZONE.test(timeZone.trim())) return false;
+  if (typeof timeZone !== "string") return false;
+  const trimmed = timeZone.trim();
+  if (OFFSET_LIKE_ZONE.test(trimmed) || isFixedOffsetAlias(trimmed)) return false;
   try {
     formatterFor(timeZone);
     return true;

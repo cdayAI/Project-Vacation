@@ -230,11 +230,15 @@ export class RateLimiter {
   /**
    * Clear an agent's denial history.
    *
-   * Called by the operator surface after a human releases a contained agent, so
-   * that denials from before the release cannot immediately re-contain it.
-   * Containment already clears the ledger; this is for the case where an
-   * operator releases an agent that accumulated denials without reaching the
-   * threshold.
+   * Called by `EnrollmentService.release` — the durable release path every
+   * operator surface goes through — so that denials from before the release
+   * cannot immediately re-contain the agent. The reset lives inside `release`
+   * rather than in each caller because a surface that forgets it produces a
+   * release that undoes itself; putting it in the one release path means no CLI
+   * verb, route or console control can ship without it. Automatic containment
+   * already clears the ledger when it engages; this additionally covers the
+   * agent contained by hand, or one that accumulated denials below the
+   * threshold, whose ledger `release` must reset.
    */
   async clearDenials(agentId: ExternalAgentId): Promise<void> {
     await this.limits.clearDenials(agentId);
